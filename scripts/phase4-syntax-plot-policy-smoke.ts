@@ -70,7 +70,7 @@ assert(repairedBlend.includes('<visual_prompt>Keep this exact prompt.</visual_pr
 
 const utility = buildNarrativeUtilityPrompt(['Plot Sparks']).content
 assert(utility.includes('<Plot_Sparks>') && utility.includes('plot-spark-g-'), 'effective Plot Sparks injection must use XML grammar and new slot prefixes')
-for (const lockToken of ['PLOT SPARKS STRUCTURAL LOCK', 'exactly ten <Spark> blocks', 'keys a through j', 'one non-empty <Text>', 'one non-empty <Media>', '</Spark>', '</Plot_Sparks>']) assert(utility.includes(lockToken), `current Plot Sparks completion lock missing ${lockToken}`)
+for (const lockToken of ['PLOT SPARKS STRUCTURAL LOCK', 'exactly ten <Spark> blocks', 'keys a–j once each in order', 'Each <Text> is one or two narrative sentences of at most 45 words in total', "matching the active story's POV and tense, not a player instruction", 'Each <Media> contains exactly one complete', '</visual_prompt></reverie-illustration></Media></Spark>', 'ten </Media> closers', '</Plot_Sparks>']) assert(utility.includes(lockToken), `current Plot Sparks completion lock missing ${lockToken}`)
 assert(buildNarrativeUtilityPrompt(['Plot Sparks'], { 'Plot Sparks': canonical }).content.includes('phase4-seven'), 'complete current bracket-native Plot Sparks overrides must remain authoritative')
 const incompleteCurrentOverride = '[Plot_Sparks][Spark][Key]a[/Key][Vector]detonation[/Vector][Text]Incomplete.[/Text][Media]CURRENT OVERRIDE[/Media][/Spark][/Plot_Sparks]'
 const guardedOverrideUtility = buildNarrativeUtilityPrompt(['Plot Sparks'], { 'Plot Sparks': incompleteCurrentOverride }).content

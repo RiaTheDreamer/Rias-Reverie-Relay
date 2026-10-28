@@ -177,7 +177,7 @@ assertExactlyCurrent(textOf(await intercept([{ role: 'user', content: 'Automatic
 // I. Duplicated old wrappers collapse to one current block; a full inventory also
 // proves the shared path covers every shipped Core/App/UI Surface, not just A/B/C.
 const allIds = Object.values((await backend.getConfig(userId)).globalSurfaceStudio.definitions).map((definition: any) => definition.baseSurfaceId)
-const authoredCoreIds = allIds.filter(id => id !== 'relationship-map' && id !== 'character-profile')
+const authoredCoreIds = allIds.filter(id => id !== 'relationship-map' && id !== 'character-profile' && id !== 'building-layout')
 const allOld = (await configure(allIds)).macro
 const withoutInstagram = await configure(allIds.filter(id => id !== A))
 const duplicated = `${allOld}\nold-middle\n${oldAB}\nold-end\n${allOld}`

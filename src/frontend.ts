@@ -1,4 +1,7 @@
+import { readPortraitAvatar } from './portraitInsightFrontend'
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types'
+import { normalizeOrbSizePx, ORB_MIN_SIZE, ORB_MAX_SIZE, ORB_STAR_SVG } from './orbAppearance'
+import { normalizeAppearanceUpdateInterval, MAX_APPEARANCE_UPDATE_INTERVAL } from './appearanceUpdateSchedule'
 import { mountPhoneWidget, phoneHostLayerCss } from './phoneWidget'
 import { mountPhoneToolRenderSync } from './phoneToolRenderSync'
 import type {
@@ -65,14 +68,15 @@ import { handleBuildingLayoutNavigation } from './buildingLayout'
 const pendingBuildingLorebookButtons = new Map<string, HTMLButtonElement>()
 import { shippedSurfaceDefinitions } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
-import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK } from './protocols'
+import { DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_ROOT_SCOPE, scopeSurfaceRootRegistry } from './protocols'
 import { normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './characterPhoneConfig'
-import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp } from './uxCopy'
+import { NARRATIVE_UTILITY_OVERVIEWS, SURFACE_UTILITY_OVERVIEWS, settingHelp, surfacePresetDisplayName, rendererScriptDisplayName, surfaceRepairEditorHelp } from './uxCopy'
 import { bracketExampleFromXml } from './bracketSurfaceAuthoring'
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
-import { containsImageRequestMarkup } from './contracts'
+import { containsImageRequestMarkup, DEFAULT_NSFW_PLANNER_TEXT } from './contracts'
 import { narrativeUtilityDisplayName } from './narrativeRegexAssets'
-import { surfaceIconMarkup } from './surfaceIcons'
+import { surfaceIconMarkup, applySurfaceLauncherInlineStyle, CORE_GLASS_LAUNCHER_RULES, SURFACE_ICON_STYLE } from './surfaceIcons'
+import { appSurfaceGroups, surfaceLibraryName } from './surfaceLibrary'
 import { narrativeGlassButtonPresentationCss, narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import { updateNarrativeUtilitySelection } from './narrativeUtilitySelection'
 import { emptyRelayChatStats, type RelayChatStats } from './completedState'
@@ -84,9 +88,7 @@ import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
 import { validateRendererRegex } from './surfaceRendererValidation'
 import { activeSurfaceDefinitions } from './surfacePromptSelection'
 import { buildInstantIllustrationSource, findInstantIllustrationAnchor, INSTANT_STREAM_RENDER_MAX_RETRIES, INSTANT_STREAM_RENDER_RETRY_MS } from './instantIllustrationStream'
-import { activeStoryEvents, visibleStoryPhoneEntries, type StoryBeliefState, type StoryConstellationState, type StoryEventNode, type StoryEventProposal, type StoryPhoneEntry, type StorySourceRef } from './storyState'
-import { projectStoryReel } from './storyReel'
-import { bindStoryGraphGeometry, storyEventImageIds } from './storyPresentation'
+import { visibleStoryPhoneEntries, type StoryConstellationState, type StoryPhoneEntry, type StorySourceRef } from './storyState'
 
 const COPYABLE_IMAGE_REQUEST_TEMPLATE = xmlAuthoringInstructions(`<reverie-illustration
   request="generate"
@@ -175,7 +177,6 @@ type RouterConfig = {
   followNativeParser: boolean
   followNativeImageGen: boolean
   generationSettingsSource: 'native' | 'relay'
-  imageAspectPolicy: 'native' | 'request' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9'
   loraSource: 'native' | 'relay' | 'none'
   vaultStrength: ContinuityStrength
   parserConnectionId: string | null
@@ -185,6 +186,7 @@ type RouterConfig = {
   appearanceSidecarConnectionId: string | null
   appearanceSidecarModel: string
   appearanceSidecarParameters: Record<string, unknown>
+  appearanceUpdateIntervalMessages: number
   parserRetries: number
   includeRecentMessages: number
   includeCharacterInfo: boolean
@@ -211,7 +213,8 @@ type RouterConfig = {
   orbPositionDesktop: { x: number; y: number }
   orbPositionMobile: { x: number; y: number }
   orbSize: 'small' | 'medium' | 'large'
-  orbDesign: 'classic' | 'minimal' | 'glow' | 'glass' | OrbImageDesignId | 'custom'
+  orbSizePx: number
+  orbDesign: 'star' | 'classic' | 'minimal' | 'glow' | 'glass' | OrbImageDesignId | 'custom'
   orbCustomIconDataUrl: string
   lastActiveDrawerTab: string
   defaultPromptProfileId: PromptProfileId
@@ -300,8 +303,10 @@ type ImageWorkerRecoveryState = {
 }
 
 type BackendMessage =
-  | { type: 'state'; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; storyConstellations: StoryConstellationState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; imageWorkerRecovery?: ImageWorkerRecoveryState; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
-  | { type: 'story_backfill_status'; chatId: string; status: 'running' | 'completed' | 'cancelled' | 'failed'; completed: number; total: number; stats?: { scanned: number; eligible: number; analyzed: number; skipped: number; failed: number; rawCandidates: number; normalizedCandidates: number; rejectedCandidates: number; proposals: number; phoneEntries: number; fallbackEchoes: number; reasons: Record<string, number> }; message?: string }
+  | { type: 'portrait_insight_avatar'; ticket: string; chatId: string; imageId: string; url: string }
+  | { type: 'state_unchanged'; chatId: string; revision: number }
+  | { type: 'render_records'; chatId: string; fingerprint: string; cursor: number; records: SlotRecord[]; nextCursor: number | null }
+  | { type: 'state'; bootstrap?: boolean; chatId: string | null; records: SlotRecord[]; stats: RelayChatStats; recentCompleted: Array<Record<string, unknown>>; queueSafety: { rawPendingRecords: number; uniquePendingJobs: number; duplicateRecordsCollapsed: number; oldestPendingAgeMs: number; pausedBacklog: boolean; updatedAt: number }; config: RouterConfig; parserConnections: ParserConnection[]; imageConnections: ImageConnection[]; imageProviders?: ImageProviderInfo[]; logs: RouterLogEntry[]; candidateBatches: RelayCandidateBatch[]; queueDirector: QueueDirectorState; assetLibrary: AssetLibraryState; versionTrees: VersionTree[]; continuityVault: ContinuityVaultState; storyConstellations: StoryConstellationState; customSurfaces: CustomSurfaceStudioState; proseIllustrator: ProseIllustratorState; backgroundQueue: BackgroundQueueState; galleryLinks: GalleryLinkRequest[]; lastDryRun: DryRunReport | null; lastGenerationBlockers: GenerationBlocker[]; schemaVersion: number; revision: number; build: BackendBuildInfo; imageWorkerRecovery?: ImageWorkerRecoveryState; performance?: { statePayloadBytes: number; serializationMs: number; recordsSent: number; completedLifetime: number; hotCompleted: number } }
   | { type: 'status'; status: string; requestId?: string }
   | { type: 'gallery_link_claim'; chatId: string; linkId: string; sessionId: string; granted: boolean; operationLeaseId?: string; reason?: string }
   | { type: 'error'; source: string; message: string; key?: string; attemptNumber?: number }
@@ -309,7 +314,8 @@ type BackendMessage =
   | { type: 'image_generation_stream'; event: 'started' | 'status' | 'preview' | 'done' | 'cancelled' | 'error'; chatId?: string; generationId: string; source: 'relay-slot' | 'relay-illustrator' | 'relay-candidate'; slotKey?: string; requestId?: string; previewImageDataUrl?: string; statusText?: string; step?: number; totalSteps?: number; nodeId?: string; streaming?: boolean; error?: string }
   | { type: 'recovery_notice'; key: string; message: string }
   | { type: 'native_snapshot_requested'; chatId: string; messageId: string | null; swipeId: number | null; sourceContent?: string; coalescedWaiterCount?: number }
-  | { type: 'queue_abort_ack'; abortedQueued: number; abortedActive: number; remoteCancelRequested: number; alreadyStopped: number }
+  | { type: 'queue_abort_ack'; abortedQueued: number; abortedActive: number; remoteCancelRequested: number; alreadyStopped: number; abortedAt?: number; chatIds?: string[] }
+  | { type: 'prose_action_feedback'; chatId: string; requestId: string; status: 'accepted' | 'completed' | 'failed'; message?: string }
   | { type: 'queue_dispatch_diagnostic'; diagnostic: Record<string, unknown> }
   | { type: 'image_worker_recovery_state'; imageWorkerRecovery: ImageWorkerRecoveryState }
   | { type: 'completed_history_page'; chatId: string; cursor: number; limit: number; rows: Array<Record<string, unknown>>; nextCursor: number | null; total: number; completedLifetime: number }
@@ -375,8 +381,8 @@ type NativeSettingsSnapshot = {
   capturedAt: number
 }
 
-type DrawerTab = 'slots' | 'illustrator' | 'recipes' | 'genetics' | 'surfaces' | 'surface-library' | 'surface-presets' | 'utility-studio' | 'history' | 'logs' | 'manual' | 'settings' | 'story-constellations' | 'phone' | 'story-reel'
-type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'story' | 'phone' | 'settings'
+type DrawerTab = 'slots' | 'illustrator' | 'illustration-controls' | 'recipes' | 'genetics' | 'surfaces' | 'surface-library' | 'surface-narratives' | 'surface-advanced' | 'surface-presets' | 'utility-studio' | 'history' | 'logs' | 'manual' | 'settings' | 'phone'
+type SuiteSection = 'relay' | 'illustrator' | 'surfaces' | 'memory' | 'archive' | 'phone' | 'settings'
 type SlotFilter = 'all' | 'active' | 'generating' | 'failed' | 'completed' | 'recovered' | 'inactive'
 type MetadataVersion = SlotRecord | GenerationSnapshot
 type HistorySubTab = 'all-chats-gallery' | 'slot-history' | 'illustrator-candidates' | 'inline-illustrations' | 'deleted-message-images'
@@ -586,6 +592,21 @@ export function setup(ctx: SpindleFrontendContext) {
   runtimeHost.__REVERIE_RELAY_HEALTH__ = health
   console.info(`Reverie Relay frontend loaded - v${EXTENSION_VERSION} / ${BUILD_ID}`)
   let records: SlotRecord[] = []
+  const archivedRenderRecords = new Map<string, SlotRecord>()
+  let renderCatalogFingerprint = ''
+  function displayRecords(): SlotRecord[] {
+    const merged = new Map(archivedRenderRecords)
+    for (const record of records) merged.set(record.key, record)
+    const reservedOpportunities = new Set([...merged.values()].map(record => record.prosePlanId
+      ? proseIllustrator.plans[record.prosePlanId]?.opportunityId : undefined).filter(Boolean))
+    for (const task of Object.values(backgroundQueue.items)) {
+      if (task.chatId !== activeChatId || task.source !== 'analysis' || !['analyzing', 'completed'].includes(task.stage)) continue
+      for (const preview of task.planningPreviews || []) {
+        if (!reservedOpportunities.has(preview.prosePlanningOpportunityId)) merged.set(preview.key, preview)
+      }
+    }
+    return [...merged.values()]
+  }
   let stats: RelayChatStats = emptyRelayChatStats()
   let queueSafety = { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 }
   let candidateBatches: RelayCandidateBatch[] = []
@@ -594,10 +615,10 @@ export function setup(ctx: SpindleFrontendContext) {
   let versionTrees: VersionTree[] = []
   let continuityVault: ContinuityVaultState = { chatId: '', strength: 'off', characters: {}, characterSheets: {}, visualIdentity: {}, wardrobe: {}, currentAppearance: {}, suggestions: {}, quarantine: {}, history: [], migrationPreview: null, ignoredForSlotKeys: [], deliberateBreaks: {}, appearanceSidecar: { revision: 0, processedTurnKeys: {}, lastRunAt: 0 }, updatedAt: 0 }
   let storyConstellations: StoryConstellationState = { schemaVersion: 1, activeTimelineId: 'main', actors: {}, events: {}, proposals: {}, echoes: {}, knowledgeEdges: {}, conflicts: {}, phoneEntries: {}, reelOverrides: {}, processedMessageFingerprints: {}, updatedAt: 0 }
-  let storyBackfillStatus: Extract<BackendMessage, { type: 'story_backfill_status' }> | null = null
   let customSurfaces: CustomSurfaceStudioState = frontendSurfaceFallback()
   let proseIllustrator: ProseIllustratorState = { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} }
   let backgroundQueue: BackgroundQueueState = { items: {}, abortRequestedAt: 0, updatedAt: 0 }
+  const abortProjectionBarriers = new Map<string, number>()
   let imageWorkerRecovery: ImageWorkerRecoveryState = { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 }
   let galleryLinks: GalleryLinkRequest[] = []
   let lastDryRun: DryRunReport | null = null
@@ -622,10 +643,21 @@ export function setup(ctx: SpindleFrontendContext) {
   type ReplacementStatusProjection = { marker: Comment; previousOwner: HTMLElement; previousImage?: HTMLImageElement; previousImages: Array<{ image: HTMLImageElement; visibility: string; hidden: boolean }>; projection: HTMLElement; previousImageUrl: string; previousImageId?: string; previousImageVisibility: string; previousImageHidden: boolean }
   const replacementStatusProjections = new Map<string, ReplacementStatusProjection>()
   const activeSwipeByMessage = new Map<string, number>()
+  const activeSwipeReads = new Map<string, Promise<void>>()
+  const activeSwipeReadRetries = new Map<string, { attempts: number; timer: number }>()
+  const clearActiveSwipeReadRetries = () => {
+    for (const retry of activeSwipeReadRetries.values()) if (retry.timer) window.clearTimeout(retry.timer)
+    activeSwipeReadRetries.clear()
+  }
+  lifecycle.track(clearActiveSwipeReadRetries, 'timer')
+  const streamingProseMessages = new Map<string, string>()
   const openedSlotPreviewKeys = new Set<string>()
   let activeSlotPreviewKey: string | null = null
   let parserConnections: ParserConnection[] = []
   let frontendParserConnections: ParserConnection[] | null = null
+  let backendParserConnections: ParserConnection[] = []
+  let frontendParserConnectionsLoading: Promise<void> | null = null
+  const repairConnectionFields = new Map<HTMLElement, () => void>()
   let imageConnections: ImageConnection[] = []
   let imageProviders: ImageProviderInfo[] = []
   let loraCatalogState: { requestId: string; connectionId: string; status: 'idle' | 'loading' | 'completed' | 'failed'; items: string[]; error: string } = { requestId: '', connectionId: '', status: 'idle', items: [], error: '' }
@@ -653,15 +685,6 @@ export function setup(ctx: SpindleFrontendContext) {
   let config: RouterConfig | null = null
   let activeChatId: string | null = ctx.getActiveChat().chatId
   let activeTab: DrawerTab = 'slots'
-  let selectedStoryEventId = ''
-  let storyGraphCleanup: (() => void) | undefined
-  lifecycle.track(() => storyGraphCleanup?.(), 'observer')
-  let pendingStoryEventNavigation = ''
-  let storyIncludeInactiveSwipes = false
-  let storyAnalysisExpanded = false
-  let storySettingsExpanded = false
-  let storyProposalVisibleLimit = 80
-  let storyEventVisibleLimit = 80
   const storyPhoneVisibleByOwner = new Map<string, number>()
   let nativeImageSettingsCache: Record<string, unknown> = {}
   let nativeImageSettingsCachedAt = 0
@@ -843,12 +866,14 @@ export function setup(ctx: SpindleFrontendContext) {
   let relayOrbLongPressTimer = 0
   let relayOrbLongPressTriggered = false
   let relayOrbIsDragging = false
+  let orbSizePreview: number | null = null
   let sidecarNoticeEl: HTMLElement | null = null
+  const dismissedSidecarNotices = new Set<string>()
   let sidecarNoticeTimer = 0
-  let illustratorAdvancedOpen = false
   let modelPlacedMissingRequest: { chatId: string; messageId: string; runtimeDirective: string } | null = null
   let relayOrbStatus: 'idle' | 'scanning' | 'analyzing' | 'preparing' | 'generating' | 'ready' | 'empty' | 'failed' | 'canceled' = 'idle'
-  let localSidecarAnalysisStartedAt = 0
+  let pendingProseAction: { chatId: string; requestId: string; startedAt: number } | null = null
+  let abortRequestPending = false
   let quickStartAutoOpened = false
   let deferredPanelRenderElement: Element | null = null
   const logFilters = { severity: 'all', stage: 'all', requestId: '', target: 'all', providerModel: '', order: 'newest' as 'newest' | 'oldest' }
@@ -887,12 +912,12 @@ export function setup(ctx: SpindleFrontendContext) {
     const messageId = String(payload?.messageId || '')
     if (!chatId || !messageId) return
     const liveSettings = currentProseSettings()
+    const proseTag = String(payload.tagName || '').toLocaleLowerCase() === 'reverie-illustration'
+    const surfaceTag = !proseTag && containsImageRequestMarkup(String(payload.fullMatch || ''))
     const instantStreaming = payload.isStreaming === true
-      && String(payload.tagName || '').toLocaleLowerCase() === 'reverie-illustration'
-      && String(payload.attrs?.request || '').toLocaleLowerCase() === 'generate'
+      && (surfaceTag || proseTag && String(payload.attrs?.request || '').toLocaleLowerCase() === 'generate'
+        && liveSettings.enabled && liveSettings.mode === 'inline-protocol')
       && chatId === activeChatId
-      && liveSettings.enabled
-      && liveSettings.mode === 'inline-protocol'
       && liveSettings.instantIllustrationDispatch
     if (instantStreaming) ctx.sendToBackend({
       type: 'instant_stream_probe', chatId, messageId,
@@ -937,7 +962,9 @@ export function setup(ctx: SpindleFrontendContext) {
 
   async function scanInstantStreamingModelPlannedMessage(chatId: string, messageId: string, key: string, payload: NativeSurfaceTagPayload, retry: number, epoch: number): Promise<void> {
     const settings = currentProseSettings()
-    if (epoch !== instantStreamEpoch || !settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch || chatId !== activeChatId) return
+    const surfaceTag = String(payload.tagName || '').toLocaleLowerCase() !== 'reverie-illustration'
+    if (epoch !== instantStreamEpoch || !settings.instantIllustrationDispatch || chatId !== activeChatId
+      || !surfaceTag && (!settings.enabled || settings.mode !== 'inline-protocol')) return
     try {
       const domApi = (ctx as any).dom
       const bubble = typeof domApi?.findMessageElement === 'function' ? domApi.findMessageElement(messageId) : null
@@ -945,7 +972,7 @@ export function setup(ctx: SpindleFrontendContext) {
       const renderedText = String(messageContent?.innerText || messageContent?.textContent || '')
       const anchor = messageContent ? findInstantIllustrationAnchor(messageContent, String(payload.attrs?.slot || payload.attrs?.id || '')) : { cardFound: false, text: null }
       const precedingAnchorText = anchor.text
-      const sourceContent = payload.sourceContent || buildInstantIllustrationSource(renderedText, payload, precedingAnchorText)
+      const sourceContent = payload.sourceContent || (surfaceTag ? String(payload.fullMatch || '') : buildInstantIllustrationSource(renderedText, payload, precedingAnchorText))
       ctx.sendToBackend({
         type: 'instant_stream_probe', chatId, messageId,
         requestId: String(payload.attrs?.slot || payload.attrs?.id || ''),
@@ -1011,8 +1038,24 @@ export function setup(ctx: SpindleFrontendContext) {
 
   lifecycle.track(ctx.events.on('GENERATION_STARTED', (payload: any) => {
     if (payload?.chatId !== activeChatId) return
+    // Relay's backend-owned automatic planner does not scan an authored image
+    // tag. Refresh before that planner runs so a native preset edit does not
+    // silently reuse the snapshot captured when the drawer first opened.
+    void syncNativeSettings(true).catch(() => null)
     cancelPendingLifecycleScans()
     lifecycleStreamingSignatures.clear()
+    const messageId = String(payload.targetMessageId || '').trim()
+    const swipeId = Number(payload.targetSwipeId)
+    if (messageId && Number.isFinite(swipeId)) {
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes)
+    }
+    if (messageId && currentProseSettings().mode === 'relay-planned') {
+      streamingProseMessages.set(messageId, String(payload.generationId || ''))
+      const root = ctx.dom.findMessageElement(messageId)
+      if (root && payload.generationType !== 'continue') {
+        for (const projection of deepQueryAll<HTMLElement>(root as ParentNode, '.dgir-prose-lifecycle-projection')) projection.remove()
+      }
+    }
     bracketIllustrationStream.start(String(payload.generationId || ''), String(payload.chatId || ''), String(payload.targetMessageId || ''), Number(payload.targetSwipeId) || 0)
   }), 'subscription')
   lifecycle.track(ctx.events.on('STREAM_TOKEN_RECEIVED', (payload: any) => {
@@ -1025,7 +1068,18 @@ export function setup(ctx: SpindleFrontendContext) {
   for (const event of ['GENERATION_ENDED', 'GENERATION_STOPPED']) lifecycle.track(ctx.events.on(event, (payload: any) => {
     if (payload?.chatId !== activeChatId) return
     bracketIllustrationStream.clear()
-    // Completed-response discovery owns the final reconciliation.
+    const generationId = String(payload.generationId || '')
+    const messageId = String(payload.targetMessageId || payload.messageId || '').trim()
+    let releasedProjection = false
+    for (const [target, generation] of streamingProseMessages) {
+      if (generationId ? generation === generationId : target === messageId) {
+        streamingProseMessages.delete(target)
+        releasedProjection = true
+      }
+    }
+    // Completion may already be in state when this delayed host event releases
+    // the stream guard. Rebind saved media without another scan/provider call.
+    if (releasedProjection) scheduleBindInlineImages()
   }), 'subscription')
 
   const removeStyle = ctx.dom.addStyle(`
@@ -1146,39 +1200,14 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-story-copy { margin:0 0 8px; color:var(--dgir-text-muted); font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
     .dg-router-panel .dg-story-meta { display:flex; flex-wrap:wrap; gap:5px; margin:5px 0 8px; color:var(--dgir-text-dim); font-size:10px; }
     .dg-router-panel .dg-story-pill { padding:3px 7px; border:1px solid color-mix(in srgb,var(--dgir-border) 60%,transparent); border-radius:999px; background:color-mix(in srgb,var(--dgir-surface) 52%,transparent); }
-    .dg-router-panel .dg-story-constellation { position:relative; display:grid; grid-template-rows:auto auto auto; gap:34px; min-width:0; padding:18px 3px; isolation:isolate; background:radial-gradient(ellipse at center,color-mix(in srgb,var(--dgir-accent) 10%,transparent),transparent 72%); }
-    .dg-router-panel .dg-story-orbit { z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; min-width:0; }
-    .dg-router-panel .dg-story-orbit > :last-child:nth-child(odd) { grid-column:1/-1; justify-self:center; width:min(100%,145px); }
-    .dg-router-panel .dg-story-lines { position:absolute; inset:0; z-index:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
-    .dg-router-panel .dg-story-lines line { stroke:var(--dgir-accent); stroke-width:1.2; vector-effect:non-scaling-stroke; }
-    .dg-router-panel .dg-story-lines line[data-belief="suspects"] { stroke-dasharray:2 3; }
-    .dg-router-panel .dg-story-lines line[data-belief="rumor"] { stroke-dasharray:6 5; opacity:.62; }
-    .dg-router-panel .dg-story-lines line[data-belief="misinformed"] { stroke-dasharray:7 2 1 2; stroke:var(--dgir-danger); }
-    .dg-router-panel .dg-story-lines line[data-belief="unaware"] { opacity:.28; }
-    .dg-router-panel .dg-story-lines line[data-belief="unknown"] { stroke-dasharray:1 5; opacity:.4; }
-    .dg-router-panel .dg-story-center { z-index:1; justify-self:center; width:min(100%,220px); padding:18px 14px; border:1px solid var(--dgir-border-bright); border-radius:32px; background:color-mix(in srgb,var(--dgir-accent-soft) 60%,var(--dgir-surface)); box-shadow:0 6px 20px color-mix(in srgb,var(--dgir-accent-glow) 25%,transparent); text-align:center; font-size:12px; font-weight:800; overflow-wrap:anywhere; }
-    .dg-router-panel .dg-story-actor { z-index:1; display:grid; justify-items:center; text-align:center; gap:5px; min-width:0; padding:12px 8px; border:1px solid color-mix(in srgb,var(--dgir-border-bright) 66%,transparent); border-radius:24px; background:color-mix(in srgb,var(--dgir-surface-raised) 94%,var(--dgir-surface)); font-size:11px; overflow-wrap:anywhere; }
-    .dg-router-panel .dg-story-initial { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--dgir-accent-soft); border:1px solid var(--dgir-border-bright); font-size:14px; font-weight:800; }
-    .dg-router-panel .dg-story-link { color:var(--dgir-text-muted); font-size:9px; }
-    .dg-router-panel .dg-story-merge { min-width:0; }
-    .dg-router-panel .dg-story-merge summary { cursor:pointer; color:var(--dgir-text-muted); }
     .dg-router-panel .dg-story-media { display:block; width:100%; max-height:240px; object-fit:contain; border-radius:var(--dgir-radius-md); background:color-mix(in srgb,var(--dgir-surface) 75%,transparent); }
-    .dg-router-panel .dg-story-selected { border-color:var(--dgir-border-bright); }
-    .dg-router-panel .dg-story-field { display:grid; gap:4px; min-width:0; color:var(--dgir-text-muted); font-size:10px; }
-    .dg-router-panel .dg-story-field select,.dg-router-panel .dg-story-field input { min-width:0; width:100%; }
-    .dg-router-panel .dg-story-gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
     .dg-router-panel .dg-story-image-button { display:block; width:100%; min-width:0; padding:0; overflow:hidden; border:1px solid var(--dgir-border); border-radius:var(--dgir-radius-md); background:var(--dgir-surface); cursor:zoom-in; }
     .dg-router-panel .dg-story-image-button:focus-visible { outline:2px solid var(--dgir-accent); outline-offset:3px; }
     .dg-router-panel .dg-story-image-button .dg-story-media { margin:0; }
-    .dg-router-panel .dg-story-gallery .dg-story-media { height:100px; object-fit:cover; }
-    .dg-router-panel .dg-story-manage { margin-top:12px; }
-    .dg-router-panel .dg-story-manage > summary { cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:700; }
-    .dg-router-panel .dg-story-manage .dg-actions select { width:100%; min-width:0; }
-    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-story-card, .dg-router-panel .dg-story-constellation { scroll-behavior:auto; animation:none!important; transition:none!important; } }
     .dg-router-panel .dg-field-help { margin-top: 5px; color: var(--dgir-text-dim); font-size: 10px; line-height: 1.45; }
     .dg-router-panel .dg-label-with-help,.dg-router-panel .dg-toggle-title-row { display:flex; align-items:center; gap:6px; min-width:0; }
-    .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon { display:inline-grid; place-items:center; flex:0 0 17px; width:17px; height:17px; color:var(--lumiverse-primary,#ff70bd); }
-    .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon svg { display:block; width:100%; height:100%; }
+    .dg-router-panel [data-surface-library-id] .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon { display:inline-grid; place-items:center; flex:0 0 17px; width:17px; height:17px; color:var(--lumiverse-primary,#ff70bd); }
+    .dg-router-panel [data-surface-library-id] .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon svg { display:block; width:100%; height:100%; }
     .dg-router-panel .dg-narrative-utility-heading { display:flex; align-items:center; gap:8px; }
     .dg-router-panel .dg-toggle-title-row .dg-toggle-title { min-width:0; }
     .dg-router-panel .dg-help { position:relative; display:inline-grid; flex:0 0 auto; place-items:center; vertical-align:middle; }
@@ -1292,15 +1321,16 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-btn:hover:not(:disabled) { border-color: var(--dgir-border-bright); background: color-mix(in srgb, var(--dgir-surface-raised) 82%, var(--dgir-accent-soft)); }
     .dg-router-panel .dg-btn:active:not(:disabled) { transform: translateY(1px); }
     .dg-router-panel .dg-btn:focus-visible, .dg-router-panel .dg-tab:focus-visible, .dg-router-panel .dg-toggle:focus-within { outline: 2px solid var(--dgir-accent); outline-offset: 2px; }
-    .dg-toast-stack { position: fixed; z-index: 2147483500; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); display: grid; gap: 8px; width: min(380px, calc(100vw - 24px)); pointer-events: none; }
-    .dg-toast { display: grid; grid-template-columns: 8px minmax(0, 1fr) 26px; align-items: start; gap: 10px; padding: 11px 10px; border: 1px solid color-mix(in srgb, var(--dgir-accent) 34%, var(--dgir-glass-line)); border-radius: var(--dgir-radius-lg); color: var(--dgir-text); background: radial-gradient(ellipse at 0 0, color-mix(in srgb, var(--dgir-accent) 15%, transparent), transparent 62%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 90%, transparent), color-mix(in srgb, var(--dgir-surface) 92%, transparent)); box-shadow: 0 14px 36px rgba(0,0,0,.38), inset 0 1px var(--dgir-glass-highlight); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); font: 650 12px/1.45 var(--lumiverse-font-family, system-ui, sans-serif); pointer-events: auto; }
-    .dg-toast::before { content: ''; width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--dgir-lavender); box-shadow: 0 0 10px currentColor; }
-    .dg-toast[data-level="success"]::before { background: var(--dgir-success); }
-    .dg-toast[data-level="warning"]::before { background: var(--dgir-warning); }
-    .dg-toast[data-level="error"]::before { background: var(--dgir-danger); }
+    .dg-toast-stack { position: fixed; z-index: 2147483500; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); display: grid; gap: 7px; width: min(340px, calc(100vw - 24px)); pointer-events: none; }
+    .dg-toast { display: grid; position: relative; grid-template-columns: 6px minmax(0, 1fr) 22px; align-items: start; gap: 9px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--lumiverse-primary, #e980b7) 18%, rgba(255,255,255,.13)); border-radius: 14px; color: var(--lumiverse-text, #fff7fb); background: linear-gradient(155deg, rgba(255,255,255,.08), transparent 48%), color-mix(in srgb, var(--lumiverse-bg-elevated, #18131d) 90%, transparent); box-shadow: 0 8px 24px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.1); -webkit-backdrop-filter: blur(20px) saturate(135%); backdrop-filter: blur(20px) saturate(135%); font: 500 12px/1.45 var(--lumiverse-font-family, system-ui, sans-serif); pointer-events: auto; overflow: hidden; }
+    .dg-toast::before { content: ''; width: 5px; height: 5px; margin-top: 6px; border-radius: 50%; background: var(--lumiverse-primary, #e980b7); box-shadow: 0 0 8px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 45%, transparent); }
+    .dg-toast[data-level="success"]::before { background: #91d7bd; }
+    .dg-toast[data-level="warning"]::before { background: #e9c68d; }
+    .dg-toast[data-level="error"]::before { background: #e88396; }
     .dg-toast-copy { min-width: 0; overflow-wrap: anywhere; }
-    .dg-toast-dismiss { display: grid; place-items: center; width: 26px; height: 26px; margin: -4px -3px 0 0; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--dgir-text-muted); background: transparent; font: 500 18px/1 system-ui,sans-serif; cursor: pointer; }
-    .dg-toast-dismiss:hover { border-color: var(--dgir-glass-line); color: var(--dgir-text); background: var(--dgir-accent-soft); }
+    .dg-toast-dismiss { display: grid; place-items: center; width: 22px; height: 22px; margin: -2px -3px 0 0; padding: 0; border: 0; border-radius: 6px; color: var(--lumiverse-text-muted, #c2b3c5); background: transparent; font: 400 16px/1 system-ui,sans-serif; cursor: pointer; }
+    .dg-toast-dismiss:hover { color: var(--lumiverse-text, #fff7fb); background: rgba(255,255,255,.08); }
+
     .dg-router-panel .dg-btn:disabled { opacity: .64; color: var(--dgir-text-dim); cursor: not-allowed; filter: saturate(.55); }
     .dg-router-panel .dg-btn-primary { color: var(--dgir-accent-text); border-color: color-mix(in srgb, var(--dgir-accent) 28%, var(--dgir-glass-line)); background: linear-gradient(135deg, color-mix(in srgb, var(--dgir-accent) 17%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 55%, transparent)); box-shadow: inset 0 1px rgba(255,255,255,.07), 0 5px 16px rgba(5,2,12,.12); }
     .dg-router-panel .dg-btn-subtle { color: var(--dgir-text-muted); background: transparent; }
@@ -1517,6 +1547,12 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-illustrator-mode-card strong { font-size: 12px; }
     .dg-router-panel .dg-illustrator-mode-card small { color: var(--dgir-text-muted); font-size: 10px; line-height: 1.35; }
     .dg-router-panel .dg-illustrator-mode-card.is-active { border-color: var(--dgir-accent); background: color-mix(in srgb, var(--dgir-accent-soft) 58%, var(--dgir-surface)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--dgir-accent) 28%, transparent), inset 0 0 20px color-mix(in srgb, var(--dgir-accent-soft) 36%, transparent); }
+    .dg-router-panel .dg-framing-choice { position: relative; min-width: 0; }
+    .dg-router-panel .dg-choice-compact .dg-framing-choice > .dg-illustrator-mode-card { width: 100%; height: 100%; padding-inline: 34px; }
+    .dg-router-panel .dg-framing-choice > .dg-help { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); }
+    .dg-router-panel .dg-framing-choice .dg-help-trigger { width: 26px; height: 26px; font-size: 12px; touch-action: manipulation; }
+    .dg-router-panel .dg-slot-lightbox-status { width: min(100%, 520px); margin-inline: auto; }
+    .dg-router-panel .dg-slot-lightbox-status .rrl-card { width: 100%; margin: 0; }
     .dg-router-panel .dg-choice-compact { gap: 6px; }
     .dg-router-panel .dg-choice-compact.dg-choice-two { grid-template-columns: repeat(2, minmax(0,1fr)); }
     .dg-router-panel .dg-choice-compact.dg-choice-three { grid-template-columns: repeat(3, minmax(0,1fr)); }
@@ -1562,45 +1598,32 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-lab-edit-placeholder { min-height: 88px; display: grid; place-items: center; border: 1px dashed var(--dgir-border); border-radius: var(--dgir-radius-sm); color: var(--dgir-text-dim); font-size: 11px; }
     .dg-mask-editor { display: grid; gap: 10px; }
     .dg-mask-canvas { width: 100%; max-height: 70dvh; object-fit: contain; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background-repeat: no-repeat; background-position: center; background-size: contain; touch-action: none; cursor: crosshair; }
-    .dg-sidecar-global-notice { position: fixed; top: max(48px, calc(env(safe-area-inset-top) + 10px)); left: 50%; transform: translateX(-50%); z-index: 2147482500; pointer-events: none; display: grid; grid-template-columns: 8px auto auto minmax(0, 1fr); align-items: center; gap: 8px; width: min(680px, calc(100vw - 40px)); min-width: 0; padding: 10px 14px 12px; border: 1px solid color-mix(in srgb, var(--lumiverse-primary, #e980b7) 30%, var(--lcs-glass-border, var(--lumiverse-border, rgba(255,255,255,.18)))); border-radius: 999px; background: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 9%, var(--lcs-glass-bg, var(--lumiverse-bg-elevated, rgba(20,12,18,.94)))); color: var(--lumiverse-text, #fff7fb); box-shadow: var(--lumiverse-shadow-sm, 0 10px 28px rgba(0,0,0,.32)), 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 14%, transparent); overflow: hidden; white-space: nowrap; backdrop-filter: blur(var(--lcs-glass-blur, 8px)); -webkit-backdrop-filter: blur(var(--lcs-glass-blur, 8px)); font-family: var(--lumiverse-font-family, system-ui, sans-serif); }
-    .dg-sidecar-global-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lumiverse-primary, #e980b7); box-shadow: 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 16%, transparent); }
-    .dg-sidecar-global-title { min-width: 0; max-width: 9ch; overflow: hidden; text-overflow: ellipsis; font-size: calc(12px * var(--lumiverse-font-scale, 1)); font-weight: 700; }
-    .dg-sidecar-global-separator { width: 1ch; text-align: center; color: var(--lumiverse-text-dim, #9d8fa3); }
-    .dg-sidecar-global-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--lumiverse-text-muted, #c2b3c5); font-size: calc(12px * var(--lumiverse-font-scale, 1)); }
-    .dg-sidecar-global-bar { position: absolute; left: 12px; right: 12px; bottom: 6px; height: 2px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--lumiverse-border, #5a465d) 70%, transparent); }
-    .dg-sidecar-global-fill { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, var(--lumiverse-primary, #e980b7), color-mix(in srgb, var(--lumiverse-primary, #e980b7) 60%, white)); animation: dg-sidecar-progress 1.7s ease-in-out infinite; }
+    .dg-sidecar-global-notice { padding-bottom: 12px; }
+    .dg-sidecar-global-detail { display: block; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .dg-sidecar-global-timing { display: block; margin-top: 2px; font-size: 10px; color: var(--lumiverse-text-muted, #c2b3c5); }
+    .dg-sidecar-global-bar { position: absolute; left: 12px; right: 12px; bottom: 4px; height: 1px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+    .dg-sidecar-global-fill { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, transparent, var(--lumiverse-primary, #e980b7), transparent); animation: dg-sidecar-progress 1.7s ease-in-out infinite; }
     @keyframes dg-sidecar-progress { 0% { transform: translateX(-75%) scaleX(.28); } 50% { transform: translateX(22%) scaleX(.72); } 100% { transform: translateX(105%) scaleX(.28); } }
-    .dg-relay-orb { position: fixed; z-index: 2147482000; left: 0; top: 0; width: 52px; height: 52px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--lumiverse-primary, #e980b7) 72%, #c8b5ff); border-radius: 50%; background: linear-gradient(145deg, color-mix(in srgb, var(--lumiverse-fill, #211825) 88%, #09070d), color-mix(in srgb, var(--lumiverse-primary, #e980b7) 23%, #17121a)); color: var(--lumiverse-text, #fff7fb); font: 800 15px/1 ui-serif, Georgia, serif; letter-spacing: 0; cursor: grab; box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 18px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 28%, transparent); transition: box-shadow .16s ease, opacity .16s ease, filter .16s ease; touch-action: none; user-select: none; }
-    .dg-relay-orb::before { content: ''; position: absolute; inset: 7px; border: 1px solid color-mix(in srgb, #c8b5ff 42%, transparent); border-radius: 50%; transform: rotate(45deg); pointer-events: none; }
-    .dg-relay-orb::after { content: none; }
-    .dg-relay-orb-mark { position: relative; z-index: 2; }
-    .dg-relay-orb-icon { position: absolute; inset: 1px; z-index: 1; display: none; border-radius: 50%; background-image: var(--dg-relay-orb-icon); background-position: center; background-size: contain; background-repeat: no-repeat; filter: saturate(1.08) brightness(1.06); pointer-events: none; }
-    .dg-relay-orb-image-design { overflow: visible; background: transparent; border-color: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 70%, #ffd5a3); }
-    .dg-relay-orb-image-design .dg-relay-orb-mark { opacity: 0; }
+    .dg-router-panel input[type="range"][aria-label="Orb Size"] { width: 100%; margin: 6px 0; accent-color: var(--dgir-accent); cursor: ew-resize; }
+    .dg-relay-orb { position: fixed; z-index: 2147482000; left: 0; top: 0; width: max(44px, var(--dg-relay-orb-size, 52px)); height: max(44px, var(--dg-relay-orb-size, 52px)); display: grid; place-items: center; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--lumiverse-primary, #e980b7); font: 800 calc(var(--dg-relay-orb-size, 52px) * .3)/1 ui-serif, Georgia, serif; letter-spacing: 0; cursor: grab; box-shadow: none; transition: opacity .16s ease, filter .16s ease; touch-action: none; user-select: none; }
+    .dg-relay-orb::before, .dg-relay-orb::after { content: none; }
+    .dg-relay-orb-mark, .dg-relay-orb-icon { width: var(--dg-relay-orb-size, 52px); height: var(--dg-relay-orb-size, 52px); grid-area: 1 / 1; pointer-events: none; filter: drop-shadow(0 2px 5px rgba(0,0,0,.3)); }
+    .dg-relay-orb-mark { display: grid; place-items: center; }
+    .dg-relay-orb-mark svg { display: block; width: 100%; height: 100%; }
+    .dg-relay-orb-icon { display: none; background-image: var(--dg-relay-orb-icon); background-position: center; background-size: contain; background-repeat: no-repeat; }
+    .dg-relay-orb-image-design .dg-relay-orb-mark { visibility: hidden; }
     .dg-relay-orb-image-design .dg-relay-orb-icon { display: block; }
-    .dg-relay-orb-image-design::before, .dg-relay-orb-image-design::after { opacity: 0; }
-    .dg-relay-orb:hover { box-shadow: 0 11px 30px rgba(4,2,8,.44), 0 0 22px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 42%, transparent); }
+    .dg-relay-orb:hover { filter: brightness(1.15); }
     .dg-relay-orb:focus-visible { outline: 2px solid var(--lumiverse-primary, #e980b7); outline-offset: 4px; }
     .dg-relay-orb[aria-busy="true"] { cursor: grab; opacity: .92; }
-    .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before { animation: dg-relay-orbit 1.5s linear infinite; }
-    .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating { animation: dg-relay-orb-active 1.05s ease-in-out infinite alternate; filter: saturate(1.08); }
-    .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.15s linear infinite; }
-    .dg-relay-orb-image-design.dg-relay-orb-analyzing { border-style: dashed; box-shadow: 0 0 0 1px color-mix(in srgb, #ffd5a3 36%, transparent), 0 0 18px color-mix(in srgb, #ffd5a3 34%, transparent); }
-    .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: dg-relay-orb-icon-analyze 1.05s ease-in-out infinite alternate; transform-origin: center; }
-    .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.15s linear infinite; transform-origin: center; }
-    .dg-relay-orb-dragging { cursor: grabbing; transition: none; animation: none !important; }
+    .dg-relay-orb[aria-busy="true"] .dg-relay-orb-mark, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.5s linear infinite; }
+    .dg-relay-orb-dragging { cursor: grabbing; transition: none; }
+    .dg-relay-orb-dragging .dg-relay-orb-mark, .dg-relay-orb-dragging .dg-relay-orb-icon { animation-play-state: paused; }
     .dg-relay-orb-modal-suppressed { opacity: .42; }
-    .dg-relay-orb-size-small { width: 44px; height: 44px; font-size: 12px; }
-    .dg-relay-orb-size-medium { width: 52px; height: 52px; font-size: 15px; }
-    .dg-relay-orb-size-large { width: 62px; height: 62px; font-size: 18px; }
-    .dg-relay-orb-design-minimal { background: color-mix(in srgb, var(--lumiverse-fill, #211825) 94%, #09070d); box-shadow: 0 7px 18px rgba(4,2,8,.34); }
-    .dg-relay-orb-design-minimal::before, .dg-relay-orb-design-minimal::after { opacity: .35; }
-    .dg-relay-orb-design-glow { box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 28px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 62%, transparent); }
-    .dg-relay-orb-design-glass { background: color-mix(in srgb, var(--lumiverse-fill, #211825) 62%, transparent); backdrop-filter: blur(10px); box-shadow: 0 10px 28px rgba(4,2,8,.36), inset 0 1px rgba(255,255,255,.16); }
-    .dg-relay-orb-ready { box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 22px color-mix(in srgb, var(--dgir-success, #91d7bd) 42%, transparent); }
-    .dg-relay-orb-failed { box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 22px color-mix(in srgb, var(--dgir-danger, #e88396) 48%, transparent); }
-    .dg-relay-orb-badge { position: absolute; z-index: 3; min-width: 16px; height: 16px; display: grid; place-items: center; right: -3px; top: -4px; padding: 0 4px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 72%, #211825); color: #fff; font: 800 9px/1 system-ui, sans-serif; }
+    .dg-relay-orb-ready { color: var(--dgir-success, #91d7bd); }
+    .dg-relay-orb-failed { color: var(--dgir-danger, #e88396); }
     .dg-relay-orb-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
     .dg-relay-review { max-height: min(72vh, 680px); overflow: auto; }
     .dg-relay-candidate { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 9px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: var(--dgir-surface-soft); }
     .dg-relay-candidate-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--dgir-text-muted); font-size: 11px; }
@@ -1630,7 +1653,8 @@ export function setup(ctx: SpindleFrontendContext) {
     @keyframes dg-relay-orb-active { from { filter: saturate(1.02) brightness(1); box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 18px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 28%, transparent); } to { filter: saturate(1.16) brightness(1.06); box-shadow: 0 10px 30px rgba(4,2,8,.42), 0 0 28px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 46%, transparent); } }
     @keyframes dg-relay-orb-icon-spin { to { transform: rotate(360deg); } }
     @keyframes dg-relay-orb-icon-analyze { from { transform: scale(.88) rotate(-7deg); opacity: .72; filter: saturate(.9) brightness(.95); } to { transform: scale(1.08) rotate(7deg); opacity: 1; filter: saturate(1.25) brightness(1.12); } }
-    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-sidecar-indicator::before, .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before, .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .dg-relay-orb .dg-relay-orb-mark, .dg-relay-orb .dg-relay-orb-icon, .dg-router-panel .dg-sidecar-indicator::before, .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before, .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .dg-relay-orb .dg-relay-orb-mark, .dg-relay-orb .dg-relay-orb-icon { animation: none !important; } .dg-sidecar-global-fill { animation: none; opacity: .4; } }
     @keyframes dg-prism-shimmer { from { transform: translateX(-45%); } to { transform: translateX(45%); } }
 
     /* Reverie Suite · Reverie Suite shell. Inspired by LumiBooks' calm hierarchy,
@@ -1864,7 +1888,11 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-btn { min-height: 36px; border-radius: var(--dgir-radius-md); }
     .dg-router-panel .dg-btn-subtle { background-color: transparent !important; }
     .dg-router-panel .dg-help-popover { background-color: var(--dgir-surface-raised) !important; }
-    .dg-router-panel .dg-menu { background-color: var(--dgir-surface) !important; }
+    /* Menus are reading surfaces, never panel glass. Include the themed root
+       selector so Clean Panel cannot win with a translucent host fill. */
+    .dg-router-panel.dg-menu,
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel.dg-menu,
+    .dg-router-panel .dg-menu { background: #211820 !important; opacity: 1 !important; }
     .dg-router-panel .dg-beat-review-controls,
     .dg-router-panel .dg-modal-footer { background-color: var(--dgir-bg) !important; }
     .dg-router-panel .dg-history-track::before,
@@ -1873,12 +1901,10 @@ export function setup(ctx: SpindleFrontendContext) {
     .dg-router-panel .dg-section-title::before,
     .dg-router-panel .dg-section-title::after { background-color: var(--dgir-border-bright) !important; }
     .dg-router-panel .dg-thumb-processing::after { content: none !important; animation: none !important; }
-    .dg-sidecar-global-notice,
     .dg-relay-orb,
     .dg-relay-orb-design-glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-    .dg-sidecar-global-fill { background: var(--lumiverse-primary, #e980b7) !important; }
     .dg-relay-orb,
-    .dg-relay-orb-design-glass { background-image: none !important; background-color: color-mix(in srgb, var(--lumiverse-fill, #211825) 92%, var(--lumiverse-primary, #e980b7)) !important; }
+    .dg-relay-orb-design-glass { background-image: none !important; background-color: transparent !important; }
   `)
   // Message renderers may sanitize detached <style> nodes from processed prose.
   // Keep the same reservation CSS registered through the extension-owned host
@@ -1906,16 +1932,45 @@ export function setup(ctx: SpindleFrontendContext) {
     iconUrl: REVERIE_RELAY_SIDEBAR_ICON_URL,
   })
   const unsubInputRelay = inputRelayAction.onClick(() => tab.activate())
-  const unsubInputSurfaces = inputSurfacesAction.onClick(() => { activeTab = 'surfaces'; tab.activate(); renderPanel() })
+  const unsubInputSurfaces = inputSurfacesAction.onClick(() => { activeTab = 'surface-library'; tab.activate(); renderPanel() })
   const phoneWidget = typeof ctx.ui.createFloatWidget === 'function' ? mountPhoneWidget(ctx,{enabled:false}) : null
   const offPhoneToolRenderSync = mountPhoneToolRenderSync(ctx)
 
   const unsubBackend = lifecycle.track(lifecycle.track(ctx.onBackendMessage((payload: unknown) => {
     const message = payload as BackendMessage
+    if (message.type === 'portrait_insight_avatar') {
+      if (message.chatId !== activeChatId) return
+      void readPortraitAvatar(message.url).then(image => ctx.sendToBackend({ type: 'portrait_insight_reply', ticket: message.ticket, chatId: message.chatId, imageId: message.imageId, image }))
+      return
+    }
+    if (message.type === 'state_unchanged') {
+      if (message.chatId === activeChatId && message.revision === stateRevision) {
+        lastChatStateReceivedAt = Date.now()
+        scheduleBindInlineImages()
+      }
+      return
+    }
+    if (message.type === 'render_records') {
+      const catalog = message
+      if (catalog.chatId !== activeChatId || catalog.fingerprint !== renderCatalogFingerprint) return
+      if (catalog.cursor === 0) archivedRenderRecords.clear()
+      for (const record of catalog.records) archivedRenderRecords.set(record.key, record)
+      recordByKey = new Map(displayRecords().filter(record => !record.prosePlanningOpportunityId).map(record => [record.key, record]))
+      scheduleBindInlineImages()
+      if (catalog.nextCursor !== null) ctx.sendToBackend({ type: 'list_render_records', chatId: catalog.chatId, cursor: catalog.nextCursor })
+      else if (activeTab === 'illustrator') renderPanel()
+      return
+    }
     if (message.type === 'state') {
       if (!message.chatId || message.chatId === activeChatId) {
         if (message.chatId && message.revision < stateRevision) return
-        const hasChatProjection = Boolean(message.chatId)
+        // Runtime cancellation is acknowledged before durable storage finishes.
+        // An in-flight pre-abort snapshot must not resurrect busy UI. Resume
+        // per-chat projections once storage confirms that cancellation boundary.
+        const abortBarrier = message.chatId ? abortProjectionBarriers.get(message.chatId) : undefined
+        const abortPersisted = abortBarrier !== undefined && (message.backgroundQueue?.abortRequestedAt || 0) >= abortBarrier
+        if (abortPersisted) abortProjectionBarriers.delete(message.chatId!)
+        const hasChatProjection = Boolean(message.chatId) && (abortBarrier === undefined || abortPersisted)
         if (hasChatProjection) {
           stateRevision = message.revision
           lastChatStateReceivedAt = Date.now()
@@ -1950,11 +2005,22 @@ export function setup(ctx: SpindleFrontendContext) {
           })
           stats = message.stats || emptyRelayChatStats()
           queueSafety = message.queueSafety || { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 }
-          recordByKey = new Map(records.map(record => [record.key, record]))
+          recordByKey = new Map(displayRecords().filter(record => !record.prosePlanningOpportunityId).map(record => [record.key, record]))
+          const catalogFingerprint = (message as typeof message & { renderCatalogFingerprint?: string }).renderCatalogFingerprint
+          if (catalogFingerprint && catalogFingerprint !== renderCatalogFingerprint) {
+            renderCatalogFingerprint = catalogFingerprint
+            ctx.sendToBackend({ type: 'list_render_records', chatId: message.chatId })
+          }
         }
-        const incomingProseSettings = message.config.proseIllustratorSettings
+        // Chat revisions restart for each character. They cannot order the
+        // user-wide settings carried by a delayed state query or broadcast.
+        // Keep newer acknowledged settings while still accepting this chat's
+        // records/lifecycle projection above.
+        const settingsResponseIsStale = (message.config.settingsRevision || 0) < (config?.settingsRevision || 0)
+        const incomingConfig = settingsResponseIsStale ? config! : message.config
+        const incomingProseSettings = incomingConfig.proseIllustratorSettings
         const pendingStillFresh = Boolean(pendingProseSettingsWrite && Date.now() - pendingProseSettingsWrite.sentAt < 15_000)
-        const pendingMatchesIncoming = Boolean(pendingProseSettingsWrite && JSON.stringify(incomingProseSettings) === JSON.stringify(pendingProseSettingsWrite.settings))
+        const pendingMatchesIncoming = !settingsResponseIsStale && Boolean(pendingProseSettingsWrite && JSON.stringify(incomingProseSettings) === JSON.stringify(pendingProseSettingsWrite.settings))
         if (pendingMatchesIncoming || (pendingProseSettingsWrite && !pendingStillFresh)) pendingProseSettingsWrite = null
         const effectiveProseSettings = pendingStillFresh && pendingProseSettingsWrite
           ? pendingProseSettingsWrite.settings
@@ -1964,10 +2030,10 @@ export function setup(ctx: SpindleFrontendContext) {
         // are changing, so an older echo must not undo the current control.
         const now = Date.now()
         pendingConfigPatches = pendingConfigPatches.filter(pending => {
-          const confirmed = Object.entries(pending.patch).every(([key, value]) => JSON.stringify((message.config as Record<string, unknown>)[key]) === JSON.stringify(value))
+          const confirmed = !settingsResponseIsStale && Object.entries(pending.patch).every(([key, value]) => JSON.stringify((incomingConfig as Record<string, unknown>)[key]) === JSON.stringify(value))
           return !confirmed && now - pending.sentAt < 15_000
         })
-        const effectiveConfig = pendingConfigPatches.reduce((resolved, pending) => ({ ...resolved, ...pending.patch }), message.config)
+        const effectiveConfig = pendingConfigPatches.reduce((resolved, pending) => ({ ...resolved, ...pending.patch }), incomingConfig)
         config = { ...effectiveConfig, proseIllustratorSettings: effectiveProseSettings }
         phoneWidget?.setEnabled(config.phoneEnabled!==false)
         if (hasChatProjection) proseIllustrator = message.proseIllustrator || { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} }
@@ -1979,9 +2045,15 @@ export function setup(ctx: SpindleFrontendContext) {
             ...(activeChatId ? { [activeChatId]: { ...effectiveProseSettings, paused: proseIllustrator.settings?.[activeChatId]?.paused === true } } : {}),
           },
         }
-        parserConnections = frontendParserConnections ?? message.parserConnections
-        imageConnections = message.imageConnections || []
-        imageProviders = message.imageProviders || []
+        // An early snapshot may arrive after a full reply from another query.
+        // Its optional/cached inventory must not clear already-loaded choices.
+        if (!message.bootstrap || !backendParserConnections.length) backendParserConnections = message.parserConnections || []
+        // A temporarily empty frontend inventory must not mask a populated
+        // backend list for the rest of this extension session.
+        parserConnections = frontendParserConnections?.length ? frontendParserConnections : backendParserConnections
+        refreshRepairConnectionFields()
+        if (!message.bootstrap || !imageConnections.length) imageConnections = message.imageConnections || []
+        if (!message.bootstrap || !imageProviders.length) imageProviders = message.imageProviders || []
         if (hasChatProjection) {
           logs = message.logs
           candidateBatches = message.candidateBatches || []
@@ -1996,9 +2068,9 @@ export function setup(ctx: SpindleFrontendContext) {
         // transient chat state must never replace the persisted Surface
         // Library shown for the active chat; doing so paints every default
         // toggle as enabled until some unrelated chat-bound update arrives.
-        const receivedSurfaceState = message.chatId
-          ? message.customSurfaces
-          : message.config.globalSurfaceStudio
+        const receivedSurfaceState = settingsResponseIsStale
+          ? customSurfaces
+          : message.chatId ? message.customSurfaces : incomingConfig.globalSurfaceStudio
         const receivedDefinitions = Object.keys(receivedSurfaceState?.definitions || {}).length
         const responseIsStale = Boolean(receivedSurfaceState && customSurfaces.updatedAt && receivedSurfaceState.updatedAt < customSurfaces.updatedAt)
         // A transient/late state echo must not wipe built-ins or a just-saved
@@ -2030,18 +2102,20 @@ export function setup(ctx: SpindleFrontendContext) {
           lastDryRun = message.lastDryRun || null
           lastGenerationBlockers = message.lastGenerationBlockers || []
         }
-        void processPendingGalleryLinks()
-        void enforceNativeAutoGenerationGuard()
+        if (!message.bootstrap) {
+          void processPendingGalleryLinks()
+          void enforceNativeAutoGenerationGuard()
+        }
         backendBuild = message.build
         schemaVersion = message.schemaVersion
         renderPanel()
-        if (!nativeSettingsLastSyncedAt) void syncNativeSettings(true).catch(() => null)
+        if (!message.bootstrap && !nativeSettingsLastSyncedAt) void syncNativeSettings(true).catch(() => null)
         window.setTimeout(maybeOpenQuickStartOverview, 80)
         scheduleBindInlineImages()
         renderRelayOrb()
         maybeOpenSlotImagePreviews()
         updateSidecarTicker()
-        if (activeChatId && message.chatId === activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
+        if (hasChatProjection && !message.bootstrap && activeChatId && message.chatId === activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
           autoRescannedChats.add(activeChatId)
           const chatId = activeChatId
           window.setTimeout(() => {
@@ -2062,25 +2136,34 @@ export function setup(ctx: SpindleFrontendContext) {
       else window.setTimeout(() => void processPendingGalleryLinks(), 250)
       return
     }
-    if (message.type === 'story_backfill_status') {
-      if (message.chatId === activeChatId) {
-        storyBackfillStatus = message
-        if (activeTab.startsWith('story-')) renderPanel()
+    if (message.type === 'prose_action_feedback') {
+      if (message.requestId !== pendingProseAction?.requestId || message.chatId !== pendingProseAction.chatId) return
+      if (message.status !== 'accepted') {
+        pendingProseAction = null
+        if (message.status === 'failed') lastStatus = message.message || 'Illustration planning failed.'
       }
+      updateSidecarTicker()
+      renderPanel()
+      renderRelayOrb()
       return
     }
     if (message.type === 'queue_abort_ack') {
+      abortRequestPending = false
+      lastStatus = 'Relay work stopped.'
+      if (message.abortedAt) for (const chatId of message.chatIds || (activeChatId ? [activeChatId] : [])) {
+        abortProjectionBarriers.set(chatId, Math.max(message.abortedAt, abortProjectionBarriers.get(chatId) || 0))
+      }
       cancelPendingLifecycleScans()
       // The acknowledgement is a terminal UI boundary. Do not let an older
       // optimistic action, placement state, or processing candidate batch
       // repaint the Orb as busy while the terminal state broadcast settles.
       rescanInProgress = false
-      localSidecarAnalysisStartedAt = 0
+      pendingProseAction = null
       optimisticSlotActions.clear()
       records = records.map(record => isGenerationActiveStatus(record.status)
         ? { ...record, status: 'cancelled' as const, updatedAt: Date.now() }
         : record)
-      recordByKey = new Map(records.map(record => [record.key, record]))
+      recordByKey = new Map(displayRecords().filter(record => !record.prosePlanningOpportunityId).map(record => [record.key, record]))
       candidateBatches = candidateBatches.map(batch => batch.status === 'processing'
         ? {
             ...batch,
@@ -2095,7 +2178,7 @@ export function setup(ctx: SpindleFrontendContext) {
         ...backgroundQueue,
         items: Object.fromEntries(Object.entries(backgroundQueue.items || {}).map(([id, item]) => [id,
           ['completed', 'failed', 'cancelled'].includes(item.stage)
-            ? item
+            ? { ...item, planningPreviews: undefined }
             : { ...item, stage: 'cancelled' as const, statusText: 'Cancelled by Abort All', etaSeconds: null, updatedAt: Date.now() },
         ])),
       }
@@ -2103,13 +2186,14 @@ export function setup(ctx: SpindleFrontendContext) {
         if (preview.streaming) streamPreviews.set(key, { ...preview, streaming: false, statusText: 'Generation stopped.', updatedAt: Date.now() })
       }
       updateSidecarTicker()
+      scheduleBindInlineImages()
       renderPanel()
       renderRelayOrb()
       return
     }
     if (message.type === 'prose_opportunities_ready') {
       if (message.chatId !== activeChatId) return
-      localSidecarAnalysisStartedAt = 0
+      pendingProseAction = null
       updateSidecarTicker()
       renderPanel()
       return
@@ -2354,9 +2438,13 @@ export function setup(ctx: SpindleFrontendContext) {
       const completed = index >= 0 ? settingsPatchQueue[index] : undefined
       if (index >= 0) settingsPatchQueue.splice(index, 1)
       if (settingsPatchInFlight === message.operationId) settingsPatchInFlight = null
-      config = message.config
-      phoneWidget?.setEnabled(config.phoneEnabled!==false)
-      customSurfaces = message.customSurfaces
+      // Acknowledgements are user-wide too (including other connected
+      // clients). Retire our operation without rolling back a newer save.
+      if ((message.config.settingsRevision || 0) >= (config?.settingsRevision || 0)) {
+        config = message.config
+        phoneWidget?.setEnabled(config.phoneEnabled!==false)
+        customSurfaces = message.customSurfaces
+      }
       for (const pending of settingsPatchQueue) applyRelaySettingsDraft(pending.patch)
       if (message.status === 'failed') showToast('error', `Setting was rolled back: ${message.error || 'backend persistence failed'}`)
       else if (message.warnings.length) showToast('warning', message.warnings[0])
@@ -2450,10 +2538,16 @@ export function setup(ctx: SpindleFrontendContext) {
     slotActionFeedback.clear()
     optimisticSlotActions.clear()
     records = []
+    archivedRenderRecords.clear()
+    renderCatalogFingerprint = ''
     candidateBatches = []
     recordByKey.clear()
     pendingFinalRevealByRecord.clear()
     clearProseRevealGuards()
+    streamingProseMessages.clear()
+    activeSwipeByMessage.clear()
+    activeSwipeReads.clear()
+    clearActiveSwipeReadRetries()
     lastStatus = ''
     stateRevision = -1
     lastDisplayContractSignature = ''
@@ -2569,7 +2663,14 @@ export function setup(ctx: SpindleFrontendContext) {
     const pathImage = path.find(node => node instanceof HTMLImageElement && node.matches(relayImageSelector)) as HTMLImageElement | undefined
     const actionButton = pathAction || target?.closest<HTMLElement>('[data-dgir-overflow]')
     const image = pathImage || target?.closest<HTMLImageElement>(relayImageSelector)
-    const record = actionButton?.dataset.dgirKey ? recordByKey.get(actionButton.dataset.dgirKey) || null : recordForImage(image)
+    const card = path.find(node => node instanceof HTMLElement && node.matches('[data-rrn-native-request]')) as HTMLElement | undefined
+    // Status cards are an inspection entry point too. Their own Insert/Retry
+    // buttons, disclosures and links keep their existing actions.
+    const cardControl = card && !path.some(node => node instanceof HTMLElement && node.matches('.dg-slot-lightbox'))
+      && !path.slice(0, path.indexOf(card)).some(node => node instanceof HTMLElement && !node.dataset.dgirSlotControls
+        && node.matches('button,a,input,textarea,select,summary,details,[role="button"],[contenteditable="true"]'))
+      ? recordByKey.get(card.dataset.rrnRecordKey || '') : undefined
+    const record = actionButton?.dataset.dgirKey ? recordByKey.get(actionButton.dataset.dgirKey) || null : recordForImage(image) || cardControl
     if (!record) return
     event.preventDefault()
     event.stopImmediatePropagation()
@@ -2579,6 +2680,15 @@ export function setup(ctx: SpindleFrontendContext) {
     }
     if (actionButton) openActionMenu(record, event.clientX || 24, event.clientY || 24)
     else openLightbox(record)
+  }
+  const onStatusCardKeyDown = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' && event.key !== ' ' || event.repeat) return
+    const trigger = event.composedPath().find(node => node instanceof HTMLElement && node.hasAttribute('data-dgir-slot-controls')) as HTMLElement | undefined
+    const record = trigger && recordByKey.get(trigger.dataset.dgirSlotControls || '')
+    if (!record) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    openLightbox(record)
   }
   const onRegexArtifactImageClick = (event: MouseEvent) => {
     if (event.defaultPrevented || event.button !== 0) return
@@ -2789,7 +2899,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const body = document.createElement('div'); body.className = 'dg-modal-body'
     const failed = host.querySelector<HTMLElement>('[data-reverie-surface-contract="failed"]')
     const diagnostic = failed?.querySelector('span')?.textContent?.trim() || ''
-    const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = `${diagnostic ? `${diagnostic}\n\n` : ''}Edit the preserved markup and choose Save Surface for a manual fix. Choose the Assisted Repair connection below, then request a closing-tag-only preview. It cannot invent missing fields or rewrite text or images. Review the candidate before Apply Preview. Opening this editor makes no model call.`
+    const note = document.createElement('div'); note.className = 'dg-recovery-note'; note.textContent = surfaceRepairEditorHelp(diagnostic)
     let repairConnectionId = config?.surfaceRepairConnectionId || null
     const repairConnectionField = surfaceRepairConnectionField(repairConnectionId, value => { repairConnectionId = value })
     const editor = document.createElement('textarea'); editor.className = 'dg-textarea dg-textarea-tall'; editor.value = source; editor.spellcheck = false; editor.style.minHeight = '340px'
@@ -2810,6 +2920,7 @@ export function setup(ctx: SpindleFrontendContext) {
       saveButton.disabled = value || invalidSwipeId
       restoreButton.disabled = value
       repairConnectionField.querySelector('select')!.disabled = value
+      if (!value) refreshRepairConnectionFields()
     }
     const actions = document.createElement('div'); actions.className = 'dg-actions'
     const previewButton = button('Preview Assisted Repair', () => {
@@ -2888,6 +2999,9 @@ export function setup(ctx: SpindleFrontendContext) {
     )
     body.append(note, repairConnectionField, editor, repairStatus, actions)
     modal.root.appendChild(body)
+    // The editor may open before the startup inventory resolves, or after a
+    // new connection was created. Refresh metadata only; opening makes no LLM call.
+    void loadFrontendParserConnections()
     // Let the user choose a working provider before spending on a preview.
     // Neither entry point calls a model merely by opening the editor.
   }
@@ -2943,6 +3057,9 @@ export function setup(ctx: SpindleFrontendContext) {
     }, buttonEl)
   }
 
+  // The handset reuses Surface renderers but owns its interaction/storage path.
+  // Cross shadow boundaries through the event path, not target.closest().
+  const isPhoneUiEvent = (event: Event): boolean => event.composedPath().some(node => node instanceof Element && node.hasAttribute('data-reverie-phone-ui'))
   const onContext = (event: MouseEvent) => {
     const target = event.composedPath().find(node => node instanceof HTMLElement) as HTMLElement | undefined
     const editableSurface = target?.closest<HTMLElement>('[data-rrn-editable-surface]')
@@ -2954,7 +3071,7 @@ export function setup(ctx: SpindleFrontendContext) {
       openActionMenu(record, event.clientX, event.clientY)
       return
     }
-    if (editableSurface && !target?.closest('button, input, textarea, select, a')) {
+    if (editableSurface && !isPhoneUiEvent(event) && !target?.closest('button, input, textarea, select, a')) {
       event.preventDefault()
       event.stopImmediatePropagation()
       openSurfaceMarkupEditor(editableSurface)
@@ -2965,7 +3082,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const image = target?.closest<HTMLImageElement>(relayImageSelector)
     const record = recordForImage(image)
     const editableSurface = target?.closest<HTMLElement>('[data-rrn-editable-surface]')
-    if (!record && editableSurface && event.pointerType !== 'mouse' && !target?.closest('button, input, textarea, select, a')) {
+    if (!record && editableSurface && !isPhoneUiEvent(event) && event.pointerType !== 'mouse' && !target?.closest('button, input, textarea, select, a')) {
       event.stopPropagation()
       clearTimeout(longPressTimer)
       longPressKey = `surface:${editableSurface.dataset.rrnMessageId || ''}:${editableSurface.dataset.rrnSurfaceId || ''}`
@@ -3050,6 +3167,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
   document.addEventListener('click', onNativeSurfaceActionClick, true)
   document.addEventListener('click', onClick, true)
+  document.addEventListener('keydown', onStatusCardKeyDown, true)
   document.addEventListener('click', onRegexArtifactImageClick, true)
   document.addEventListener('contextmenu', onContext, true)
   document.addEventListener('pointerdown', onPointerDown, true)
@@ -3059,6 +3177,7 @@ export function setup(ctx: SpindleFrontendContext) {
   document.addEventListener('change', onSurfaceControlChange, true)
   lifecycle.track(() => document.removeEventListener('click', onNativeSurfaceActionClick, true), 'listener')
   lifecycle.track(() => document.removeEventListener('click', onClick, true), 'listener')
+  lifecycle.track(() => document.removeEventListener('keydown', onStatusCardKeyDown, true), 'listener')
   lifecycle.track(() => document.removeEventListener('click', onRegexArtifactImageClick, true), 'listener')
   lifecycle.track(() => document.removeEventListener('contextmenu', onContext, true), 'listener')
   lifecycle.track(() => document.removeEventListener('pointerdown', onPointerDown, true), 'listener')
@@ -3079,42 +3198,92 @@ export function setup(ctx: SpindleFrontendContext) {
   sendFrontendSession(true)
   void loadFrontendParserConnections()
   void refreshState(false)
+  // The host can receive the first request before its worker registered the
+  // message handler. Retry reads while unhydrated, including on the homepage.
+  // Backend bootstrap requests share their follow-up maintenance work.
+  const bootstrapRefreshTimer = window.setInterval(() => {
+    if (disposed || config) { window.clearInterval(bootstrapRefreshTimer); return }
+    if (document.visibilityState !== 'hidden') void refreshState(false)
+  }, 5_000)
+  lifecycle.track(() => window.clearInterval(bootstrapRefreshTimer), 'timer')
   // Broadcasts can be delayed/lost during concurrent provider completions.
-  // Recover persisted status while work is active; never restart a provider.
+  // Recover persisted status while work is active, or while a visible Relay
+  // chat may have missed the *first* broadcast. Conditional idle probes avoid
+  // rebuilding unchanged drawer state. Never restart a provider.
   const lifecycleRefreshTimer = window.setInterval(() => {
     const now = Date.now()
-    if (disposed || !activeChatId || !records.some(record => isSlotLifecycleActive(record.status))) return
+    if (disposed || !activeChatId || document.visibilityState === 'hidden') return
+    const pendingWork = records.some(record => isSlotLifecycleActive(record.status))
+      || Object.values(backgroundQueue.items || {}).some(item => item.chatId === activeChatId && !['completed', 'failed', 'cancelled'].includes(item.stage))
+      || candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing')
+    const settings = currentProseSettings()
+    const visibleRelay = config?.enabled && settings.enabled && settings.mode === 'relay-planned'
+    if (!pendingWork && !visibleRelay) return
     if (now - lastChatStateReceivedAt < 20_000 || now - lastLifecycleRefreshAt < 20_000) return
     lastLifecycleRefreshAt = now
-    void refreshState(false)
+    // React may have replaced a completed projection since its last state
+    // tick. Repair the local mount even if durable state is unchanged.
+    scheduleBindInlineImages()
+    void refreshState(false, true)
   }, 20_000)
   lifecycle.track(() => window.clearInterval(lifecycleRefreshTimer), 'timer')
+  // Mobile browsers can suspend both timers and the extension message bridge.
+  // Catch up even when the client missed the job's *start* as well as its final
+  // broadcast. This reads durable state only; never rescan/replan/regenerate.
+  let lastForegroundRefreshAt = 0
+  const refreshOnForeground = () => {
+    if (disposed || !activeChatId || document.visibilityState === 'hidden') return
+    const now = Date.now()
+    if (now - lastForegroundRefreshAt < 2_000) return
+    lastForegroundRefreshAt = now
+    lastLifecycleRefreshAt = now
+    sendFrontendSession(true)
+    void refreshState(false)
+    scheduleBindInlineImages()
+  }
+  document.addEventListener('visibilitychange', refreshOnForeground)
+  for (const event of ['focus', 'pageshow', 'online']) window.addEventListener(event, refreshOnForeground)
+  lifecycle.track(() => {
+    document.removeEventListener('visibilitychange', refreshOnForeground)
+    for (const event of ['focus', 'pageshow', 'online']) window.removeEventListener(event, refreshOnForeground)
+  }, 'listener')
   renderPanel()
   renderRelayOrb()
 
 
-  async function refreshState(syncNative: boolean): Promise<void> {
+  async function refreshState(syncNative: boolean, conditional = false): Promise<void> {
     if (disposed) return
     if (syncNative) await syncNativeSettings()
     if (disposed) return
-    ctx.sendToBackend({ type: 'list_state', chatId: activeChatId })
+    ctx.sendToBackend({ type: 'list_state', chatId: activeChatId,
+      ...(!config ? { bootstrap: true } : {}),
+      ...(conditional && stateRevision >= 0 ? { knownRevision: stateRevision } : {}) })
   }
 
   async function loadFrontendParserConnections(): Promise<void> {
-    if (!ctx.connections?.list) return
-    try {
-      const profiles = await ctx.connections.list()
-      if (disposed) return
-      frontendParserConnections = profiles.map(profile => ({
-        id: profile.id,
-        name: profile.name,
-        provider: profile.provider,
-        model: profile.model,
-      }))
-      parserConnections = frontendParserConnections
-      renderPanel()
-    } catch (error) {
-      console.warn('[Reverie Relay] Could not load credential-redacted connection profiles for selectors.', error)
+    const connectionApi = ctx.connections
+    if (!connectionApi?.list) return
+    if (frontendParserConnectionsLoading) return frontendParserConnectionsLoading
+    const load = (async () => {
+      try {
+        const profiles = await connectionApi.list()
+        if (disposed) return
+        frontendParserConnections = profiles.map(profile => ({
+          id: profile.id,
+          name: profile.name,
+          provider: profile.provider,
+          model: profile.model,
+        }))
+        parserConnections = frontendParserConnections.length ? frontendParserConnections : backendParserConnections
+        refreshRepairConnectionFields()
+        renderPanel()
+      } catch (error) {
+        console.warn('[Reverie Relay] Could not load credential-redacted connection profiles for selectors.', error)
+      }
+    })()
+    frontendParserConnectionsLoading = load
+    try { await load } finally {
+      if (frontendParserConnectionsLoading === load) frontendParserConnectionsLoading = null
     }
   }
 
@@ -3520,7 +3689,43 @@ export function setup(ctx: SpindleFrontendContext) {
   const mountedLifecycleStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
   const mountedLifecycleStyleNodes = new Set<HTMLStyleElement>()
   const mountedNarrativePresentationStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
+  const mountedCoreGlassPresentationStyles = new WeakMap<Element | ShadowRoot, HTMLStyleElement>()
+  const normalizedCoreGlassLaunchers = new WeakMap<HTMLElement, string>()
   const narrativeGlassRootSelector = '[data-reverie-narrative-glass-button]'
+
+  function ensureMountedCoreGlassPresentation(root: ParentNode): void {
+    const scopes = new Set<Element | ShadowRoot>()
+    for (const launcher of deepQueryAll<HTMLElement>(root, '.rr-surface-launcher-iconized,.pw-wardrobe>summary')) {
+      // Native Core renderers resolve the shared preference before preset mode.
+      // Stable host islands can retain old launcher attributes on invalidation;
+      // do not mistake those for saved Narrative-specific presentation intent.
+      const nativeMode = launcher.closest('.rrn-editable-surface') && launcher.querySelector('[data-rr-surface-icon^="core:"]')
+        ? config?.surfaceDefaultShellMode : undefined
+      const signature = () => `${nativeMode}|${launcher.className}|${launcher.getAttribute('style')}|${launcher.getAttribute('data-rr-launcher-mode')}|${launcher.querySelectorAll(':scope>.rr-surface-sparks>i').length}`
+      if (normalizedCoreGlassLaunchers.get(launcher) !== signature()) {
+        const savedMode = nativeMode || launcher.getAttribute('data-rr-launcher-mode') || launcher.closest('[data-pw-variant]')?.getAttribute('data-pw-variant')
+        const mode = savedMode === 'inline' || savedMode === 'plain' || savedMode === 'sparkling' || savedMode === 'glass' || savedMode === 'plain-glass' ? savedMode
+          : savedMode === 'plain-button' ? 'plain' : savedMode === 'sparkle-button' ? 'sparkling'
+          : launcher.matches('[data-rr-plain-glass]') || launcher.closest('[data-reverie-plain-glass]') ? 'plain-glass'
+            : launcher.matches('[data-rr-glass-launcher]') || launcher.closest('[data-reverie-glass-button],[data-reverie-narrative-glass-button]') ? 'glass'
+              : launcher.classList.contains('rr-surface-launcher-sparkling') ? 'sparkling' : 'plain'
+        applySurfaceLauncherInlineStyle(launcher, mode)
+        normalizedCoreGlassLaunchers.set(launcher, signature())
+      }
+      const owner = launcher.getRootNode()
+      scopes.add(owner instanceof ShadowRoot ? owner : document.head)
+    }
+    for (const scope of scopes) {
+      const existing = mountedCoreGlassPresentationStyles.get(scope)
+      if (existing && scope.contains(existing)) continue
+      const style = document.createElement('style')
+      style.dataset.reverieCoreGlassPresentationHost = '1'
+      style.textContent = CORE_GLASS_LAUNCHER_RULES + SURFACE_ICON_STYLE.replace(/^<style[^>]*>|<\/style>$/g, '')
+      scope.appendChild(style)
+      mountedCoreGlassPresentationStyles.set(scope, style)
+      mountedLifecycleStyleNodes.add(style)
+    }
+  }
 
   function syncNarrativeSurfaceStack(scope: Element | ShadowRoot): void {
     if (!(scope instanceof ShadowRoot) || !(scope.host instanceof HTMLElement)) return
@@ -3817,6 +4022,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
   const boundNarrativeControls = new WeakSet<HTMLElement>()
   function bindNarrativeInteractiveControls(): void {
+    ensureMountedCoreGlassPresentation(document)
     ensureMountedNarrativePresentationStyle(document)
     for (const launcher of deepQueryAll<HTMLElement>(document, '.rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch, .rrcp-presentation-glass > .rrcp-launch')) {
       if (boundNarrativeControls.has(launcher)) continue
@@ -3881,8 +4087,65 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const normalizedProseDomText = (value: string): string => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
 
+  function seedRecentMessageSwipes(): void {
+    if (!activeChatId) return
+    const messagesApi = (ctx as any).messages
+    const recent = typeof messagesApi?.getRecent === 'function' ? messagesApi.getRecent(16) : []
+    if (!Array.isArray(recent) || !recent.length) return
+    // This is the host's bounded in-memory snapshot, not a network read. New
+    // replies may become available after chat-open; seed only unknown owners.
+    for (const message of recent) {
+      const raw = message?.swipe_id ?? message?.swipeId
+      const swipeId = Number(raw)
+      if (message?.id && raw !== undefined && raw !== null && Number.isInteger(swipeId) && swipeId >= 0 && !activeSwipeByMessage.has(message.id)) {
+        rememberBoundedMap(activeSwipeByMessage, message.id, swipeId, C5B_CACHE_LIMITS.activeSwipes)
+      }
+    }
+  }
+
+  function requestMessageSwipe(messageId: string): void {
+    if (activeSwipeReads.has(messageId) || activeSwipeReadRetries.get(messageId)?.timer) return
+    const messagesApi = (ctx as any).messages
+    if (typeof messagesApi?.get !== 'function') return
+    const chatId = activeChatId
+    const read = Promise.resolve().then(() => messagesApi.get(messageId)).then(message => {
+      if (disposed || chatId !== activeChatId || activeSwipeReads.get(messageId) !== read || activeSwipeByMessage.has(messageId)) return
+      if (message?.id !== messageId || message?.chat_id && message.chat_id !== chatId) return
+      const raw = message?.swipe_id ?? message?.swipeId
+      const swipeId = Number(raw)
+      if (raw === undefined || raw === null || !Number.isInteger(swipeId) || swipeId < 0) return
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes)
+      scheduleBindInlineImages()
+    }).catch(() => { /* Unknown swipe ownership stays unprojected; never guess. */ }).finally(() => {
+      // Deduplicate in-flight reads, not transient misses for the entire chat
+      // session. A later host render/state tick can retry without regenerating.
+      if (activeSwipeReads.get(messageId) !== read) return
+      activeSwipeReads.delete(messageId)
+      if (disposed || chatId !== activeChatId || activeSwipeByMessage.has(messageId) || !ctx.dom.findMessageElement(messageId)) {
+        activeSwipeReadRetries.delete(messageId)
+        return
+      }
+      const retry = activeSwipeReadRetries.get(messageId) || { attempts: 0, timer: 0 }
+      const delay = [250, 1_000, 4_000][retry.attempts]
+      if (delay === undefined) return
+      retry.attempts += 1
+      retry.timer = window.setTimeout(() => {
+        if (activeSwipeReadRetries.get(messageId) !== retry) return
+        retry.timer = 0
+        if (disposed || chatId !== activeChatId || activeSwipeByMessage.has(messageId) || !ctx.dom.findMessageElement(messageId)) {
+          activeSwipeReadRetries.delete(messageId)
+          return
+        }
+        requestMessageSwipe(messageId)
+      }, delay)
+      rememberBoundedMap(activeSwipeReadRetries, messageId, retry, C5B_CACHE_LIMITS.activeSwipes)
+    })
+    rememberBoundedMap(activeSwipeReads, messageId, read, C5B_CACHE_LIMITS.activeSwipes)
+  }
+
   function ensureSyntheticProseProjection(record: SlotRecord, root: Element): void {
     if (record.target !== 'prose.illustration' || record.proseSynthetic !== true) return
+    if (streamingProseMessages.has(record.messageId)) return
     const projectionSelector = `[data-dgir-prose-projection="${cssEscape(record.key)}"]`
     if (!record.proseAnchor || record.orphaned || record.status === 'superseded') {
       for (const projection of deepQueryAll<HTMLElement>(root as ParentNode, projectionSelector)) projection.remove()
@@ -3912,6 +4175,7 @@ export function setup(ctx: SpindleFrontendContext) {
     template.innerHTML = rendered.content
     const projection = template.content.querySelector<HTMLElement>(`[data-dgir-prose-projection="${cssEscape(record.key)}"]`)
     if (!projection) return
+    if (record.prosePlanningOpportunityId) projection.dataset.dgirPlanningPreview = 'true'
 
     const paragraphs = deepQueryAll<HTMLElement>(root as ParentNode, 'p').filter(paragraph => !paragraph.closest('.rrl-island, .rrn-native-island, .dgir-prose-lifecycle-projection'))
     const excerpt = normalizedProseDomText(record.proseAnchor.selectedExcerpt || '')
@@ -3924,7 +4188,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!anchor && Number.isInteger(record.proseAnchor.paragraphIndex)) anchor = paragraphs[record.proseAnchor.paragraphIndex]
     if (!anchor && record.proseAnchor.insertionSide !== 'end') return
 
-    if (record.proseAnchor.insertionSide === 'before' && anchor?.parentNode) anchor.parentNode.insertBefore(projection, anchor)
+    if ((record.proseAnchor.insertionSide === 'before' || record.proseAnchor.insertionSide === 'opening') && anchor?.parentNode) anchor.parentNode.insertBefore(projection, anchor)
     else if (anchor?.parentNode) anchor.parentNode.insertBefore(projection, anchor.nextSibling)
     else root.appendChild(projection)
   }
@@ -3942,6 +4206,16 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function bindInlineImages(messageId?: string): void {
+    const displayed = displayRecords()
+    const planningKeys = new Set(displayed.filter(record => record.prosePlanningOpportunityId
+      && !streamingProseMessages.has(record.messageId)
+      && (activeSwipeByMessage.get(record.messageId) ?? record.swipeId) === record.swipeId).map(record => record.key))
+    for (const projection of deepQueryAll<HTMLElement>(document, '[data-dgir-planning-preview]')) {
+      if (!planningKeys.has(projection.dataset.dgirProseProjection || '')) projection.remove()
+    }
+    // Cold clients/forks have not emitted MESSAGE_SWIPED. Seed the bounded
+    // recent host snapshot, then resolve older mounted messages on demand.
+    seedRecentMessageSwipes()
     // A completed Surface can outlive its job record or be restored by host
     // Regex rendering. Its figure still needs the same scoped geometry CSS;
     // do not make that stylesheet depend on a live records-loop iteration.
@@ -3966,12 +4240,17 @@ export function setup(ctx: SpindleFrontendContext) {
       }
     }
     const now = Date.now()
-    for (const record of records) {
+    for (const record of displayRecords()) {
       if (messageId && record.messageId !== messageId) continue
+      if (record.proseSynthetic && streamingProseMessages.has(record.messageId)) continue
       const visibleSwipe = activeSwipeByMessage.get(record.messageId)
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe) continue
       const root = ctx.dom.findMessageElement(record.messageId)
       if (!root) continue
+      if (record.proseSynthetic && visibleSwipe === undefined) {
+        requestMessageSwipe(record.messageId)
+        continue
+      }
       ensureMountedLifecycleStyle(root)
       ensureSyntheticProseProjection(record, root)
       const completedProseImageUrl = currentLifecycleImageUrl(record)
@@ -4003,7 +4282,7 @@ export function setup(ctx: SpindleFrontendContext) {
       // Silence is not provider failure. Only canonical backend outcomes may
       // expose failure/retry controls; the state watchdog recovers missed ticks.
       const recoverable = canonicalFailure
-      const statusLabel = record.status === 'recovered-pending' ? 'Ready'
+      const statusLabel = record.status === 'recovered-pending' ? 'Not generated'
           : record.status === 'preparing' ? 'Preparing'
           : record.status === 'queued' ? 'Queued'
             : record.status === 'awaiting-native-settings' ? 'Waiting for settings'
@@ -4024,6 +4303,13 @@ export function setup(ctx: SpindleFrontendContext) {
         if (active) syncGenerationPlaceholderEffect(card)
         const signature = JSON.stringify([record.key, record.status, submittingPlacement, normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), visualImageUrl, record.requestAspect, record.error, stream])
         const media = card.querySelector<HTMLElement>('.rrl-media-slot')
+        if (media) {
+          media.dataset.dgirSlotControls = record.key
+          media.setAttribute('role', 'button')
+          media.tabIndex = 0
+          media.setAttribute('aria-label', `Open image controls: ${record.alt || slotLabel(record)}`)
+          media.style.cursor = 'zoom-in'
+        }
         let slotImage = card.querySelector<HTMLImageElement>('.rrl-slot-image')
         if (media && visualImageUrl && !slotImage) {
           // Narrative, Core, and custom Surface reservations can mount without
@@ -4168,7 +4454,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
         const readyToInsert = record.status === 'placement-pending' && Boolean(record.pendingPlacement) && !submittingPlacement
         let actions = card.querySelector<HTMLElement>('.rrl-actions')
-        if (!actions && readyToInsert) {
+        if (!actions && (readyToInsert || canonicalFailure || needsPlacementRepair)) {
           actions = document.createElement('div')
           actions.className = 'rrl-actions'
           card.appendChild(actions)
@@ -4224,7 +4510,8 @@ export function setup(ctx: SpindleFrontendContext) {
         }
       }
     }
-    const completed = records.filter(record => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record))
+    const completed = displayRecords().filter(record => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record)
+      && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)))
     for (const record of completed) {
       const visualImageUrl = currentLifecycleImageUrl(record)
       const visualImageId = record.pendingPlacement?.imageId || record.imageId || ''
@@ -4236,6 +4523,7 @@ export function setup(ctx: SpindleFrontendContext) {
         visualImageId ? `img[data-dgir-image-id="${cssEscape(visualImageId)}"]` : '',
       ].filter(Boolean).join(',')
       const activeSwipe = activeSwipeByMessage.get(record.messageId)
+      if (record.proseSynthetic && activeSwipe === undefined) continue
       if (activeSwipe !== undefined && record.swipeId !== activeSwipe) continue
       const allMessageImages = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
       const urlImages = allMessageImages.filter(image => urlMatches(image.currentSrc || image.src, visualImageUrl))
@@ -4308,7 +4596,10 @@ export function setup(ctx: SpindleFrontendContext) {
     const hadMountedContent = root.childNodes.length > 0
     ensureMountedLifecycleStyle(root)
     bindInlineImages(messageId)
-    const expected = records.filter(record => record.messageId === messageId && currentLifecycleImageUrl(record))
+    const visibleSwipe = activeSwipeByMessage.get(messageId)
+    const expected = displayRecords().filter(record => record.messageId === messageId && currentLifecycleImageUrl(record)
+      && (visibleSwipe === undefined ? !record.proseSynthetic : record.swipeId === visibleSwipe)
+      && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)))
     const images = deepQueryAll<HTMLImageElement>(root as ParentNode, 'img')
     const missing = expected.filter(record => {
       const expectedUrl = currentLifecycleImageUrl(record)
@@ -4426,23 +4717,19 @@ export function setup(ctx: SpindleFrontendContext) {
     openQuickStartOverview()
   }
 
-  function sendStoryAction(action: string, fields: Record<string, unknown> = {}): void {
+  function sendPhoneRecordAction(action: string, fields: Record<string, unknown> = {}): void {
     if (!activeChatId) return
-    ctx.sendToBackend({ type: 'story_action', chatId: activeChatId, action, ...fields })
+    ctx.sendToBackend({ type: 'phone_record_action', chatId: activeChatId, action, ...fields })
   }
 
-  function storyText(text: string, className = 'dg-story-copy'): HTMLElement {
+  function panelText(text: string, className = 'dg-story-copy'): HTMLElement {
     const node = document.createElement('p')
     node.className = className
     node.textContent = text
     return node
   }
 
-  function storyImages(event: StoryEventNode): VisualAssetReference[] {
-    return storyEventImageIds(storyConstellations, event).map(id => assetLibrary.assets[id]).filter(asset => asset?.status === 'available' && Boolean(asset.imageUrl))
-  }
-
-  function openStoryEdit(options: { title: string; description?: string; fields?: Array<{ label: string; value: string; required?: boolean; maxLength?: number }>; submit?: string; danger?: boolean; save: (values: string[]) => void }): void {
+  function openPhoneRecordEdit(options: { title: string; description?: string; fields?: Array<{ label: string; value: string; required?: boolean; maxLength?: number }>; submit?: string; danger?: boolean; save: (values: string[]) => void }): void {
     // Embedded Lumiverse browsers do not implement native prompt/confirm.
     // Use the host modal and keep edits scoped to the chat that opened it.
     const openingChatId = activeChatId
@@ -4450,7 +4737,7 @@ export function setup(ctx: SpindleFrontendContext) {
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const dismiss = installAccessibleModalDismissal(modal, options.title)
     const body = document.createElement('div'); body.className = 'dg-modal-body'
-    if (options.description) body.appendChild(storyText(options.description))
+    if (options.description) body.appendChild(panelText(options.description))
     const values = (options.fields || []).map(field => field.value)
     const inputs: HTMLTextAreaElement[] = []
     for (const [index, field] of (options.fields || []).entries()) {
@@ -4474,7 +4761,7 @@ export function setup(ctx: SpindleFrontendContext) {
     inputs[0]?.focus()
   }
 
-  function storyImage(asset: VisualAssetReference, title: string): HTMLButtonElement {
+  function phoneRecordImage(asset: VisualAssetReference, title: string): HTMLButtonElement {
     const open = document.createElement('button'); open.type = 'button'; open.className = 'dg-story-image-button'
     open.setAttribute('aria-label', `Open image: ${title}`)
     const image = document.createElement('img'); image.className = 'dg-story-media'; image.src = asset.imageUrl; image.alt = asset.alt || title; image.loading = 'lazy'
@@ -4482,7 +4769,7 @@ export function setup(ctx: SpindleFrontendContext) {
     return open
   }
 
-  function goToStorySource(source: StorySourceRef | undefined): void {
+  function goToPhoneRecordSource(source: StorySourceRef | undefined): void {
     if (!source) return
     if (source.sourceState === 'deleted') { showToast('info', 'This source was deleted. Its confirmed story memory and evidence are retained.'); return }
     if (source.chatId !== activeChatId) { showToast('info', 'Open the source chat to inspect this memory. No other chat or swipe was changed.'); return }
@@ -4498,293 +4785,11 @@ export function setup(ctx: SpindleFrontendContext) {
     ;(message as HTMLElement).focus?.({ preventScroll: true })
   }
 
-  function renderStorySettingsAndBackfill(): HTMLElement {
-    const box = document.createElement('div')
-    const stack = document.createElement('div')
-    stack.className = 'dg-story-stack'
-    if (!config) {
-      stack.appendChild(empty('Story settings are loading.'))
-      box.appendChild(panelSection('Story State', stack))
-      return box
-    }
-    stack.append(
-      toggleCard('Event Constellations', 'Analyzes new and edited story messages with the configured Relay parser. Findings remain proposals until you confirm them. Existing story data stays available when analysis is off.', config.storyConstellationsEnabled, checked => patchConfig({ storyConstellationsEnabled: checked })),
-      toggleCard('Auto-confirm high-confidence events', 'Allows only strongly grounded candidates at 95% confidence or higher to become canon automatically. Off by default; ambiguous or weak candidates always stay proposals.', config.autoConfirmStoryEvents, checked => patchConfig({ autoConfirmStoryEvents: checked }), !config.storyConstellationsEnabled),
-      toggleCard('Knowledge conflict alerts', 'Shows when a new source conflicts with a recorded character knowledge state. Unknown is not treated as unaware.', config.storyKnowledgeConflictAlerts, checked => patchConfig({ storyKnowledgeConflictAlerts: checked }), !config.storyConstellationsEnabled),
-      toggleCard('Analyze edited messages', 'Rechecks a changed message when Event Constellations is enabled. Confirmed events are preserved and changed meanings become new review proposals.', config.analyzeEditedStoryMessages, checked => patchConfig({ analyzeEditedStoryMessages: checked }), !config.storyConstellationsEnabled),
-      toggleCard('Inject character knowledge context', 'Adds a short character-scoped reminder from confirmed active events only. It does not inject the Story Reel or inactive/non-canon events.', config.injectStoryEventContext, checked => patchConfig({ injectStoryEventContext: checked }), !config.storyConstellationsEnabled),
-    )
-    if (config.storyConstellationsEnabled && !config.parserConnectionId) {
-      const warning = document.createElement('div'); warning.className = 'dg-warning'
-      warning.textContent = 'Event analysis needs a Relay parser connection. Without one, backfill can ingest authored Character Phones but cannot find Event proposals.'
-      stack.append(warning, button('Choose Parser Connection', () => { activeTab = 'utility-studio'; renderPanel() }, false, 'subtle'))
-    }
-    if (activeChatId) {
-      const includeInactive = document.createElement('label')
-      includeInactive.className = 'dg-story-field'
-      const checkbox = document.createElement('input')
-      checkbox.type = 'checkbox'
-      checkbox.checked = storyIncludeInactiveSwipes
-      checkbox.addEventListener('change', () => { storyIncludeInactiveSwipes = checkbox.checked })
-      includeInactive.append(checkbox, document.createTextNode('Include inactive swipes (still excluded from active views)'))
-      stack.appendChild(includeInactive)
-    }
-    const running = storyBackfillStatus?.chatId === activeChatId && storyBackfillStatus.status === 'running'
-    stack.appendChild(button(running ? 'Cancel Backfill' : 'Backfill Existing Chat', () => sendStoryAction(running ? 'cancel-backfill' : 'backfill', { includeInactiveSwipes: storyIncludeInactiveSwipes }), !config.storyConstellationsEnabled || !activeChatId, running ? 'danger' : 'primary', 'Manual, resumable, proposal-first analysis. This does not run during migration or chat open.'))
-    if (storyBackfillStatus?.chatId === activeChatId) {
-      const status = document.createElement('div')
-      status.className = 'dg-story-card'
-      const text = storyBackfillStatus.message || `${storyBackfillStatus.status}: ${storyBackfillStatus.completed} / ${storyBackfillStatus.total}`
-      status.textContent = `${storyBackfillStatus.status.toUpperCase()} · ${storyBackfillStatus.completed}/${storyBackfillStatus.total} terminal · ${text}`
-      stack.appendChild(status)
-    }
-    const recent = logs.filter(log => log.chatId === activeChatId && log.eventType === 'story_analysis_outcome').sort((left, right) => right.timestamp - left.timestamp).slice(0, 3)
-    if (recent.length) {
-      const analysis = document.createElement('details'); analysis.className = 'dg-story-card dg-story-manage'
-      analysis.open = storyAnalysisExpanded
-      analysis.addEventListener('toggle', () => { if (analysis.isConnected) storyAnalysisExpanded = analysis.open })
-      const heading = document.createElement('summary'); heading.textContent = 'Recent Story Analysis'; analysis.appendChild(heading)
-      for (const log of recent) {
-        const result = log.details || {}
-        const row = document.createElement('div'); row.className = 'dg-story-card'
-        const count = (key: string) => typeof result[key] === 'number' ? result[key] as number : 0
-        const status = result.status === 'failed' ? 'Analysis failed' : result.status === 'skipped' ? 'Analysis skipped' : count('rawCandidates') === 0 ? 'No event found' : `${count('proposals')} proposals · ${count('rejectedCandidates')} rejected`
-        row.appendChild(storyText(status, 'dg-story-title'))
-        if (typeof result.reason === 'string') row.appendChild(storyText(result.reason.replace(/-/g, ' ')))
-        const reasons = result.rejectionReasons && typeof result.rejectionReasons === 'object' ? Object.entries(result.rejectionReasons) : []
-        for (const [reason, amount] of reasons) row.appendChild(storyText(`${reason.replace(/-/g, ' ')} (${amount})`))
-        if (Array.isArray(result.rejectionExamples)) for (const example of result.rejectionExamples.slice(0, 3)) {
-          if (example && typeof example.anchor === 'string') row.appendChild(storyText(`Rejected evidence: “${example.anchor}”`))
-        }
-        if (log.messageId && typeof log.swipeId === 'number') row.appendChild(button('Retry Analysis', () => sendStoryAction('retry-analysis', { messageId: log.messageId, swipeId: log.swipeId }), !config.storyConstellationsEnabled || running, 'subtle', 'Recheck this source with the configured parser. This makes one model call when eligible; proposals still require confirmation.'))
-        analysis.appendChild(row)
-      }
-      stack.appendChild(analysis)
-    }
-    box.appendChild(panelSection('Story State & Backfill', stack))
-    return box
-  }
-
-  function renderStoryProposal(proposal: StoryEventProposal): HTMLElement {
-    const card = document.createElement('article')
-    card.className = 'dg-story-card'
-    const title = document.createElement('h4'); title.className = 'dg-story-title'; title.textContent = proposal.title
-    card.append(title, storyText(proposal.summary))
-    const meta = document.createElement('div'); meta.className = 'dg-story-meta'
-    for (const value of [proposal.eventType, proposal.importance, `${Math.round(proposal.confidence * 100)}% confidence`, `Source ${proposal.sourceRef.messageId} · swipe ${proposal.sourceRef.swipeId}`, proposal.sourceRef.sourceState]) {
-      const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = value; meta.appendChild(pill)
-    }
-    card.appendChild(meta)
-    if (proposal.sourceRef.excerpt) card.appendChild(storyText(`Evidence: “${proposal.sourceRef.excerpt}”`))
-    const actors = proposal.participants.map(participant => storyConstellations.actors[participant.actorId]?.displayName || 'Unresolved character')
-    if (actors.length) card.appendChild(storyText(`Participants: ${actors.join(', ')}`))
-    const actions = document.createElement('div'); actions.className = 'dg-actions'
-    const canConfirm = proposal.sourceRef.sourceState === 'active'
-    const linksExistingEvent = proposal.proposalKind === 'event-echo' && Boolean(proposal.likelyDuplicateEventId && storyConstellations.events[proposal.likelyDuplicateEventId]?.canonState === 'confirmed')
-    actions.append(
-      button('Go to Source', () => goToStorySource(proposal.sourceRef), false, 'subtle'),
-      button(proposal.proposalKind === 'revision' ? 'Confirm Revision & Supersede' : linksExistingEvent ? 'Link as Event Echo' : 'Confirm', () => sendStoryAction(proposal.proposalKind === 'revision' && proposal.likelyDuplicateEventId ? 'supersede-event' : 'confirm-proposal', { proposalId: proposal.proposalId, eventId: proposal.likelyDuplicateEventId }), !canConfirm, 'primary', canConfirm ? proposal.proposalKind === 'revision' ? 'Confirm the new meaning and retain the old event as superseded history.' : linksExistingEvent ? 'Attach this source and its grounded knowledge/Echoes to the existing event.' : 'Add this event to confirmed canon.' : 'Reactivate the source swipe before confirming.'),
-      button('Edit', () => openStoryEdit({title:'Edit Event Proposal',fields:[{label:'Event title',value:proposal.title,required:true,maxLength:120},{label:'Event summary',value:proposal.summary,required:true,maxLength:520}],save:([title,summary])=>sendStoryAction('edit-proposal',{proposalId:proposal.proposalId,title,summary})}), false, 'subtle'),
-      button('Mark Non-Canon', () => sendStoryAction('mark-non-canon', { proposalId: proposal.proposalId }), false, 'danger'),
-    )
-    if (proposal.proposalKind !== 'revision' && proposal.likelyDuplicateEventId && storyConstellations.events[proposal.likelyDuplicateEventId]) actions.appendChild(button('Create Separate Event & Supersede', () => sendStoryAction('supersede-event', { proposalId: proposal.proposalId, eventId: proposal.likelyDuplicateEventId }), !canConfirm, 'subtle'))
-    card.appendChild(actions)
-    return card
-  }
-
-  function renderStoryEventSummary(event: StoryEventNode): HTMLElement {
-    const card = document.createElement('article'); card.className = 'dg-story-card'
-    const title = document.createElement('h4'); title.className = 'dg-story-title'; title.textContent = event.title
-    card.append(title, storyText(event.summary))
-    const images = storyImages(event)
-    if (images[0]) card.appendChild(storyImage(images[0], event.title))
-    const meta = document.createElement('div'); meta.className = 'dg-story-meta'
-    const names = event.participants.map(participant => storyConstellations.actors[participant.actorId]?.displayName || 'Unresolved character')
-    const knowledgeCount = event.participants.filter(participant => Boolean(storyConstellations.knowledgeEdges[`${event.eventId}:${participant.actorId}`])).length
-    for (const value of [event.storyTimeLabel, event.location, names.join(', '), `${event.echoIds.length} Echoes`, `${images.length} linked images`, `${knowledgeCount} knowledge links`, event.canonState]) {
-      if (!value) continue
-      const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = value; meta.appendChild(pill)
-    }
-    card.appendChild(meta)
-    if (event.sourceWarning) { const warning = document.createElement('div'); warning.className = 'dg-warning'; warning.textContent = event.sourceWarning; card.appendChild(warning) }
-    const actions = document.createElement('div'); actions.className = 'dg-actions'
-    actions.appendChild(button('Open Constellation', () => { selectedStoryEventId = event.eventId; pendingStoryEventNavigation = event.eventId; renderPanel() }, false, 'primary'))
-    actions.appendChild(button('Go to Source', () => goToStorySource(event.sourceRefs[0]), !event.sourceRefs.length, 'subtle'))
-    card.appendChild(actions)
-    return card
-  }
-
-  function renderStoryEvent(eventId: string): HTMLElement {
-    const event = storyConstellations.events[eventId]
-    const card = document.createElement('article')
-    card.className = 'dg-story-card'
-    card.dataset.storyEventId = eventId
-    if (!event) return card
-    const heading = document.createElement('h4'); heading.className = 'dg-story-title'; heading.textContent = event.title
-    heading.tabIndex = -1
-    card.append(heading, storyText(event.summary), button('Close Detail', () => { selectedStoryEventId = ''; renderPanel() }, false, 'subtle'))
-    const manage = document.createElement('details'); manage.className = 'dg-story-card dg-story-manage'
-    const manageHeading = document.createElement('summary'); manageHeading.textContent = 'Edit Constellation'; manage.appendChild(manageHeading)
-    const identities = document.createElement('div'); identities.className = 'dg-story-stack'
-    const images = storyImages(event)
-    if (images[0]) card.appendChild(storyImage(images[0], event.title))
-    const nodes = document.createElement('div'); nodes.className = 'dg-story-constellation'
-    const lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    lines.setAttribute('viewBox', '0 0 100 100'); lines.setAttribute('preserveAspectRatio', 'none'); lines.setAttribute('aria-hidden', 'true'); lines.setAttribute('class', 'dg-story-lines')
-    const center = document.createElement('div'); center.className = 'dg-story-center'; center.textContent = `✧ ${event.title}`
-    const actorNodes: HTMLElement[] = []
-    const upperCount = Math.ceil(event.participants.length / 2)
-    for (const participant of event.participants) {
-      const actor = storyConstellations.actors[participant.actorId]
-      const name = actor?.displayName || 'Unresolved character'
-      const node = document.createElement('div'); node.className = 'dg-story-actor'
-      node.dataset.storyActorId = participant.actorId
-      const initial = document.createElement('span'); initial.className = 'dg-story-initial'; initial.textContent = Array.from(name)[0] || '?'; initial.setAttribute('aria-hidden', 'true'); node.appendChild(initial)
-      const actorName = document.createElement('strong'); actorName.textContent = `${name} · ${participant.role}`; node.appendChild(actorName)
-      const knowledgeEdge = storyConstellations.knowledgeEdges[`${eventId}:${participant.actorId}`]
-      const beliefState = knowledgeEdge?.beliefState || 'unknown'
-      const link = document.createElement('span'); link.className = 'dg-story-link'; link.textContent = `${beliefState} · ${knowledgeEdge?.acquisitionMode || 'acquisition unknown'}`; node.appendChild(link)
-      const index = actorNodes.length
-      const orbitIndex = index < upperCount ? index : index - upperCount
-      const orbitSize = index < upperCount ? upperCount : event.participants.length - upperCount
-      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
-      const orbitRow = Math.floor(orbitIndex / 2)
-      const orbitX = orbitSize === 1 || (orbitSize % 2 === 1 && orbitIndex === orbitSize - 1) ? 50 : orbitIndex % 2 === 0 ? 25 : 75
-      const orbitY = index < upperCount ? orbitSize > 2 ? orbitRow === 0 ? 11 : 30 : 22 : orbitSize > 2 ? orbitRow === 0 ? 70 : 89 : 78
-      line.setAttribute('x1', '50'); line.setAttribute('y1', '50'); line.setAttribute('x2', String(orbitX)); line.setAttribute('y2', String(orbitY)); line.dataset.belief = beliefState
-      lines.appendChild(line)
-      line.dataset.storyActorId = participant.actorId
-      if (actor?.kind === 'temporary') node.appendChild(storyText('Unresolved identity', 'dg-story-link'))
-      if (actor && !actor.mergedIntoActorId) {
-        const identityRow = document.createElement('div'); identityRow.className = 'dg-story-card'
-        identityRow.appendChild(storyText(name, 'dg-story-title'))
-        const kind = document.createElement('select'); kind.className = 'dg-select'; kind.setAttribute('aria-label', `${name} identity type`)
-        for (const value of ['temporary', 'character', 'persona', 'npc', 'audience'] as const) {
-          const option = document.createElement('option'); option.value = value; option.textContent = value === 'temporary' ? 'Unresolved / temporary' : value; option.selected = actor.kind === value; kind.appendChild(option)
-        }
-        kind.addEventListener('change', () => {
-          const identityKind = kind.value as 'character' | 'persona' | 'npc' | 'audience' | 'temporary'
-          if (identityKind === 'character' || identityKind === 'persona') {
-            kind.value = actor.kind
-            openStoryEdit({title:`Link ${name}`,description:`Classify as ${identityKind}. A Lumiverse ID is optional; leave blank to classify without linking.`,fields:[{label:'Lumiverse identity ID',value:identityKind==='character'?actor.lumiverseCharacterId||'':actor.lumiversePersonaId||'',maxLength:120}],save:([canonicalIdentityId])=>sendStoryAction('set-actor-kind',{actorId:actor.actorId,actorKind:identityKind,canonicalIdentityId})})
-          } else sendStoryAction('set-actor-kind', { actorId: actor.actorId, actorKind: identityKind, canonicalIdentityId: '' })
-        })
-        identityRow.appendChild(kind)
-        const merge = document.createElement('details'); merge.className = 'dg-story-merge'
-        const mergeSummary = document.createElement('summary'); mergeSummary.textContent = 'Merge identity…'; merge.appendChild(mergeSummary)
-        const target = document.createElement('select'); target.className = 'dg-select'; target.setAttribute('aria-label', `Merge ${name} into another story identity`)
-        const blankTarget = document.createElement('option'); blankTarget.value = ''; blankTarget.textContent = 'Choose identity…'; target.appendChild(blankTarget)
-        for (const other of Object.values(storyConstellations.actors).filter(value => !value.mergedIntoActorId && value.actorId !== actor.actorId)) {
-          const option = document.createElement('option'); option.value = other.actorId; option.textContent = other.displayName; target.appendChild(option)
-        }
-        merge.append(target, button('Merge', () => {
-          const chosen = storyConstellations.actors[target.value]
-          if (chosen) openStoryEdit({title:'Merge Story Identities',description:`Merge ${name} into ${chosen.displayName}? Event, phone, and knowledge references will be reconciled.`,submit:'Merge Identities',danger:true,save:()=>sendStoryAction('merge-actors',{actorId:actor.actorId,mergeIntoActorId:chosen.actorId})})
-        }, !Object.keys(storyConstellations.actors).some(id => id !== actor.actorId && !storyConstellations.actors[id].mergedIntoActorId), 'subtle'))
-        identityRow.appendChild(merge)
-        identities.appendChild(identityRow)
-      }
-      actorNodes.push(node)
-    }
-    const upper = document.createElement('div'); upper.className = 'dg-story-orbit'
-    const lower = document.createElement('div'); lower.className = 'dg-story-orbit'
-    upper.append(...actorNodes.slice(0, upperCount))
-    lower.append(...actorNodes.slice(upperCount))
-    nodes.append(lines, upper, center, lower)
-    card.appendChild(nodes)
-    manage.appendChild(panelSection('Character Identities', identities))
-    const meta = document.createElement('div'); meta.className = 'dg-story-meta'
-    for (const value of [event.storyTimeLabel || 'Time not specified', event.location || '', `Sources ${event.sourceRefs.length}`, `State ${event.sourceState}`].filter(Boolean)) {
-      const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = value; meta.appendChild(pill)
-    }
-    card.appendChild(meta)
-    if (event.sourceWarning) {
-      const warning = document.createElement('div'); warning.className = 'dg-warning'; warning.textContent = event.sourceWarning
-      card.appendChild(warning)
-      manage.appendChild(button('Resolve Source Warning', () => sendStoryAction('resolve-source-warning', { eventId }), false, 'subtle'))
-    }
-    const actions = document.createElement('div'); actions.className = 'dg-actions'
-    const source = event.sourceRefs[0]
-    actions.append(
-      button('Go to Source', () => goToStorySource(source), !source, 'subtle'),
-      button('Edit Constellation', () => { manage.open = !manage.open; if (manage.open) manage.scrollIntoView({block:'nearest'}) }, false, 'subtle'),
-    )
-    const duplicateSelect = document.createElement('select'); duplicateSelect.className = 'dg-select'
-    const blank = document.createElement('option'); blank.value = ''; blank.textContent = 'Merge another confirmed event…'; duplicateSelect.appendChild(blank)
-    for (const other of activeStoryEvents(storyConstellations).filter(candidate => candidate.eventId !== eventId)) {
-      const option = document.createElement('option'); option.value = other.eventId; option.textContent = other.title; duplicateSelect.appendChild(option)
-    }
-    const mergeActions = document.createElement('div'); mergeActions.className = 'dg-actions'
-    mergeActions.append(button('Mark Non-Canon', () => openStoryEdit({title:'Mark Event Non-Canon',description:'Its source and history will be retained, but it will leave active canon views.',submit:'Mark Non-Canon',danger:true,save:()=>sendStoryAction('mark-non-canon',{eventId})}), false, 'danger'), duplicateSelect, button('Merge', () => {
-      const duplicateEventId = duplicateSelect.value
-      if (duplicateEventId) openStoryEdit({title:'Merge Events',description:'Merge the selected event into this one? Source, Echo, knowledge, and Asset references are retained.',submit:'Merge Events',danger:true,save:()=>sendStoryAction('merge-events',{eventId,duplicateEventId})})
-    }, false, 'subtle'))
-    card.appendChild(actions)
-    manage.appendChild(mergeActions)
-
-    const assets = Object.values(assetLibrary.assets).filter(asset => asset.chatId === activeChatId && asset.status === 'available').slice(0, 60)
-    const knowledge = document.createElement('div'); knowledge.className = 'dg-story-stack'
-    for (const participant of event.participants) {
-      const actor = storyConstellations.actors[participant.actorId]
-      if (!actor) continue
-      const row = document.createElement('div'); row.className = 'dg-actions'
-      const label = document.createElement('span'); label.textContent = actor.displayName; row.appendChild(label)
-      const edge = storyConstellations.knowledgeEdges[`${eventId}:${actor.actorId}`]
-      const belief = document.createElement('select'); belief.setAttribute('aria-label', `${actor.displayName} knowledge of ${event.title}`)
-      for (const value of ['unknown', 'unaware', 'rumor', 'suspects', 'knows', 'misinformed'] as StoryBeliefState[]) {
-        const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = (edge?.beliefState || 'unknown') === value; belief.appendChild(option)
-      }
-      const acquisition = document.createElement('select'); acquisition.setAttribute('aria-label', `${actor.displayName} knowledge source`)
-      for (const value of ['manual', 'involved', 'witnessed', 'told', 'evidence', 'inferred', 'public-broadcast']) {
-        const option = document.createElement('option'); option.value = value; option.textContent = value; option.selected = (edge?.acquisitionMode || 'manual') === value; acquisition.appendChild(option)
-      }
-      row.append(belief, acquisition, button('Save', () => sendStoryAction('set-knowledge', { eventId, actorName: actor.displayName, beliefState: belief.value, acquisitionMode: acquisition.value }), false, 'subtle'))
-      knowledge.appendChild(row)
-    }
-    manage.appendChild(panelSection('Knowledge Boundaries', knowledge))
-
-    const echoes = document.createElement('div'); echoes.className = 'dg-story-stack'
-    for (const echoId of event.echoIds) {
-      const echo = storyConstellations.echoes[echoId]
-      if (!echo) continue
-      const row = document.createElement('div'); row.className = 'dg-story-card'
-      row.append(storyText(`${echo.kind}${echo.channel ? ` · ${echo.channel}` : ''} · ${echo.linkState}`, 'dg-story-title'), storyText(echo.summary))
-      const echoActions = document.createElement('div'); echoActions.className = 'dg-actions'
-      echoActions.appendChild(button('Go to Source', () => goToStorySource(echo.sourceRef), false, 'subtle'))
-      if (echo.assetId && assetLibrary.assets[echo.assetId]?.imageUrl) row.appendChild(storyImage(assetLibrary.assets[echo.assetId], echo.summary))
-      const echoManage = document.createElement('details'); echoManage.className = 'dg-story-merge'
-      const echoManageHeading = document.createElement('summary'); echoManageHeading.textContent = 'Manage Echo'; echoManage.appendChild(echoManageHeading)
-      if (echo.linkState === 'proposed') echoActions.appendChild(button('Confirm Echo Link', () => sendStoryAction('link-echo', { echoId, eventId }), false, 'subtle'))
-      echoActions.appendChild(button('Reject Echo', () => sendStoryAction('reject-echo', { echoId }), false, 'danger'))
-      const echoAsset = document.createElement('select'); echoAsset.setAttribute('aria-label', `Asset for ${echo.kind} Echo`)
-      const echoAssetBlank = document.createElement('option'); echoAssetBlank.value = ''; echoAssetBlank.textContent = 'Link an Asset…'; echoAsset.appendChild(echoAssetBlank)
-      for (const asset of assets) { const option = document.createElement('option'); option.value = asset.assetId; option.textContent = asset.caption || asset.alt || asset.assetId; option.selected = asset.assetId === echo.assetId; echoAsset.appendChild(option) }
-      echoActions.append(echoAsset, button(echo.assetId ? 'Update Echo Asset' : 'Link Echo Asset', () => echoAsset.value && sendStoryAction('link-echo-asset', { echoId, assetId: echoAsset.value }), false, 'subtle'))
-      if (echo.assetId) echoActions.appendChild(button('Unlink Echo Asset', () => sendStoryAction('unlink-echo-asset', { echoId }), false, 'subtle'))
-      // Keep source navigation visible; maintenance belongs in a disclosure.
-      row.appendChild(echoActions.firstElementChild!)
-      echoManage.appendChild(echoActions); row.appendChild(echoManage); echoes.appendChild(row)
-    }
-    card.appendChild(panelSection('Event Echoes', echoes.childNodes.length ? echoes : empty('No Echoes recorded.')))
-
-    const assetPicker = document.createElement('select'); assetPicker.setAttribute('aria-label', 'Link existing Asset to this event')
-    const noAsset = document.createElement('option'); noAsset.value = ''; noAsset.textContent = 'Link existing Asset…'; assetPicker.appendChild(noAsset)
-    for (const asset of assets) { const option = document.createElement('option'); option.value = asset.assetId; option.textContent = asset.caption || asset.alt || asset.assetId; assetPicker.appendChild(option) }
-    const assetArea = document.createElement('div'); assetArea.className = 'dg-actions'; assetArea.append(assetPicker, button('Link Asset', () => assetPicker.value && sendStoryAction('link-asset', { eventId, assetId: assetPicker.value }), false, 'subtle'))
-    for (const assetId of event.linkedAssetIds) assetArea.appendChild(button(`Unlink ${assetId}`, () => sendStoryAction('unlink-asset', { eventId, assetId }), false, 'subtle'))
-    const gallery = document.createElement('div'); gallery.className = 'dg-story-gallery'
-    for (const asset of images) gallery.appendChild(storyImage(asset, asset.caption || asset.alt || event.title))
-    card.appendChild(panelSection(`Linked Images (${images.length})`, images.length ? gallery : empty('No linked images yet. Link an existing image in Edit Constellation.')))
-    manage.appendChild(panelSection('Linked Assets', assetArea))
-    card.appendChild(manage)
-    return card
-  }
-
   function renderPhonePage(): HTMLElement {
     const box = document.createElement('div')
     const launch = document.createElement('div'); launch.className = 'dg-story-stack'
     const toggle=checkbox('Enable Reverie Phone',config?.phoneEnabled!==false,value=>patchConfig({phoneEnabled:value}));toggle.querySelector('input')?.setAttribute('aria-label','Enable Reverie Phone')
-    launch.append(toggle,storyText('Optional phones live alongside the story, independently of Story features and chat Surfaces. Disabling Phone hides its widget and stops incoming-text instructions, new deliveries and phone generation. Saved messages, accounts and settings are preserved.'), button('Open Phone', () => phoneWidget ? phoneWidget.open() : showToast('error', 'This Lumiverse build does not expose floating widgets. Update Lumiverse to use the phone.'),config?.phoneEnabled===false))
+    launch.append(toggle,panelText('Optional phones live alongside the story, independently of chat Surfaces. Disabling Phone hides its widget and stops incoming-text instructions, new deliveries and phone generation. Saved messages, accounts and settings are preserved.'), button('Open Phone', () => phoneWidget ? phoneWidget.open() : showToast('error', 'This Lumiverse build does not expose floating widgets. Update Lumiverse to use the phone.'),config?.phoneEnabled===false))
     box.appendChild(panelSection('Reverie Phone', launch))
     if(phoneWidget){const settings=document.createElement('div');box.appendChild(panelSection('Phone Settings · all chats',settings));phoneWidget.mountSettings(settings)}
     const entries = visibleStoryPhoneEntries(storyConstellations)
@@ -4799,23 +4804,23 @@ export function setup(ctx: SpindleFrontendContext) {
       const owner = document.createElement('h4'); owner.className = 'dg-story-title'; owner.textContent = ownerEntries[0].ownerName; ownerCard.appendChild(owner)
       for (const entry of visibleEntries) {
         const record = document.createElement('article'); record.className = 'dg-story-card'
-        record.append(storyText(`${entry.app}${entry.storyTimeLabel ? ` · ${entry.storyTimeLabel}` : ''}`, 'dg-story-title'))
+        record.append(panelText(`${entry.app}${entry.storyTimeLabel ? ` · ${entry.storyTimeLabel}` : ''}`, 'dg-story-title'))
         if (entry.assetId && assetLibrary.assets[entry.assetId]?.imageUrl) {
-          record.appendChild(storyImage(assetLibrary.assets[entry.assetId], entry.title))
+          record.appendChild(phoneRecordImage(assetLibrary.assets[entry.assetId], entry.title))
         }
-        record.appendChild(storyText(`${entry.title}${entry.body ? ` — ${entry.body}` : ''}`))
+        record.appendChild(panelText(`${entry.title}${entry.body ? ` — ${entry.body}` : ''}`))
         if (entry.kind === 'photo') {
           const assets = Object.values(assetLibrary.assets).filter(asset => asset.chatId === activeChatId && asset.status === 'available').slice(0, 60)
           const picker = document.createElement('select'); picker.setAttribute('aria-label', `Asset for ${entry.title}`)
           const blank = document.createElement('option'); blank.value = ''; blank.textContent = entry.assetId ? 'Choose another Asset…' : 'Link an Asset…'; picker.appendChild(blank)
           for (const asset of assets) { const option = document.createElement('option'); option.value = asset.assetId; option.textContent = asset.caption || asset.alt || asset.assetId; option.selected = asset.assetId === entry.assetId; picker.appendChild(option) }
           const actions = document.createElement('div'); actions.className = 'dg-actions'
-          actions.append(picker, button(entry.assetId ? 'Update Asset Link' : 'Link Asset', () => picker.value && sendStoryAction('link-phone-asset', { phoneEntryId: entry.entryId, assetId: picker.value }), false, 'subtle'))
-          if (entry.assetId) actions.appendChild(button('Unlink Asset', () => sendStoryAction('unlink-phone-asset', { phoneEntryId: entry.entryId }), false, 'subtle'))
+          actions.append(picker, button(entry.assetId ? 'Update Asset Link' : 'Link Asset', () => picker.value && sendPhoneRecordAction('link-phone-asset', { phoneEntryId: entry.entryId, assetId: picker.value }), false, 'subtle'))
+          if (entry.assetId) actions.appendChild(button('Unlink Asset', () => sendPhoneRecordAction('unlink-phone-asset', { phoneEntryId: entry.entryId }), false, 'subtle'))
           record.appendChild(actions)
         }
-        record.appendChild(button('Go to Source', () => goToStorySource(entry.sourceRef), false, 'subtle'))
-        record.appendChild(button('Remove Record', () => openStoryEdit({title:'Remove Phone Record',description:'Remove this record from the Living Phone projection? The source chat message is unchanged.',submit:'Remove Record',danger:true,save:()=>sendStoryAction('remove-phone-entry',{phoneEntryId:entry.entryId})}), false, 'danger'))
+        record.appendChild(button('Go to Source', () => goToPhoneRecordSource(entry.sourceRef), false, 'subtle'))
+        record.appendChild(button('Remove Record', () => openPhoneRecordEdit({title:'Remove Phone Record',description:'Remove this record from the Living Phone projection? The source chat message is unchanged.',submit:'Remove Record',danger:true,save:()=>sendPhoneRecordAction('remove-phone-entry',{phoneEntryId:entry.entryId})}), false, 'danger'))
         ownerCard.appendChild(record)
       }
       if (ownerEntries.length > visibleEntries.length) ownerCard.appendChild(button(`Load Earlier Records (${ownerEntries.length - visibleEntries.length} remaining)`, () => {
@@ -4828,134 +4833,12 @@ export function setup(ctx: SpindleFrontendContext) {
     if (stale.length) {
       const details = document.createElement('details'); details.className = 'dg-story-card'
       const summary = document.createElement('summary'); summary.textContent = `Inactive source records (${stale.length})`; details.appendChild(summary)
-      for (const entry of stale.slice(-30)) details.appendChild(storyText(`${entry.ownerName} · ${entry.app} · ${entry.sourceRef.sourceState}: ${entry.title}`))
+      for (const entry of stale.slice(-30)) details.appendChild(panelText(`${entry.ownerName} · ${entry.app} · ${entry.sourceRef.sourceState}: ${entry.title}`))
       stack.appendChild(details)
     }
     const archive = document.createElement('details'); archive.className = 'dg-story-card'
     const summary = document.createElement('summary'); summary.textContent = 'Legacy snapshot records · advanced management'; archive.append(summary, stack)
     box.appendChild(archive)
-    return box
-  }
-
-  function renderStoryReel(): HTMLElement {
-    const box = document.createElement('div')
-    const stack = document.createElement('div'); stack.className = 'dg-story-stack'
-    const items = projectStoryReel(storyConstellations)
-    if (!items.length) stack.appendChild(empty('The Story Reel is derived from confirmed, active-swipe events. Proposed, non-canon, and inactive-swipe events stay out.'))
-    for (const item of items) {
-      const card = document.createElement('article'); card.className = 'dg-story-card'
-      if (item.chapterLabel || item.pinned) {
-        const meta = document.createElement('div'); meta.className = 'dg-story-meta'
-        for (const label of [item.chapterLabel || '', item.pinned ? 'Pinned' : ''].filter(Boolean)) {
-          const pill = document.createElement('span'); pill.className = 'dg-story-pill'; pill.textContent = label; meta.appendChild(pill)
-        }
-        card.appendChild(meta)
-      }
-      const title = document.createElement('h4'); title.className = 'dg-story-title'; title.textContent = item.title
-      title.tabIndex = 0
-      title.addEventListener('click', () => { selectedStoryEventId = item.eventId; pendingStoryEventNavigation = item.eventId; activeTab = 'story-constellations'; renderPanel() })
-      title.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectedStoryEventId = item.eventId; pendingStoryEventNavigation = item.eventId; activeTab = 'story-constellations'; renderPanel() } })
-      card.appendChild(title)
-      const event = storyConstellations.events[item.eventId]
-      const images = storyImages(event)
-      if (images[0]) card.appendChild(storyImage(images[0], item.title))
-      card.appendChild(storyText(`${item.echoIds.length} Echoes · ${images.length} linked images`, 'dg-story-meta'))
-      card.append(storyText(item.caption), storyText([item.storyTimeLabel, item.location, item.participantNames.join(', ')].filter(Boolean).join(' · '), 'dg-story-meta'))
-      if (item.sourceWarning) card.appendChild(storyText(item.sourceWarning))
-      const actions = document.createElement('div'); actions.className = 'dg-actions'
-      actions.append(
-        button('Open Constellation', () => { selectedStoryEventId = item.eventId; pendingStoryEventNavigation = item.eventId; activeTab = 'story-constellations'; renderPanel() }, false, 'primary'),
-        button('Go to Source', () => goToStorySource(event.sourceRefs[0]), !event.sourceRefs.length, 'subtle'),
-        button(item.pinned ? 'Unpin' : 'Pin', () => sendStoryAction('set-reel-override', { eventId: item.eventId, pinned: !item.pinned }), false, 'subtle'),
-        button('Edit Caption', () => openStoryEdit({title:'Edit Reel Caption',fields:[{label:'Reel caption',value:item.caption,maxLength:600}],save:([captionOverride])=>sendStoryAction('set-reel-override',{eventId:item.eventId,captionOverride})}), false, 'subtle'),
-        button('Chapter', () => openStoryEdit({title:'Edit Reel Chapter',fields:[{label:'Chapter label',value:item.chapterLabel||'',maxLength:100}],save:([chapterLabelOverride])=>sendStoryAction('set-reel-override',{eventId:item.eventId,chapterLabelOverride})}), false, 'subtle'),
-        button('Hide', () => sendStoryAction('set-reel-override', { eventId: item.eventId, hidden: true }), false, 'danger'),
-      )
-      card.appendChild(actions)
-      const echoDetails = document.createElement('details'); echoDetails.className = 'dg-story-card'
-      const summary = document.createElement('summary'); summary.textContent = `Echoes (${item.echoIds.length})`; echoDetails.appendChild(summary)
-      for (const echoId of item.echoIds) { const echo = storyConstellations.echoes[echoId]; if (echo) echoDetails.append(storyText(`${echo.kind} · ${echo.summary}`), button('Go to Source', () => goToStorySource(echo.sourceRef), false, 'subtle')) }
-      card.appendChild(echoDetails)
-      stack.appendChild(card)
-    }
-    const hidden = Object.values(storyConstellations.reelOverrides).filter(override => override.hidden && storyConstellations.events[override.eventId]?.canonState === 'confirmed')
-    if (hidden.length) {
-      const hiddenSection = document.createElement('section'); hiddenSection.className = 'dg-story-card'
-      const heading = document.createElement('h4'); heading.className = 'dg-story-title'; heading.textContent = `Hidden Reel cards (${hidden.length})`; hiddenSection.appendChild(heading)
-      for (const override of hidden) { const event = storyConstellations.events[override.eventId]; hiddenSection.append(storyText(event.title), button('Restore', () => sendStoryAction('set-reel-override', { eventId: event.eventId, hidden: false }), false, 'subtle')) }
-      stack.appendChild(hiddenSection)
-    }
-    box.appendChild(panelSection('Story Reel', stack))
-    return box
-  }
-
-  function renderStoryView(): HTMLElement {
-    const box = document.createElement('div')
-    if (activeTab === 'story-reel') { box.appendChild(renderStoryReel()); return box }
-    const settings = document.createElement('details'); settings.className = 'dg-story-card dg-story-manage'
-    const settingsSummary = document.createElement('summary'); settingsSummary.textContent = 'Story Settings & Backfill'
-    settings.open = storySettingsExpanded || !activeStoryEvents(storyConstellations).length
-    settings.addEventListener('toggle', () => { storySettingsExpanded = settings.open })
-    settings.append(settingsSummary, renderStorySettingsAndBackfill()); box.appendChild(settings)
-    const proposals = Object.values(storyConstellations.proposals).filter(proposal => proposal.status === 'proposed' && proposal.sourceRef.sourceState !== 'deleted').sort((a, b) => b.createdAt - a.createdAt)
-    const proposalStack = document.createElement('div'); proposalStack.className = 'dg-story-stack'
-    if (!proposals.length) proposalStack.appendChild(empty('No pending Event proposals. Meaningful changes appear here for review.'))
-    else for (const proposal of proposals.slice(0, storyProposalVisibleLimit)) proposalStack.appendChild(renderStoryProposal(proposal))
-    if (proposals.length > storyProposalVisibleLimit) proposalStack.appendChild(button(`Show Older Proposals (${proposals.length - storyProposalVisibleLimit} remaining)`, () => { storyProposalVisibleLimit += 80; renderPanel() }, false, 'subtle'))
-    box.appendChild(panelSection(`Proposals (${proposals.length})`, proposalStack))
-    const events = activeStoryEvents(storyConstellations).sort((a, b) => b.updatedAt - a.updatedAt)
-    const eventStack = document.createElement('div'); eventStack.className = 'dg-story-stack'
-    if (!events.length) eventStack.appendChild(empty('No confirmed active-swipe events yet.'))
-    const visibleEvents = events.slice(0, storyEventVisibleLimit)
-    for (const event of visibleEvents) {
-      const card = renderStoryEventSummary(event)
-      if (event.eventId === selectedStoryEventId) card.classList.add('dg-story-selected')
-      eventStack.appendChild(card)
-    }
-    if (events.length > storyEventVisibleLimit) eventStack.appendChild(button(`Show Older Events (${events.length - storyEventVisibleLimit} remaining)`, () => { storyEventVisibleLimit += 80; renderPanel() }, false, 'subtle'))
-    box.appendChild(panelSection(`Confirmed Events (${events.length})`, eventStack))
-    const conflicts = Object.values(storyConstellations.conflicts).filter(conflict => conflict.status === 'open')
-    if (config?.storyKnowledgeConflictAlerts && conflicts.length) {
-      const conflictStack = document.createElement('div'); conflictStack.className = 'dg-story-stack'
-      for (const conflict of conflicts.slice(0, 30)) {
-        const row = document.createElement('div'); row.className = 'dg-story-card'
-        row.appendChild(storyText(`${conflict.severity.toUpperCase()} · ${conflict.summary}`))
-        const resolution = document.createElement('select'); resolution.setAttribute('aria-label', 'Resolve knowledge conflict')
-        const relatedEvent = storyConstellations.events[conflict.eventId]
-        const confirmedEchoes = (relatedEvent?.echoIds || []).map(echoId => storyConstellations.echoes[echoId]).filter(echo => echo?.linkState === 'confirmed' && echo.sourceRef.sourceState === 'active')
-        for (const [value, label] of [['learned-offscreen', 'Accept — learned off-screen'], ['linked-existing-echo', 'Link existing Echo'], ['kept-existing-state', 'Keep existing state'], ['model-mistake', 'Mark as model mistake'], ['manual', 'Set knows manually']]) {
-          const option = document.createElement('option'); option.value = value; option.textContent = label
-          if (value === 'linked-existing-echo' && !confirmedEchoes.length) option.disabled = true
-          resolution.appendChild(option)
-        }
-        const echoPicker = document.createElement('select'); echoPicker.setAttribute('aria-label', 'Confirmed Echo that explains character knowledge')
-        const echoPlaceholder = document.createElement('option'); echoPlaceholder.value = ''; echoPlaceholder.textContent = confirmedEchoes.length ? 'Choose confirmed Echo…' : 'No confirmed Echo available'; echoPicker.appendChild(echoPlaceholder)
-        for (const echo of confirmedEchoes) { const option = document.createElement('option'); option.value = echo.echoId; option.textContent = `${echo.kind}${echo.channel ? ` · ${echo.channel}` : ''}: ${echo.summary}`; echoPicker.appendChild(option) }
-        echoPicker.disabled = resolution.value !== 'linked-existing-echo'
-        resolution.addEventListener('change', () => { echoPicker.disabled = resolution.value !== 'linked-existing-echo' })
-        row.append(resolution, echoPicker, button('Resolve', () => sendStoryAction('resolve-conflict', {
-          conflictId: conflict.conflictId, resolution: resolution.value,
-          echoId: resolution.value === 'linked-existing-echo' ? echoPicker.value : undefined,
-        }), false, 'subtle'))
-        conflictStack.appendChild(row)
-      }
-      box.appendChild(panelSection(`Knowledge Conflicts (${conflicts.length})`, conflictStack))
-    }
-    if (selectedStoryEventId && storyConstellations.events[selectedStoryEventId]) {
-      const selected = renderStoryEvent(selectedStoryEventId)
-      selected.classList.add('dg-story-selected')
-      box.prepend(panelSection('Selected Event', selected))
-    }
-    if (pendingStoryEventNavigation && pendingStoryEventNavigation === selectedStoryEventId) {
-      const navigationId = pendingStoryEventNavigation
-      const target = Array.from(box.querySelectorAll<HTMLElement>('[data-story-event-id]')).find(node => node.dataset.storyEventId === navigationId)
-      if (target) window.requestAnimationFrame(() => {
-        if (!target.isConnected) return
-        target.scrollIntoView({ block: 'center', behavior: 'smooth' })
-        target.querySelector<HTMLElement>('.dg-story-title')?.focus({ preventScroll: true })
-        pendingStoryEventNavigation = ''
-      })
-    }
     return box
   }
 
@@ -4991,14 +4874,13 @@ export function setup(ctx: SpindleFrontendContext) {
     const content = activeTab === 'phone' ? renderPhonePage()
       : activeTab === 'settings' ? renderSettings()
       : activeTab === 'illustrator' ? renderProseIllustrator()
+        : activeTab === 'illustration-controls' ? renderIllustrationControls(currentProseSettings())
         : activeTab === 'recipes' ? renderGenerationRecipes()
           : activeTab === 'genetics' ? renderGeneticVault()
-            : activeTab === 'surfaces' ? renderCustomSurfaceStudio()
+            : ['surfaces', 'surface-presets', 'utility-studio', 'surface-advanced'].includes(activeTab) ? renderSurfaceAdvanced()
               : activeTab === 'surface-library' ? renderSurfaceLibrary()
-                : activeTab === 'surface-presets' ? renderSurfacePresets()
-                : activeTab === 'utility-studio' ? renderUtilityStudio()
+                : activeTab === 'surface-narratives' ? renderNarrativeLibrary()
                   : activeTab === 'history' ? renderHistoryList()
-                : activeTab.startsWith('story-') ? renderStoryView()
                 : activeTab === 'logs' ? renderLogs()
                   : activeTab === 'manual' ? renderManual()
                     : renderSlotsView()
@@ -5006,16 +4888,15 @@ export function setup(ctx: SpindleFrontendContext) {
     stage.className = 'dg-suite-stage'
     stage.appendChild(content)
     root.appendChild(stage)
-    storyGraphCleanup?.()
     tab.root.replaceChildren(root)
-    storyGraphCleanup = bindStoryGraphGeometry(root)
     tab.setBadge(records.length ? String(records.length) : null)
     const restoreScrollTop = panelScrollTopByTab.get(activeTab) ?? previousScrollTop
     requestAnimationFrame(() => { tab.root.scrollTop = restoreScrollTop })
   }
 
 
-  function sidecarAnalysisInProgress(): { messageId?: string; swipeId?: number; startedAt: number } | null {
+  type AnalysisNotice = { taskId: string; messageId?: string; swipeId?: number; startedAt: number; statusText?: string; phaseStartedAt?: number }
+  function sidecarAnalysisInProgress(): AnalysisNotice | null {
     if (!activeChatId) return null
     // Logs are historical evidence, not a live-work signal. A missing terminal
     // log used to resurrect the Orb on an unrelated user send, including after
@@ -5025,12 +4906,15 @@ export function setup(ctx: SpindleFrontendContext) {
         && item.source === 'analysis'
         && !['completed', 'failed', 'cancelled'].includes(item.stage))
       .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+    if (active && pendingProseAction?.chatId === activeChatId) pendingProseAction = null
     return active
-      ? { messageId: active.requestId, startedAt: active.startedAt || active.createdAt }
-      : null
+      ? { taskId: active.id, messageId: active.requestId, startedAt: active.startedAt || active.createdAt, statusText: active.statusText, phaseStartedAt: active.phaseStartedAt }
+      : pendingProseAction?.chatId === activeChatId
+        ? { taskId: pendingProseAction.requestId, startedAt: pendingProseAction.startedAt, statusText: 'Planning requested — waiting for Relay' }
+        : null
   }
 
-  function renderSidecarAnalyzingIndicator(state: { messageId?: string; swipeId?: number; startedAt: number }): HTMLElement {
+  function renderSidecarAnalyzingIndicator(state: AnalysisNotice): HTMLElement {
     const row = document.createElement('div')
     row.className = 'dg-sidecar-indicator'
     row.dataset.dgirSidecarElapsed = 'inline'
@@ -5038,12 +4922,18 @@ export function setup(ctx: SpindleFrontendContext) {
     return row
   }
 
-  function updateSidecarElapsedText(node: HTMLElement, state: { messageId?: string; swipeId?: number; startedAt: number }, label: string): void {
+  function updateSidecarElapsedText(node: HTMLElement, state: AnalysisNotice, label: string): void {
     const elapsed = Math.max(0, Math.round((Date.now() - state.startedAt) / 1000))
-    const scope = `${state.messageId ? ` · ${state.messageId}` : ''}${state.swipeId !== undefined ? ` · swipe ${state.swipeId}` : ''}`
-    const detail = `${label}${scope} · ${elapsed}s`
+    const scope = `${state.messageId ? ` · message ${state.messageId.slice(0, 8)}` : ''}${state.swipeId !== undefined ? ` · swipe ${state.swipeId}` : ''}`
+    const phase = state.phaseStartedAt ? ` · ${Math.max(0, Math.round((Date.now() - state.phaseStartedAt) / 1000))}s this stage` : ''
+    const detail = `${state.statusText || label}${scope} · ${elapsed}s total${phase}`
+    node.title = `${state.messageId ? `Analysis for message ${state.messageId}` : 'Relay illustration analysis'} · ${detail}`
     const detailNode = node.querySelector<HTMLElement>('.dg-sidecar-global-detail')
-    if (detailNode) detailNode.textContent = detail
+    if (detailNode) {
+      detailNode.textContent = state.statusText || 'Analyzing illustrations'
+      const timing = node.querySelector<HTMLElement>('.dg-sidecar-global-timing')
+      if (timing) timing.textContent = `${elapsed}s total${phase}`
+    }
     else node.textContent = detail
   }
 
@@ -5052,26 +4942,47 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!state) {
       sidecarNoticeEl?.remove()
       sidecarNoticeEl = null
+      removeEmptyToastStack()
+      return
+    }
+    for (const row of document.querySelectorAll<HTMLElement>('[data-dgir-sidecar-elapsed]')) {
+      updateSidecarElapsedText(row, state, 'Relay analyzing message')
+    }
+    const noticeKey = `${activeChatId}:${state.taskId}:${state.startedAt}`
+    if (dismissedSidecarNotices.has(noticeKey)) {
+      sidecarNoticeEl?.remove()
+      sidecarNoticeEl = null
+      removeEmptyToastStack()
       return
     }
     if (!sidecarNoticeEl) {
       sidecarNoticeEl = document.createElement('div')
-      sidecarNoticeEl.className = 'dg-sidecar-global-notice'
+      sidecarNoticeEl.className = 'dg-toast dg-sidecar-global-notice'
       sidecarNoticeEl.setAttribute('role', 'status')
       sidecarNoticeEl.setAttribute('aria-live', 'polite')
-      const dot = document.createElement('span'); dot.className = 'dg-sidecar-global-dot'
-      const title = document.createElement('span'); title.className = 'dg-sidecar-global-title'; title.textContent = 'Extension'
-      const separator = document.createElement('span'); separator.className = 'dg-sidecar-global-separator'; separator.textContent = '•'
+      const copy = document.createElement('span'); copy.className = 'dg-toast-copy'
       const detail = document.createElement('span'); detail.className = 'dg-sidecar-global-detail'
+      const timing = document.createElement('span'); timing.className = 'dg-sidecar-global-timing'; timing.setAttribute('aria-hidden', 'true')
+      copy.append(detail, timing)
       const bar = document.createElement('span'); bar.className = 'dg-sidecar-global-bar'
       const fill = document.createElement('span'); fill.className = 'dg-sidecar-global-fill'; bar.appendChild(fill)
-      sidecarNoticeEl.append(dot, title, separator, detail, bar)
-      document.body.appendChild(sidecarNoticeEl)
+      const dismiss = document.createElement('button')
+      dismiss.type = 'button'; dismiss.className = 'dg-toast-dismiss'; dismiss.textContent = '×'
+      dismiss.setAttribute('aria-label', 'Dismiss analysis notification')
+      dismiss.title = 'Hide this notification; analysis continues.'
+      dismiss.addEventListener('click', () => {
+        const key = sidecarNoticeEl?.dataset.analysisKey
+        if (key) dismissedSidecarNotices.add(key)
+        if (dismissedSidecarNotices.size > 64) dismissedSidecarNotices.delete(dismissedSidecarNotices.values().next().value!)
+        sidecarNoticeEl?.remove()
+        sidecarNoticeEl = null
+        removeEmptyToastStack()
+      })
+      sidecarNoticeEl.append(copy, dismiss, bar)
+      ensureToastStack().prepend(sidecarNoticeEl)
     }
+    sidecarNoticeEl.dataset.analysisKey = noticeKey
     updateSidecarElapsedText(sidecarNoticeEl, state, 'Relay is analyzing this message')
-    for (const row of document.querySelectorAll<HTMLElement>('[data-dgir-sidecar-elapsed]')) {
-      updateSidecarElapsedText(row, state, 'Relay analyzing message')
-    }
   }
 
   function updateSidecarTicker(): void {
@@ -5118,9 +5029,7 @@ export function setup(ctx: SpindleFrontendContext) {
       orb.type = 'button'
       orb.className = 'dg-relay-orb'
       orb.dataset.reverieRelayOrbOwner = documentRuntimeOwnerId
-      orb.innerHTML = '<span class="dg-relay-orb-mark" aria-hidden="true">R&sup3;</span><span class="dg-relay-orb-icon" aria-hidden="true"></span><span class="dg-relay-orb-badge" hidden></span><span class="dg-relay-orb-status" aria-live="polite"></span>'
-      orb.setAttribute('aria-label', 'Reparse and regenerate image slots in the latest message')
-      orb.title = 'Relay Orb: generate replacement candidates'
+      orb.innerHTML = '<span class="dg-relay-orb-mark" aria-hidden="true">R&sup3;</span><span class="dg-relay-orb-icon" aria-hidden="true"></span><span class="dg-relay-orb-status" aria-live="polite"></span>'
       const start = { x: 0, y: 0, left: 0, top: 0 }
       let pointerId = -1
       let dragging = false
@@ -5137,8 +5046,8 @@ export function setup(ctx: SpindleFrontendContext) {
         start.x = event.clientX
         start.y = event.clientY
         const viewport = orbViewportSize()
-        start.left = (Number.parseFloat(orb.style.left) || rect.left) - viewport.offsetLeft
-        start.top = (Number.parseFloat(orb.style.top) || rect.top) - viewport.offsetTop
+        start.left = rect.left - viewport.offsetLeft
+        start.top = rect.top - viewport.offsetTop
         dragging = false
         moved = false
         relayOrbIsDragging = false
@@ -5237,25 +5146,28 @@ export function setup(ctx: SpindleFrontendContext) {
     const busy = candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing') || records.some(record => isGenerationActiveStatus(record.status))
     const scanning = rescanInProgress
     const sidecarAnalyzing = sidecarAnalysisInProgress()
+    const relayPlanned = currentProseSettings().mode === 'relay-planned'
     const ready = candidateBatches.reduce((sum, batch) => sum + (batch.chatId === activeChatId && batch.status === 'review' ? batch.candidates.filter(candidate => candidate.status === 'ready').length : 0), 0)
     const failed = records.some(record => record.status === 'failed')
     relayOrbStatus = scanning ? 'scanning' : busy ? 'generating' : sidecarAnalyzing ? 'analyzing' : ready ? 'ready' : failed ? 'failed' : records.length ? 'idle' : 'empty'
     relayOrb.disabled = false
     relayOrb.setAttribute('aria-disabled', 'false')
     relayOrb.setAttribute('aria-busy', String(scanning || busy || Boolean(sidecarAnalyzing)))
+    relayOrb.setAttribute('aria-label', relayPlanned ? 'Analyze the latest response and generate illustrations' : 'Scan the active chat for image slots')
     const design = config?.orbDesign || 'classic'
+    const size = orbSizePreview ?? normalizeOrbSizePx(config?.orbSizePx, config?.orbSize)
+    relayOrb.style.setProperty('--dg-relay-orb-size', `${size}px`)
+    const mark = relayOrb.querySelector<HTMLElement>('.dg-relay-orb-mark')
+    if (mark && mark.dataset.design !== design) {
+      mark.dataset.design = design
+      mark.innerHTML = design === 'star' ? ORB_STAR_SVG : 'R&sup3;'
+    }
     const imageIcon = imageOrbDesignUrl(design)
     relayOrb.style.setProperty('--dg-relay-orb-icon', imageIcon ? `url("${imageIcon}")` : 'none')
     relayOrb.className = `dg-relay-orb dg-relay-orb-${relayOrbStatus} dg-relay-orb-size-${config?.orbSize || 'medium'} dg-relay-orb-design-${design}${imageIcon ? ' dg-relay-orb-image-design' : ''}${document.querySelector('.dg-modal-host') ? ' dg-relay-orb-modal-suppressed' : ''}`
-    const badge = relayOrb.querySelector<HTMLElement>('.dg-relay-orb-badge')
-    if (badge) {
-      const label = scanning ? '…' : busy ? generatingBadgeText() : sidecarAnalyzing ? '…' : ready ? String(ready) : ''
-      badge.hidden = !label
-      badge.textContent = label
-    }
     const status = relayOrb.querySelector<HTMLElement>('.dg-relay-orb-status')
     if (status) status.textContent = relayOrbStatusLabel(relayOrbStatus, ready)
-    relayOrb.title = scanning ? 'Scanning the active chat' : busy ? 'Generating Relay candidates' : sidecarAnalyzing ? 'Relay analyzing message' : ready ? `${ready} Relay candidates awaiting review` : 'Tap to scan the active chat'
+    relayOrb.title = scanning ? 'Scanning the active chat' : busy ? 'Generating Relay candidates' : sidecarAnalyzing ? 'Relay analyzing message' : ready ? `${ready} Relay candidates awaiting review` : relayPlanned ? 'Tap to analyze the latest response and generate illustrations' : 'Tap to scan the active chat'
     if (!relayOrbIsDragging) applyOrbPosition()
   }
 
@@ -5288,6 +5200,21 @@ export function setup(ctx: SpindleFrontendContext) {
 
   async function scanFromOrb(): Promise<void> {
     if (!activeChatId || rescanInProgress) return
+    if (currentProseSettings().mode === 'relay-planned') {
+      if (sidecarAnalysisInProgress() || records.some(record => isGenerationActiveStatus(record.status))
+        || candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing')) return
+      if (!currentProseSettings().plannerConnectionId) {
+        showToast('warning', 'Choose a Relay Planned connection before analyzing and generating illustrations.')
+        return
+      }
+      // Reuse the count-aware manual pipeline: Director analysis followed by
+      // generation/placement, not the scan-only historical-slot recovery path.
+      lastStatus = 'Analyzing the latest response and generating illustrations…'
+      sendProseAction({ action: 'relay_plan_once' })
+      renderPanel()
+      renderRelayOrb()
+      return
+    }
     lastStatus = 'Scanning the active chat…'
     rescanChat()
     renderRelayOrb()
@@ -5309,6 +5236,7 @@ export function setup(ctx: SpindleFrontendContext) {
     menu.className = 'dg-router-panel dg-menu'
     const actions: Array<[string, () => void, boolean, string?]> = [
       ['Scan Relay Slots', rescanChat, !activeChatId || rescanInProgress],
+      ['Rescan for Appearance', () => { if (activeChatId) ctx.sendToBackend({ type: 'continuity_action', chatId: activeChatId, action: 'rescan_appearance' }) }, !activeChatId],
       ['Reparse Slots', () => void reparseChatSlotsFromOrb(), !activeChatId],
       ['Generate Replacement Candidates', () => void startRelayBatchFromOrb(), !activeChatId],
       ['Open Surface Registry', () => { activeTab = 'surfaces'; tab.activate(); renderPanel() }, false],
@@ -5383,31 +5311,28 @@ export function setup(ctx: SpindleFrontendContext) {
   function applyOrbPosition(): void {
     if (!relayOrb) return
     const pos = currentOrbPosition()
-    const width = relayOrb.offsetWidth || 52
-    const height = relayOrb.offsetHeight || 52
+    const { width, height } = orbScreenMetrics()
     const viewport = orbViewportSize()
     setOrbPixelPosition(pos.x * (viewport.width - width), pos.y * (viewport.height - height))
   }
 
   function setOrbPixelPosition(left: number, top: number): void {
     if (!relayOrb) return
-    const width = relayOrb.offsetWidth || 52
-    const height = relayOrb.offsetHeight || 52
+    const { width, height, scaleX, scaleY } = orbScreenMetrics()
     const viewport = orbViewportSize()
     const clampedLeft = Math.max(0, Math.min(Math.max(0, viewport.width - width), left))
     const clampedTop = Math.max(0, Math.min(Math.max(0, viewport.height - height), top))
-    relayOrb.style.left = `${Math.round(clampedLeft + viewport.offsetLeft)}px`
-    relayOrb.style.top = `${Math.round(clampedTop + viewport.offsetTop)}px`
+    relayOrb.style.left = `${(clampedLeft + viewport.offsetLeft) / scaleX}px`
+    relayOrb.style.top = `${(clampedTop + viewport.offsetTop) / scaleY}px`
     relayOrb.style.transform = ''
   }
 
   function persistOrbPosition(): void {
     if (!relayOrb || !config) return
     const viewport = orbViewportSize()
-    const width = relayOrb.offsetWidth || 52
-    const height = relayOrb.offsetHeight || 52
-    const left = (Number.parseFloat(relayOrb.style.left) || relayOrb.getBoundingClientRect().left) - viewport.offsetLeft
-    const top = (Number.parseFloat(relayOrb.style.top) || relayOrb.getBoundingClientRect().top) - viewport.offsetTop
+    const { rect, width, height } = orbScreenMetrics()
+    const left = rect.left - viewport.offsetLeft
+    const top = rect.top - viewport.offsetTop
     const x = Math.max(0, Math.min(1, left / Math.max(1, viewport.width - width)))
     const y = Math.max(0, Math.min(1, top / Math.max(1, viewport.height - height)))
     if (isCompactViewport()) {
@@ -5416,6 +5341,21 @@ export function setup(ctx: SpindleFrontendContext) {
     } else {
       config = { ...config, orbPositionDesktop: { x, y } }
       patchConfig({ orbPositionDesktop: { x, y } })
+    }
+  }
+
+  function orbScreenMetrics() {
+    const rect = relayOrb!.getBoundingClientRect()
+    const layoutWidth = relayOrb!.offsetWidth || 52
+    const layoutHeight = relayOrb!.offsetHeight || 52
+    // Host CSS zoom scales fixed positioning too. Keep pointers, bounds and
+    // saved ratios in screen coordinates; convert only CSS left/top writes.
+    return {
+      rect,
+      width: rect.width || layoutWidth,
+      height: rect.height || layoutHeight,
+      scaleX: rect.width > 0 ? rect.width / layoutWidth : 1,
+      scaleY: rect.height > 0 ? rect.height / layoutHeight : 1,
     }
   }
 
@@ -5434,13 +5374,6 @@ export function setup(ctx: SpindleFrontendContext) {
     if (config) config = { ...config, ...patch }
     patchConfig(patch)
     if (!relayOrbIsDragging) applyOrbPosition()
-  }
-
-  function generatingBadgeText(): string {
-    const batch = candidateBatches.find(item => item.chatId === activeChatId && item.status === 'processing')
-    if (!batch) return ''
-    const done = batch.candidates.filter(candidate => ['ready', 'failed', 'unavailable', 'discarded', 'replaced'].includes(candidate.status)).length
-    return `${done}/${batch.candidates.length}`
   }
 
   function relayOrbStatusLabel(status: typeof relayOrbStatus, ready: number): string {
@@ -5593,7 +5526,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const counts = countStatuses()
     const recovered = records.filter(record => record.status === 'recovered-pending').length
     const retryableFailed = records.filter(record => record.status === 'failed' && canReparse(record)).length
-    const activeWork = records.some(record => canAbortSlotStatus(record.status)) || candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing')
+    const activeWork = Boolean(sidecarAnalysisInProgress()) || records.some(record => canAbortSlotStatus(record.status)) || candidateBatches.some(batch => batch.chatId === activeChatId && batch.status === 'processing')
     const head = document.createElement('header')
     head.className = 'dg-head dg-suite-head'
     const top = document.createElement('div')
@@ -5634,7 +5567,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (reviewBatch) headerActions.appendChild(button('Review Candidates', () => openRelayCandidateReview(reviewBatch), false, 'primary'))
     headerActions.append(
       button(rescanInProgress ? 'Scanning…' : 'Rescan', rescanChat, !activeChatId || rescanInProgress, 'subtle', 'Find semantic image requests missing from Relay state.'),
-      button('Abort All', abortActiveGeneration, !activeChatId || !activeWork, 'danger', activeWork ? 'Cancel queued, waiting, and active Relay work.' : 'No active generation to abort.'),
+      button(abortRequestPending ? 'Stopping…' : 'Abort All', abortActiveGeneration, abortRequestPending || !activeChatId || !activeWork, 'danger', activeWork ? 'Cancel queued, waiting, and active Relay work.' : 'No active generation to abort.'),
       button('Retry Failed', () => activeChatId && ctx.sendToBackend({ type: 'retry_failed', chatId: activeChatId }), retryableFailed === 0, 'subtle', retryableFailed ? '' : 'No retryable failures.'),
     )
     top.append(brand, headerActions)
@@ -5673,12 +5606,11 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function suiteSectionForTab(value: DrawerTab): SuiteSection {
-    if (value === 'illustrator' || value === 'recipes') return 'illustrator'
-    if (value === 'surfaces' || value === 'surface-library' || value === 'surface-presets' || value === 'utility-studio') return 'surfaces'
+    if (value === 'illustrator' || value === 'illustration-controls' || value === 'recipes') return 'illustrator'
+    if (['surfaces', 'surface-library', 'surface-narratives', 'surface-advanced', 'surface-presets', 'utility-studio'].includes(value)) return 'surfaces'
     if (value === 'genetics') return 'memory'
     if (value === 'history') return 'archive'
     if (value === 'phone') return 'phone'
-    if (value.startsWith('story-')) return 'story'
     if (value === 'settings' || value === 'manual' || value === 'logs') return 'settings'
     return 'relay'
   }
@@ -5688,7 +5620,6 @@ export function setup(ctx: SpindleFrontendContext) {
       : section === 'surfaces' ? 'surface-library'
         : section === 'memory' ? 'genetics'
           : section === 'archive' ? 'history'
-          : section === 'story' ? 'story-constellations'
             : section === 'phone' ? 'phone'
             : section === 'settings' ? 'settings'
               : 'slots'
@@ -5766,7 +5697,6 @@ export function setup(ctx: SpindleFrontendContext) {
       { id: 'illustrator', icon: 'square-sparkles', label: 'Illustrations' },
       { id: 'surfaces', icon: 'layers', label: 'Surfaces' },
       { id: 'memory', icon: 'venetian-mask', label: 'Appearance' },
-      { id: 'story', icon: 'book-open', label: 'Story' },
       { id: 'phone', icon: 'smartphone', label: 'Phone' },
       { id: 'archive', icon: 'archive', label: 'Archive' },
       { id: 'settings', icon: 'settings', label: 'Settings' },
@@ -5791,10 +5721,9 @@ export function setup(ctx: SpindleFrontendContext) {
 
     const secondaryMap: Record<SuiteSection, Array<[DrawerTab, string]>> = {
       relay: [['slots', 'Slots']],
-      illustrator: [['illustrator', 'Illustrations'], ['recipes', 'Profiles']],
-      surfaces: [['surface-library', 'Library'], ['surfaces', 'Creator'], ['surface-presets', 'Presets'], ['utility-studio', 'Injection']],
+      illustrator: [['illustrator', 'Illustrations'], ['illustration-controls', 'Image Controls'], ['recipes', 'Profiles']],
+      surfaces: [['surface-library', 'Apps & UIs'], ['surface-narratives', 'Narratives'], ['surface-advanced', 'Advanced']],
 memory: [['genetics', 'Appearance Memory']],
-      story: [['story-constellations', 'Constellations'], ['story-reel', 'Story Reel']],
       phone: [['phone', 'Phone & Settings']],
       archive: [['history', 'Images & Versions']],
       settings: [['settings', 'Configuration'], ['logs', 'Diagnostics'], ['manual', 'Guide']],
@@ -5804,7 +5733,9 @@ memory: [['genetics', 'Appearance Memory']],
     for (const [id, label] of secondaryMap[currentSection]) {
       const btn = document.createElement('button')
       btn.type = 'button'
-      btn.className = `dg-suite-secondary-tab${activeTab === id ? ' is-active' : ''}`
+      const selected = activeTab === id || (id === 'surface-advanced' && ['surfaces', 'surface-presets', 'utility-studio'].includes(activeTab))
+      btn.className = `dg-suite-secondary-tab${selected ? ' is-active' : ''}`
+      btn.setAttribute('aria-selected', String(selected))
       btn.textContent = label
       btn.addEventListener('click', () => {
         panelScrollTopByTab.set(activeTab, tab.root.scrollTop)
@@ -6167,7 +6098,10 @@ memory: [['genetics', 'Appearance Memory']],
     const box = document.createElement('div')
     const settings = currentProseSettings()
     const plans = Object.values(proseIllustrator.plans || {}).filter(plan => plan.chatId === activeChatId).sort((a, b) => b.planningTimestamp - a.planningTimestamp)
-    const recordsForChat = Object.values(proseIllustrator.records || {}).filter(record => proseIllustrator.plans[record.planId]?.chatId === activeChatId).sort((a, b) => b.createdAt - a.createdAt)
+    // Both workflows own prose illustration slots. Planner-only records omit
+    // Story Model requests and may duplicate the corresponding slot record.
+    const trackedIllustrations = records.filter(record => record.chatId === activeChatId && record.target === 'prose.illustration')
+    const generatedIllustrations = displayRecords().filter(record => record.chatId === activeChatId && record.target === 'prose.illustration' && record.status === 'completed')
 
     const modeControls = document.createElement('div')
     modeControls.className = 'dg-illustrator-mode-grid dg-choice-compact dg-prose-mode-selector'
@@ -6240,13 +6174,16 @@ memory: [['genetics', 'Appearance Memory']],
 
     const chips = document.createElement('div')
     chips.className = 'dg-status-chips'
+    const illustrationCountLabel = settings.modelPlacedCountMode === 'range'
+      ? `${settings.minimumImages}–${settings.maximumImages}`
+      : String(settings.illustrationsPerRun || 1)
     chips.append(
       chip(settings.mode === 'relay-planned' ? 'Relay-Planned' : settings.mode === 'inline-protocol' || settings.mode === 'model-placed' ? 'Model Planned' : 'Off', settings.mode === 'off' ? '' : 'completed'),
-      chip(`${settings.illustrationsPerRun || 1} per response`, ''),
+      chip(`${illustrationCountLabel} per response`, ''),
       chip(settings.promptFormat === 'danbooru-tags' ? 'Booru Tags' : 'Natural Language', ''),
       chip(settings.frequencyMode.replace(/-/g, ' '), ''),
       chip(settings.defaultAspectRatio, ''),
-      chip(`${recordsForChat.length} generated`, ''),
+      chip(`${generatedIllustrations.length} generated`, ''),
     )
     const actions = document.createElement('div')
     actions.className = 'dg-actions dg-primary-actions dg-illustrator-overview-actions'
@@ -6256,7 +6193,7 @@ memory: [['genetics', 'Appearance Memory']],
       const readyPlan = plans.find(plan => plan.status === 'ready' && !proseIllustrator.records[plan.planId])
       actions.append(
         button(settings.paused ? 'Resume Relay-Planned' : 'Pause Relay-Planned', () => sendProseAction({ action: settings.paused ? 'resume_auto' : 'pause_auto' }), !activeChatId, settings.paused ? 'primary' : 'subtle'),
-        button('Plan Latest Once', () => sendProseAction({ action: 'plan_latest' }), !activeChatId || !settings.plannerConnectionId, 'primary'),
+        button('Plan Latest Once', () => sendProseAction({ action: 'relay_plan_once' }), !activeChatId || !settings.plannerConnectionId || Boolean(sidecarAnalysisInProgress()), 'primary'),
         button('Relay-Planned Dry Run', () => void fetchNativeSettingsSnapshot(true).then(snapshot => ctx.sendToBackend({
           type: 'dry_run', chatId: activeChatId, kind: 'relay-planned',
           nativeImageSettings: snapshot?.settings, nativeSettingsCapturedAt: snapshot?.capturedAt,
@@ -6281,7 +6218,7 @@ memory: [['genetics', 'Appearance Memory']],
     const explanation = document.createElement('div')
     explanation.className = 'dg-recovery-note'
     explanation.textContent = settings.mode === 'relay-planned'
-      ? `Relay independently chooses up to ${settings.illustrationsPerRun || 1} distinct moments and ${settings.relayInsertionMode === 'review' ? 'waits for approval before insertion' : 'inserts finished images automatically'}.`
+      ? `Relay selects ${settings.modelPlacedCountMode === 'range' ? `${illustrationCountLabel} (inclusive)` : `exactly ${illustrationCountLabel}`} distinct source-grounded moments per selected response and ${settings.relayInsertionMode === 'review' ? 'waits for approval before insertion' : 'inserts finished images automatically'}. Any validation shortfall is reported rather than filled with invented or duplicate shots.`
       : settings.mode === 'inline-protocol' || settings.mode === 'model-placed'
         ? 'The Story Model writes one complete request in its exact prose position. Relay parses that same canonical request and dispatches it automatically only when Auto Generate is enabled.'
         : 'The Illustrator is disabled.'
@@ -6339,7 +6276,7 @@ memory: [['genetics', 'Appearance Memory']],
     )
     advanced.append(advancedSummary, advancedActions)
     box.appendChild(advanced)
-    box.appendChild(panelSection('Chat Cleanup', renderChatMediaCleanup('illustrations', recordsForChat.length)))
+    box.appendChild(panelSection('Chat Cleanup', renderChatMediaCleanup('illustrations', trackedIllustrations.length)))
     return box
   }
 
@@ -6717,9 +6654,13 @@ memory: [['genetics', 'Appearance Memory']],
     essentials.append(prosePlannerSelect(settings), plannerModelControl(settings), surfaceRepairConnectionField())
     if (settings.mode === 'inline-protocol' || settings.mode === 'model-placed') {
       essentials.append(toggleCard('Illustration Runtime Contract', 'Model Planned sends the configured protocol, exact count/range, aspect policy, and framing to the Story Model through the final prompt path.', true, () => patchProseSettings({ automaticProtocolInjection: true })))
+    }
+    if (['inline-protocol', 'model-placed', 'relay-planned'].includes(settings.mode)) {
       essentials.append(toggleCard(
         'Instant',
-        'Off: keep the normal Status Card flow and wait for the response to finish. On: dispatch each complete Model Planned request as soon as it streams. Auto Generate still controls provider dispatch; image placement remains Relay-managed.',
+        settings.mode === 'relay-planned'
+          ? 'Generate complete Surface image requests while the response streams, and start Relay analysis from completed prose paragraphs. Relay checks the saved story before generating its inline illustrations. Auto Generate must be on. Off: wait for the response to finish.'
+          : 'Dispatch each complete Story Model image request while the response is streaming. Incomplete requests wait. Auto Generate controls image dispatch; image placement remains Relay-managed. This preference is kept when you switch modes.',
         settings.instantIllustrationDispatch,
         checked => patchProseSettings({ instantIllustrationDispatch: checked }),
       ))
@@ -6740,37 +6681,42 @@ memory: [['genetics', 'Appearance Memory']],
       )
       essentials.append(range)
     } else {
-      essentials.append(numberInput('Illustrations per Response', settings.illustrationsPerRun || 1, 1, 32, value => patchProseSettings({ illustrationsPerRun: value, maximumIllustrationsPerMessage: Math.max(value, settings.maximumIllustrationsPerMessage) })))
+      essentials.append(describedField(numberInput('Illustrations per Response', settings.illustrationsPerRun || 1, 1, 32, value => patchProseSettings({ illustrationsPerRun: value, maximumIllustrationsPerMessage: Math.max(value, settings.maximumIllustrationsPerMessage) })), 'How many inline images to request for each illustrated response. Opening Frame adds one extra image.'))
     }
     essentials.append(
-      numberInput('Maximum Characters in Image · Hard Limit', settings.maximumCharacters, 1, 8, value => patchProseSettings({ maximumCharacters: value })),
+      numberInput(settings.mode === 'inline-protocol' ? 'Character Count Target · Story Model' : 'Maximum Characters in Image · Hard Limit', settings.maximumCharacters, 1, 8, value => patchProseSettings({ maximumCharacters: value })),
       selectField('Image Size', settings.imageSize || 'medium', [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['full', 'Full Width']], value => patchProseSettings({ imageSize: value as ProseIllustratorSettings['imageSize'] })),
       selectField('Candidate Count per Illustration', String(settings.defaultCandidateCount), [['1', '1'], ['2', '2'], ['4', '4']], value => patchProseSettings({ defaultCandidateCount: Number(value) as 1 | 2 | 4 })),
       selectField('Frequency', settings.frequencyMode, [['key-moments', 'Key Moments'], ['every-eligible', 'Every Eligible Message'], ['every-n', 'Every N Eligible Messages']], value => patchProseSettings({ frequencyMode: value as ProseIllustratorSettings['frequencyMode'] })),
     )
+    if (settings.mode === 'inline-protocol') essentials.append(panelText('Guides the Story Model when choosing a shot. If its authored request needs more people, Relay preserves that cast and records a warning instead of rejecting the image or dropping someone.'))
     if (settings.frequencyMode === 'every-n') essentials.append(numberInput('Every N Eligible Messages', settings.everyNEligibleMessages, 1, 100, value => patchProseSettings({ everyNEligibleMessages: value })))
     const framingModes = document.createElement('div')
     framingModes.className = 'dg-illustrator-mode-grid dg-choice-compact dg-choice-six'
     const framingOptions: Array<{ id: ProseIllustratorSettings['perspectiveMode']; label: string; tooltip: string }> = [
+      { id: 'scene-flow', label: 'Scene Flow', tooltip: 'Selects Scene Snapshot, Blocking Fidelity or Dreamcut for each image while preserving its story anchor and cast.' },
+      { id: 'dreamcut', label: 'Dreamcut', tooltip: 'A source-established object, environment, reflection or limited-detail cutaway; never an invented symbolic scene.' },
       { id: 'scene-snapshot', label: 'Scene Snapshot', tooltip: 'Frames one readable moment from the current scene, including its setting, action, and visible subjects.' },
       { id: 'sequence', label: 'Sequence', tooltip: 'Treats the image as the next shot in an ongoing visual sequence while preserving continuity.' },
       { id: 'emotional-beat', label: 'Emotional Beat', tooltip: 'Centers the scene’s strongest emotional reaction, gesture, expression, or relationship beat.' },
       { id: 'solo-scene', label: 'Char only', tooltip: 'Shows exactly one selected character in the current scene; no other people appear in the frame.' },
       { id: 'persona-pov', label: 'Persona POV', tooltip: 'The active chat Persona is the in-world camera. Visible subjects meet the lens only when interacting with that Persona.' },
       { id: 'storyboard', label: 'Storyboard', tooltip: 'Requires each image prompt to depict the exact action in its anchored story paragraph—not just the characters, outfits, or mood.' },
+      { id: 'blocking-fidelity', label: 'Blocking Fidelity', tooltip: 'Experimental: prioritizes story-faithful postures and contacts, with each person’s appearance, attire and action kept in one owner block.' },
     ]
     for (const option of framingOptions) {
+      const choice = document.createElement('div')
+      choice.className = 'dg-framing-choice'
       const control = document.createElement('button')
       control.type = 'button'
       control.className = `dg-illustrator-mode-card${settings.perspectiveMode === option.id ? ' is-active' : ''}`
       control.setAttribute('aria-pressed', String(settings.perspectiveMode === option.id))
       control.setAttribute('aria-label', `${option.label}: ${option.tooltip}`)
-      control.title = option.tooltip
       const title = document.createElement('strong'); title.textContent = option.label
-      const help = document.createElement('small'); help.textContent = option.tooltip
-      control.append(title, help)
+      control.append(title)
       control.addEventListener('click', () => patchProseSettings({ perspectiveMode: option.id, adaptiveMode: option.id === 'solo-scene' || option.id === 'persona-pov' ? false : settings.adaptiveMode }))
-      framingModes.appendChild(control)
+      choice.append(control, helpTip(option.label, option.tooltip))
+      framingModes.appendChild(choice)
     }
     if (settings.perspectiveMode === 'solo-scene') essentials.append(textareaInput('Character Override · optional', settings.characterOnlySubjects || '', value => patchProseSettings({ characterOnlySubjects: value.split(/[,\n]/)[0]?.trim() || '' })))
     essentials.append(
@@ -6780,6 +6726,7 @@ memory: [['genetics', 'Appearance Memory']],
     essentials.append(
       selectField('Appearance Sidecar Source', settings.useGlobalAppearanceSidecar !== false ? 'global' : 'override', [['global', 'Use Global Sidecar'], ['override', 'Use Illustrator Override']], value => patchProseSettings({ useGlobalAppearanceSidecar: value === 'global' })),
     )
+    essentials.append(appearanceUpdateControls())
     if (settings.useGlobalAppearanceSidecar === false) {
       essentials.append(selectField('Appearance Sidecar Connection', settings.appearanceSidecarConnectionId || '', [['', 'Use Global Connection'], ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string])], value => {
         const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || ''
@@ -6816,6 +6763,8 @@ memory: [['genetics', 'Appearance Memory']],
       button('View Final Prompt', () => openFinalPromptPreview(settings), false, 'subtle'),
       resettableTextareaInput('Positive Prompt Prefix', settings.customPromptPrefix || '', '', value => patchProseSettings({ customPromptPrefix: value })),
       resettableTextareaInput('Negative Prompt Prefix', settings.customNegativePrefix || '', '', value => patchProseSettings({ customNegativePrefix: value })),
+      toggleCard('NSFW Planner Guidance', 'Injects the editable text below into illustration planner instructions only. It is never appended to the final image prompt.', settings.nsfwPlannerEnabled, checked => patchProseSettings({ nsfwPlannerEnabled: checked })),
+      resettableTextareaInput('NSFW Planner Text', settings.nsfwPlannerText ?? DEFAULT_NSFW_PLANNER_TEXT, DEFAULT_NSFW_PLANNER_TEXT, value => patchProseSettings({ nsfwPlannerText: value })),
       toggleCard('Remove Generic Style Boilerplate', 'Keeps the selected visual beat clean and lets the Prompt Profile supply the intended style.', settings.stripGenericStyleBoilerplate, checked => patchProseSettings({ stripGenericStyleBoilerplate: checked })),
     )
 
@@ -6827,50 +6776,62 @@ memory: [['genetics', 'Appearance Memory']],
         ? 'Relay resolves the chat-bound Persona first, then the active host Persona. If neither exists, Persona POV refuses generation. The Persona holds the camera and is not automatically added to the visible cast.'
         : settings.perspectiveMode === 'storyboard'
           ? 'The exact anchored story paragraph must be recognizable from the image prompt itself. Natural Language must describe the event; Booru Tag Mode must use action-bearing tags plus the relevant participants, props, and setting.'
+          : settings.perspectiveMode === 'blocking-fidelity'
+            ? 'Experimental framing. Keeps each person’s position, appearance, current outfit and action together, preserving story-required contact and overlap. Natural Language offers stronger ownership cues than flat tags; neither guarantees correct anatomy.'
           : 'Maximum Characters is validated before generation.'
 
-    const advanced = document.createElement('details')
-    advanced.className = 'dg-illustrator-advanced'
-    advanced.open = illustratorAdvancedOpen
-    advanced.addEventListener('toggle', () => { illustratorAdvancedOpen = advanced.open })
-    const advancedSummary = document.createElement('summary')
-    const advancedTitle = document.createElement('span'); advancedTitle.textContent = 'Advanced Illustrator Controls'
-    const advancedHint = document.createElement('small'); advancedHint.textContent = 'profiles, filtering, reuse, alignment, and diagnostics'
-    advancedSummary.append(advancedTitle, advancedHint)
-    const advancedBody = document.createElement('div')
-    advancedBody.className = 'dg-illustrator-advanced-body'
-    const advancedGrid = document.createElement('div')
-    advancedGrid.className = 'dg-settings-grid'
-    const profiles = (config?.promptProfiles || []).map(profile => [profile.id, `${profile.name}${profile.builtIn ? ' (built-in)' : ''}`]) as Array<[string, string]>
-    if (!profiles.length) profiles.push(['auto', 'Auto'])
-    advancedGrid.append(
-      numberInput('Context Messages', settings.contextMessageCount, 0, 12, value => patchProseSettings({ contextMessageCount: value })),
-      selectField('Prompt Profile', settings.defaultPromptProfileId || 'auto', profiles, value => patchProseSettings({ defaultPromptProfileId: (value || 'auto') as PromptProfileId })),
-      selectField('Image Alignment', settings.imageAlignment || 'center', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']], value => patchProseSettings({ imageAlignment: value as ProseIllustratorSettings['imageAlignment'] })),
-      numberInput('Minimum Message Length', settings.minimumMessageLength, 0, 2000, value => patchProseSettings({ minimumMessageLength: value })),
+    const planningFeatures = document.createElement('div')
+    planningFeatures.className = 'dg-toggle-grid'
+    planningFeatures.append(
+      toggleCard('Sightline Guard', 'Adjust incompatible crops so the anchored action and contact remain visible. Does not change actors or guarantee anatomy.', settings.sightlineGuard !== false, checked => patchProseSettings({ sightlineGuard: checked })),
+      toggleCard('Quickweave', 'Relay only: plan in one pass with less background context and no automatic repair calls. Can reduce planning work, but an incomplete plan is reported instead of retried.', settings.quickweave === true, checked => patchProseSettings({ quickweave: checked })),
+      toggleCard('Portrait Insight', 'Use a vision-capable illustration planner to fill missing hair, eye and other stable traits from character avatars. Results are cached and do not overwrite your Appearance sheet.', settings.portraitInsight === true, checked => patchProseSettings({ portraitInsight: checked })),
+      toggleCard('Opening Frame', 'Add a designed cover card with its own artwork and title above the first paragraph. Your requested inline illustrations are additional.', settings.openingFrame === true, checked => patchProseSettings({ openingFrame: checked })),
+      toggleCard('Adaptive Framing', 'Let the illustration planner adjust the shot where supported. Scene Flow chooses a framing mode for each image; Char only and Persona POV keep their cast/camera constraints.', settings.adaptiveMode, checked => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === 'solo-scene' || settings.perspectiveMode === 'persona-pov'),
     )
-    const advancedToggles = document.createElement('div')
-    advancedToggles.className = 'dg-toggle-grid'
-    advancedToggles.append(
-      toggleCard('Adaptive Framing', 'Lets the configured Sidecar adapt framing guidance where supported. Relay does not deterministically rotate modes; Char only and Persona POV remain fixed constraints.', settings.adaptiveMode, checked => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === 'solo-scene' || settings.perspectiveMode === 'persona-pov'),
-      toggleCard('Reuse Accepted References', '', settings.reuseAcceptedReferences, checked => patchProseSettings({ reuseAcceptedReferences: checked })),
-      toggleCard('Use Location References', '', settings.reuseLocationReferences, checked => patchProseSettings({ reuseLocationReferences: checked })),
-      toggleCard('Show Captions', '', settings.showCaptions, checked => patchProseSettings({ showCaptions: checked })),
-      toggleCard('Reanalyze Edited Messages', '', settings.reanalyzeEditedMessages, checked => patchProseSettings({ reanalyzeEditedMessages: checked })),
-      toggleCard('Skip OOC', '', settings.skipOoc, checked => patchProseSettings({ skipOoc: checked })),
-      toggleCard('Skip Utility Markup', '', settings.skipUtilities, checked => patchProseSettings({ skipUtilities: checked })),
-      toggleCard('Skip Short Messages', '', settings.skipShortMessages, checked => patchProseSettings({ skipShortMessages: checked })),
-      toggleCard('Skip Test Fixtures', '', settings.skipTestFixtures, checked => patchProseSettings({ skipTestFixtures: checked })),
-      toggleCard('High-Resolution Modifier', '', settings.highResolutionModifier, checked => patchProseSettings({ highResolutionModifier: checked })),
-    )
-    advancedBody.append(advancedGrid, advancedToggles)
-    advanced.append(advancedSummary, advancedBody)
 
     const macroOverview = document.createElement('div')
     macroOverview.className = 'dg-recovery-note'
     macroOverview.innerHTML = '<strong>Illustrator Macro</strong><br><code>{{reverie_illustrator}}</code> expands to the active workflow prompt, framing prompt, and live runtime. <code>{{reverie_all}}</code> includes both Illustrator and enabled Surface modules.'
-    wrapper.append(panelSection('Framing Mode', framingModes), essentials, macroOverview, promptControls, explanation, advanced)
+    wrapper.append(panelSection('Framing Mode', framingModes), explanation, panelSection('Scene & Planning Features', planningFeatures), panelSection('Illustration Setup', essentials),
+      button('Image Controls', () => { activeTab = 'illustration-controls'; patchConfig({ lastActiveDrawerTab: activeTab }); renderPanel() }, false, 'subtle', 'Image limits, previous-message context, reference reuse, captions and message filters.'),
+      macroOverview, promptControls)
     return wrapper
+  }
+
+  function renderIllustrationControls(settings: ProseIllustratorSettings): HTMLElement {
+    const box = document.createElement('div')
+    const group = (title: string, description: string, ...controls: HTMLElement[]) => {
+      const grid = document.createElement('div')
+      grid.className = 'dg-settings-grid'
+      grid.append(...controls)
+      box.appendChild(panelSection(title, documentFragment(panelText(description), grid)))
+    }
+    group('Image Limits & Context', 'These options use your existing illustration preferences. Changing them does not generate or remove images.',
+      describedField(numberInput('Total Image Limit per Message', settings.maximumIllustrationsPerMessage, Math.max(1, settings.modelPlacedCountMode === 'range' ? settings.maximumImages : settings.illustrationsPerRun), 32, value => patchProseSettings({ maximumIllustrationsPerMessage: value })), 'Relay planning cap for one saved message and its active swipe, including images and accepted plans already added. Continue appends to the same message and shares this cap; a new reply has a new cap. This is separate from the requested count per response.'),
+      describedField(numberInput('Legacy Planner Context Messages', settings.contextMessageCount, 0, 12, value => patchProseSettings({ contextMessageCount: value })), 'Earlier messages included by the legacy planner/composer paths; 0 excludes earlier messages there. The current Relay Director uses the selected response and latest user scene context instead, so this value does not change its context. It does not change the Story Model’s context window.'),
+    )
+    group('Visual References', 'Reference reuse helps Relay plan continuity. It does not edit Appearance facts or guarantee that the image provider will reproduce an earlier image.',
+      toggleCard('Reuse Reference Images', 'Offer available images from this chat marked as Visual References in the Archive to Relay’s illustration planner. Turning this off does not delete those images.', settings.reuseAcceptedReferences, checked => patchProseSettings({ reuseAcceptedReferences: checked })),
+      toggleCard('Reuse Location References', 'Also offer marked Visual References with location names, so Relay can keep the same place recognizable. This is separate from character Appearance memory.', settings.reuseLocationReferences, checked => patchProseSettings({ reuseLocationReferences: checked })),
+    )
+    const profiles = (config?.promptProfiles || []).map(profile => [profile.id, `${profile.name}${profile.builtIn ? ' (built-in)' : ''}`]) as Array<[string, string]>
+    if (!profiles.length) profiles.push(['auto', 'Auto'])
+    group('Image Presentation', 'These preferences apply to newly planned illustrations; they do not rewrite existing images.',
+      toggleCard('Show Image Captions', 'Include a short title or caption with newly planned illustrations. Captions are displayed with the image, not drawn into its pixels.', settings.showCaptions, checked => patchProseSettings({ showCaptions: checked })),
+      describedField(selectField('Image Alignment', settings.imageAlignment || 'center', [['left', 'Left'], ['center', 'Center'], ['right', 'Right']], value => patchProseSettings({ imageAlignment: value as ProseIllustratorSettings['imageAlignment'] })), 'Where to place the illustration horizontally in the message.'),
+      describedField(selectField('Prompt Profile', settings.defaultPromptProfileId || 'auto', profiles, value => patchProseSettings({ defaultPromptProfileId: (value || 'auto') as PromptProfileId })), 'The image-prompt style profile to request. Auto lets Relay choose a profile for the scene.'),
+      toggleCard('High-Resolution Modifier', 'Add prompt guidance for detail, anatomy and rendering polish. This does not change image dimensions or enable an upscaler.', settings.highResolutionModifier, checked => patchProseSettings({ highResolutionModifier: checked })),
+    )
+    group('Which Messages Relay Illustrates', 'These filters control Relay’s prose analysis. They do not disable image requests inside enabled Surfaces.',
+      toggleCard('Reanalyze Edited Messages', 'Allow Relay to analyze a story message again after its text changes.', settings.reanalyzeEditedMessages, checked => patchProseSettings({ reanalyzeEditedMessages: checked })),
+      toggleCard('Skip OOC', 'Exclude responses containing OOC, out-of-character or system-note markers from Relay planning.', settings.skipOoc, checked => patchProseSettings({ skipOoc: checked })),
+      toggleCard('Skip Utility Markup', 'Exclude Surface and Utility markup from the story text Relay analyzes. Their own image slots still work.', settings.skipUtilities, checked => patchProseSettings({ skipUtilities: checked })),
+      toggleCard('Skip Short Messages', 'Skip Relay planning when the story text has fewer characters than Minimum Message Length below.', settings.skipShortMessages, checked => patchProseSettings({ skipShortMessages: checked })),
+      describedField(numberInput('Minimum Message Length', settings.minimumMessageLength, 0, 2000, value => patchProseSettings({ minimumMessageLength: value })), 'Character threshold used only when Skip Short Messages is on.'),
+      toggleCard('Ignore Debug/Test Messages', 'Skip responses containing development markers such as “debug fixture”, “integration test” or “smoke test”. Disable this when deliberately testing those messages.', settings.skipTestFixtures, checked => patchProseSettings({ skipTestFixtures: checked })),
+    )
+    return box
   }
 
   function prosePlannerSelect(settings: ProseIllustratorSettings): HTMLElement {
@@ -7273,12 +7234,14 @@ memory: [['genetics', 'Appearance Memory']],
 
   function currentProseSettings(): ProseIllustratorSettings {
     const fallback: ProseIllustratorSettings = {
-      enabled: true, automaticProtocolInjection: true, instantIllustrationDispatch: false, mode: 'inline-protocol', promptFormat: 'natural-language', plannerConnectionId: config?.parserConnectionId || null, plannerModel: config?.parserModel || '',
+      enabled: true, automaticProtocolInjection: true, instantIllustrationDispatch: true, mode: 'inline-protocol', promptFormat: 'natural-language', plannerConnectionId: config?.parserConnectionId || null, plannerModel: config?.parserModel || '',
       plannerParameters: {}, contextMessageCount: 4, maximumCharacters: 2, frequencyMode: 'key-moments',
       everyNEligibleMessages: 3, maximumOpportunitiesPerMessage: 3, maximumIllustrationsPerMessage: 3, illustrationsPerRun: 1,
+      sightlineGuard: true, quickweave: false, portraitInsight: false, openingFrame: false,
       minimumImages: 1, maximumImages: 3, modelPlacedCountMode: 'fixed', perspectiveMode: 'scene-snapshot', imageAlignment: 'center', imageSize: 'medium', adaptiveMode: true,
       defaultPromptProfileId: config?.defaultPromptProfileId || 'auto', defaultAspectRatio: 'adaptive', promptRegistry: {}, promptRegistryVersions: { ...DEFAULT_PROMPT_REGISTRY_VERSIONS }, appearanceMemoryEnabled: true, useGlobalAppearanceSidecar: true, appearanceSidecarConnectionId: null, appearanceSidecarModel: '', appearanceSidecarParameters: {},
       customPromptPrefix: '', customNegativePrefix: '', stripGenericStyleBoilerplate: true,
+      nsfwPlannerEnabled: false, nsfwPlannerText: DEFAULT_NSFW_PLANNER_TEXT,
       defaultCandidateCount: config?.defaultCandidateCount || 1, continuityStrength: config?.vaultStrength || 'medium', appearanceMemoryOverride: 'global',
       reuseAcceptedReferences: true, reuseLocationReferences: true, placementPolicy: 'after-beat', relayInsertionMode: 'auto',
       showCaptions: true, autoGenerateRequiresApproval: false, immediateDispatchOnOpportunitySelection: false,
@@ -7318,23 +7281,36 @@ memory: [['genetics', 'Appearance Memory']],
         renderPanel()
       })
     }
-    ctx.sendToBackend({ type: 'set_config', chatId: activeChatId, patch: { proseIllustratorSettings: merged } })
+    ctx.sendToBackend({ type: 'set_config', chatId: activeChatId, patch: { proseIllustratorSettings: settings } })
   }
 
   function sendProseAction(payload: Record<string, unknown>): void {
     if (!activeChatId) return
+    if (['relay_plan_once', 'plan_latest', 'plan_message'].includes(String(payload.action))) {
+      if (sidecarAnalysisInProgress()) return
+      const requestId = `prose-plan:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
+      pendingProseAction = { chatId: activeChatId, requestId, startedAt: Date.now() }
+      payload = { ...payload, requestId }
+      updateSidecarTicker()
+      renderRelayOrb()
+      renderPanel()
+    }
     ctx.sendToBackend({ type: 'prose_illustrator_action', chatId: activeChatId, ...payload })
   }
 
   function abortActiveGeneration(): void {
     if (!activeChatId) return
+    if (abortRequestPending) return
+    abortRequestPending = true
+    lastStatus = 'Stopping Relay work…'
     cancelPendingLifecycleScans()
     ctx.sendToBackend({ type: 'queue_action', chatId: activeChatId, action: 'abort_all' })
-    localSidecarAnalysisStartedAt = 0
+    pendingProseAction = null
     updateSidecarTicker()
     // The backend sends one authoritative abort acknowledgement/notice. Avoid
     // an optimistic toast here; it used to stack on top of that notice.
     renderRelayOrb()
+    renderPanel()
   }
 
   function openDryRunReport(report: DryRunReport): void {
@@ -7697,6 +7673,22 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     modal.root.appendChild(body)
   }
 
+  function appearanceUpdateControls(): HTMLElement {
+    const controls = document.createElement('div')
+    controls.className = 'dg-settings-grid'
+    const interval = normalizeAppearanceUpdateInterval(config?.appearanceUpdateIntervalMessages)
+    controls.append(selectField('Automatic Appearance Updates', interval === 0 ? 'never' : 'every', [
+      ['every', 'Every X story responses'], ['never', 'Never automatically (after setup)'],
+    ], value => patchConfig({ appearanceUpdateIntervalMessages: value === 'never' ? 0 : interval || 1 })))
+    if (interval > 0) controls.append(numberInput('Update Every X Story Responses', interval, 1, MAX_APPEARANCE_UPDATE_INTERVAL,
+      value => patchConfig({ appearanceUpdateIntervalMessages: value }), true))
+    const note = document.createElement('div')
+    note.className = 'dg-recovery-note'
+    note.textContent = 'Applies across chats to Relay and Story Model. Appearance Memory runs once for initial setup, then follows this schedule. Only story responses count; manual rescans always run and restart the interval. Between full scans, illustration planners track explicit outfit and temporary appearance changes separately. The saved Appearance sheet follows this schedule.'
+    controls.append(note)
+    return controls
+  }
+
   function renderGeneticVault(): HTMLElement {
     const box = document.createElement('div')
     const characters = Object.values(continuityVault.characters || {}).sort((a, b) => a.canonicalCharacterName.localeCompare(b.canonicalCharacterName))
@@ -7717,6 +7709,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     contextSummary.className = 'dg-recovery-note'
     contextSummary.textContent = 'Appearance Sidecar maintains stable identity, wardrobe, and current scene state from the active conversation and bound native identity context. Current-scene details always win; every field remains manually editable.'
     box.appendChild(panelSection('Appearance Memory', documentFragment(controls, contextSummary)))
+    box.appendChild(panelSection('Update Frequency', appearanceUpdateControls()))
 
     if (config) {
       const current = config
@@ -8073,7 +8066,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
         'Open Generation Details on any slot to inspect the chosen scene, visible subjects, profile reason, Appearance facts, references, model, LoRAs, prompts, requested and actual dimensions, anchor, and warnings.',
       ]],
       ['Appearance Memory', [
-        'Appearance Sidecar continuously keeps stable identity, wardrobe, and temporary scene appearance separate. It uses the full chat, cards, lorebook, existing state, and active native identity bindings; no manual scan is required.',
+        'Appearance Sidecar keeps stable identity, wardrobe, and temporary scene appearance separate. It runs for initial setup and then follows Automatic Appearance Updates. Manual rescans always run. It uses the chat, cards, lorebook, existing state, and active native identity bindings.',
         'Relevant Appearance facts are used for both normal slot images and Prose Illustrator prompts, scoped only to subjects actually named in the request.',
       ]],
       ['Memes and funny social images', [
@@ -8102,19 +8095,10 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     return box
   }
 
-  const SURFACE_CATEGORY_LABELS: Record<SurfacePromptCategory, string> = {
-    'social-messaging': 'Social & Messaging',
-    'photography-keepsakes': 'Photography & Keepsakes',
-    'covers-promotion': 'Covers & Promotion',
-    'evidence-editorial': 'Evidence & Editorial',
-    'narrative-visuals': 'Narrative Visuals',
-    custom: 'Custom Surfaces',
-  }
-
   const NARRATIVE_DLC_UTILITY_NAMES = [
     'Dramatic Cutaway', 'Plot Sparks', 'Scene Shift', 'Parallel Scene', 'Cast Introduction',
     'Backstage Secrets', 'Setting the Scene', 'Off-Stage', 'Character Dossier', 'Location File', 'In Another Life', 'Archive Entry',
-    'Relationship Map', 'Cast Sheet', 'Persona Wardrobe',
+    'Relationship Map', 'Cast Sheet', 'Persona Wardrobe', 'Building Layout',
   ] as const
 
   function removeAppearanceMemoryOptimistically(characterId: string, removeCharacter: boolean): void {
@@ -8194,7 +8178,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     // A saved collection may refer to a preset which was later deleted; the
     // shared selector restores its built-in fallback so the module stays visible.
     return activeSurfaceDefinitions(customSurfaces).filter(definition => definition.baseSurfaceId !== 'prose-illustration'
-      && definition.baseSurfaceId !== 'relationship-map' && definition.baseSurfaceId !== 'character-profile')
+      && definition.baseSurfaceId !== 'relationship-map' && definition.baseSurfaceId !== 'character-profile' && definition.baseSurfaceId !== 'building-layout')
   }
 
   function buildUtilityPreview(): { content: string; moduleIds: string[] } {
@@ -8203,13 +8187,14 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const rootRegistry = enabled.map(definition => `[${definition.canonicalOuterWrapper}]`).join(' ')
     const modules = enabled.map(definition => definition.promptModule).filter(Boolean).join('\n\n---\n\n')
     const template = customSurfaces.utilityTemplate || '{{reverie_enabled_surface_modules}}'
-    const expandedTemplate = template
+    const expandedTemplate = scopeSurfaceRootRegistry(template)
       .replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || 'Enabled surface-authoring modules: none.')
       .replace(/\{\{\s*reverie_enabled_surface_roots\s*\}\}/gi, rootRegistry || 'none')
       .replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, 'shared')
-    const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nOnly these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
+    const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nFor the App/UI modules in this wrapper, only the listed exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
     return {
       content: [
+        REVERIE_SURFACE_ROOT_SCOPE,
         expandedTemplate,
         /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? '' : rootBoundary,
         /APP SURFACE SHAPE FIREBREAK/i.test(expandedTemplate) ? '' : REVERIE_SURFACE_APP_SCHEMA_FIREBREAK,
@@ -8327,11 +8312,15 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const editor = document.createElement('div')
     editor.className = 'dg-creator-section'
     const scriptScopes = (): string => `${source} · ${presentation} · ${colorMode}`
+    let bundledNames = new Map<string, string>()
+    const scriptDisplayName = (script: ReturnType<typeof regexSurfaceParityScripts>[number]): string =>
+      rendererScriptDisplayName(script.name, bundledNames.get(script.scriptId) !== script.name)
     const renderRows = () => {
       editor.replaceChildren()
       list.replaceChildren()
       const scripts = regexSurfaceParityScripts(presentation, colorMode, source, customSurfaces.rendererScriptOverrides || {})
-      const filtered = scripts.filter(script => `${script.name} ${script.scriptId}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
+      bundledNames = new Map(regexSurfaceParityScripts(presentation, colorMode, source).map(script => [script.scriptId, script.name]))
+      const filtered = scripts.filter(script => `${scriptDisplayName(script)} ${script.name} ${script.scriptId}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()))
       const counter = document.createElement('div')
       counter.className = 'dg-subtle'
       counter.textContent = `${filtered.length} of ${scripts.length} effective shipped scripts · ${scriptScopes()}`
@@ -8342,7 +8331,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
         const row = document.createElement('div')
         row.className = 'dg-creator-notice'
         const title = document.createElement('strong')
-        title.textContent = script.name
+        title.textContent = scriptDisplayName(script)
         const detail = document.createElement('span')
         const owner = /\\\[([A-Za-z][\w-]*)\\\]/.exec(script.find)?.[1]
           || /<([A-Za-z][\w-]*)\b/.exec(script.find)?.[1]
@@ -8390,7 +8379,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       const note = document.createElement('p')
       note.textContent = 'This only changes the selected renderer/presentation/color copy. Source pack and ownership remain bundled metadata.'
       editor.append(heading, note)
-      const name = scriptInput('Display name', script.name)
+      const name = scriptInput('Display name', scriptDisplayName(script))
       const find = scriptInput('Find regex', script.find)
       const replace = scriptInput('Replacement string', script.replace, true)
       const flags = scriptInput('Regex flags', script.flags)
@@ -8450,12 +8439,10 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     enqueueRelaySettingsPatch({ kind: 'surface-prompt-enabled', values: { [surfaceId]: promptEnabled } })
   }
 
-  function setSurfaceCategoryPromptPreference(promptCategory: SurfacePromptCategory, promptEnabled: boolean): void {
-    const values = Object.fromEntries(Object.entries(customSurfaces.definitions || {})
-      .filter(([, definition]) => definition.promptCategory === promptCategory)
-      .map(([surfaceId]) => [surfaceId, promptEnabled]))
+  function setSurfaceGroupPromptPreference(group: { id: string; definitions: CustomSurfaceDefinition[] }, promptEnabled: boolean): void {
+    const values = Object.fromEntries(group.definitions.map(definition => [definition.surfaceId, promptEnabled]))
     if (!Object.keys(values).length) return
-    enqueueRelaySettingsPatch({ kind: 'surface-prompt-enabled', values, categoryId: promptCategory })
+    enqueueRelaySettingsPatch({ kind: 'surface-prompt-enabled', values, categoryId: group.id })
   }
 
   function renderSurfacePreferenceControls(): HTMLElement {
@@ -8547,7 +8534,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     return wrap
   }
 
-  function renderSurfaceLibrary(): HTMLElement {
+  function renderSurfaceLibraryHeader(family: 'Apps & UIs' | 'Narratives'): HTMLElement {
     const box = document.createElement('div')
     const startHere = document.createElement('div')
     startHere.className = 'dg-info-note'
@@ -8555,59 +8542,92 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const intro = document.createElement('div')
     intro.className = 'dg-surface-intro'
     const copy = document.createElement('div')
-    copy.innerHTML = '<strong>Surface Library</strong><span>Only surfaces switched on here are included in the Story Model prompt, along with enabled Narrative Utilities. Rendering support remains available for older messages even when a module is switched off.</span>'
+    const heading = document.createElement('strong'); heading.textContent = family
+    const description = document.createElement('span')
+    description.textContent = family === 'Apps & UIs'
+      ? 'Choose recognizable app screens, feeds, documents and keepsakes. Story-supporting Utilities have their own Narratives view.'
+      : 'Choose story-supporting Utilities, trackers and artifacts. App screens, chats and personal keepsakes stay in Apps & UIs.'
+    copy.append(heading, description)
     const count = activeSurfacePromptDefinitions().filter(definition => definition.promptEnabled).length
-    const narrativeCount = config?.narrativeDlcEnabled ? (config.narrativeDlcUtilityNames || []).length : 0
+    const narrativeCount = config?.narrativeDlcEnabled ? NARRATIVE_DLC_UTILITY_NAMES.filter(name => config?.narrativeDlcUtilityNames?.includes(name)).length : 0
+    const enabledCount = family === 'Narratives' ? narrativeCount : count
     const previewActions = document.createElement('div')
     previewActions.className = 'dg-actions'
     previewActions.appendChild(button('View Exact Injected Prompt', () => window.setTimeout(requestEnabledSurfacePromptPreview, 0), false, 'primary', 'Dry-run the enabled original Surface and Narrative Utility prompt without calling a model.'))
-    intro.append(copy, chip(`${count + narrativeCount} Enabled`, count + narrativeCount ? 'completed' : ''), previewActions)
+    intro.append(copy, chip(`${enabledCount} Enabled`, enabledCount ? 'completed' : ''), previewActions)
 
     box.append(startHere)
+    box.appendChild(toggleCard('Instant Surface Images', 'Generate each complete Surface image request as it arrives while the story streams, including in Relay Planned. Auto Generate must be on. This is the same Instant preference shown in Illustrations.', currentProseSettings().instantIllustrationDispatch,
+      checked => patchProseSettings({ instantIllustrationDispatch: checked })))
     box.appendChild(panelSection('Prompt Preview · all enabled Utilities', intro))
-    box.append(panelSection('Surface Defaults', renderSurfacePreferenceControls()))
+    return box
+  }
 
-    const grouped = new Map<SurfacePromptCategory, CustomSurfaceDefinition[]>()
-    for (const definition of activeSurfacePromptDefinitions()) {
-      const category = definition.promptCategory || 'custom'
-      const rows = grouped.get(category) || []
-      rows.push(definition)
-      grouped.set(category, rows)
-    }
-    const categoryOrder: SurfacePromptCategory[] = ['social-messaging', 'photography-keepsakes', 'covers-promotion', 'evidence-editorial', 'narrative-visuals', 'custom']
-    for (const category of categoryOrder) {
-      const definitions = grouped.get(category)
-      if (!definitions?.length) continue
+  function renderSurfaceLibrary(): HTMLElement {
+    const box = renderSurfaceLibraryHeader('Apps & UIs')
+    box.dataset.surfaceLibraryView = 'apps'
+    for (const group of appSurfaceGroups(activeSurfacePromptDefinitions())) {
+      const definitions = group.definitions
       const categoryWrap = document.createElement('div')
       const categoryEnabled = definitions.every(definition => definition.promptEnabled === true)
       const categorySomeEnabled = definitions.some(definition => definition.promptEnabled === true)
       const categoryControl = toggleCard(
-        `Toggle All ${SURFACE_CATEGORY_LABELS[category]}`,
+        `Toggle All ${group.label}`,
         `${definitions.length} surface module${definitions.length === 1 ? '' : 's'} · ${categorySomeEnabled ? categoryEnabled ? 'all injected' : 'partially injected' : 'none injected'}`,
         categoryEnabled,
-        checked => setSurfaceCategoryPromptPreference(category, checked),
+        checked => setSurfaceGroupPromptPreference(group, checked),
       )
       const categoryInput = categoryControl.querySelector<HTMLInputElement>('input[type="checkbox"]')
       if (categoryInput) categoryInput.indeterminate = categorySomeEnabled && !categoryEnabled
-      categoryControl.dataset.surfacePromptCategory = category
+      categoryControl.dataset.surfacePromptCategory = group.id
       const grid = document.createElement('div')
       grid.className = 'dg-settings-grid'
       for (const definition of definitions) {
         const overview = SURFACE_UTILITY_OVERVIEWS[definition.baseSurfaceId] || `Authors a structured ${definition.displayName} Surface using its approved contract.`
         const moduleControl = toggleCard(
-          `${definition.icon || '◇'} ${definition.displayName}`,
+          surfaceLibraryName(definition),
           `${overview} · [${definition.canonicalOuterWrapper}] · ${definition.promptEnabled ? 'Included in prompt' : 'Not injected'}`,
           definition.promptEnabled === true,
           checked => setSurfacePromptPreference(definition.surfaceId, checked),
         )
-        moduleControl.dataset.surfacePromptCategory = category
+        moduleControl.dataset.surfacePromptCategory = group.id
+        moduleControl.dataset.surfaceLibraryId = definition.baseSurfaceId
+        moduleControl.querySelector('.dg-toggle-title-row')?.insertAdjacentHTML('afterbegin', surfaceIconMarkup('core', definition.baseSurfaceId))
         grid.appendChild(moduleControl)
       }
       categoryWrap.append(categoryControl, grid)
-      box.appendChild(panelSection(SURFACE_CATEGORY_LABELS[category], categoryWrap))
+      box.appendChild(panelSection(group.label, categoryWrap))
     }
+    return box
+  }
+
+  function renderNarrativeLibrary(): HTMLElement {
+    const box = renderSurfaceLibraryHeader('Narratives')
+    box.dataset.surfaceLibraryView = 'narratives'
     if (config) box.appendChild(panelSection('Narrative Utilities', renderNarrativeUtilityCategory(config)))
     else box.appendChild(panelSection('Narrative Utilities', empty('Narrative Utility controls are loading.')))
+    return box
+  }
+
+  function renderSurfaceAdvanced(): HTMLElement {
+    const box = document.createElement('div')
+    box.dataset.surfaceLibraryView = 'advanced'
+    const nav = document.createElement('nav')
+    nav.className = 'dg-actions dg-surface-advanced-nav'
+    nav.setAttribute('aria-label', 'Advanced Surface tools')
+    const selected = ['surfaces', 'surface-presets', 'utility-studio'].includes(activeTab) ? activeTab : 'surfaces'
+    const tools: Array<[DrawerTab, string]> = [['surfaces', 'Creator'], ['surface-presets', 'Presets'], ['utility-studio', 'Injection']]
+    for (const [id, label] of tools) {
+      const control = button(label, () => {
+        activeTab = id
+        if (config?.lastActiveDrawerTab !== id) patchConfig({ lastActiveDrawerTab: id })
+        renderPanel()
+      }, false, selected === id ? 'primary' : 'subtle')
+      control.setAttribute('aria-pressed', String(selected === id))
+      nav.append(control)
+    }
+    box.append(nav, panelSection('Surface Defaults', renderSurfacePreferenceControls()))
+    box.append(selected === 'surface-presets' ? renderSurfacePresets() : selected === 'utility-studio' ? renderUtilityStudio() : renderCustomSurfaceStudio())
     return box
   }
 
@@ -8813,10 +8833,11 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       moduleWrap.className = 'dg-modal'
       const moduleSelect = document.createElement('select')
       moduleSelect.className = 'dg-select'
+      const categoryLabels = new Map(appSurfaceGroups(definitions).flatMap(group => group.definitions.map(definition => [definition.surfaceId, group.label] as const)))
       for (const definition of definitions) {
         const option = document.createElement('option')
         option.value = definition.surfaceId
-        option.textContent = `${SURFACE_CATEGORY_LABELS[definition.promptCategory]} · ${definition.displayName}`
+        option.textContent = `${categoryLabels.get(definition.surfaceId) || 'Custom Surfaces'} · ${surfaceLibraryName(definition)}`
         moduleSelect.appendChild(option)
       }
       const moduleEditor = document.createElement('textarea')
@@ -8923,7 +8944,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     const icon = document.createElement('div'); icon.className = 'dg-surface-icon'; icon.textContent = definition.icon || '◇'
     const body = document.createElement('div'); body.className = 'dg-surface-body'
     const title = document.createElement('strong'); title.textContent = definition.displayName
-    const meta = document.createElement('span'); meta.className = 'dg-surface-meta'; meta.textContent = `${definition.presetName} · ${titleCase(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`
+    const meta = document.createElement('span'); meta.className = 'dg-surface-meta'; meta.textContent = `${surfacePresetDisplayName(definition)} · ${titleCase(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`
     const copy = document.createElement('p')
     copy.textContent = `${definition.targetId} · ${definition.supportedAspectRatios.join(' · ') || 'structured surface'} · ${definition.density} · ${definition.mediaFit}`
     const actions = document.createElement('div'); actions.className = 'dg-actions dg-surface-actions'
@@ -8991,7 +9012,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
     )
     const preset = creatorTextField(
       'Preset name',
-      existing?.presetName || 'My Preset',
+      existing ? surfacePresetDisplayName(existing) || 'My Preset' : 'My Preset',
       'Names this visual presentation. Multiple presets may share one Base Surface ID.',
       'Relay Default',
     )
@@ -9081,7 +9102,7 @@ const prompt = document.createElement('pre'); prompt.className = 'dg-pre'; promp
       ['photography-keepsakes', 'Photography & Keepsakes'],
       ['covers-promotion', 'Covers & Promotion'],
       ['evidence-editorial', 'Evidence & Editorial'],
-      ['narrative-visuals', 'Narrative Visuals'],
+      ['narrative-visuals', 'Personal & Keepsake Interfaces'],
       ['custom', 'Custom Surfaces'],
     ], () => {})
     const promptProfileOptions = new Map<string, [string, string]>([['auto', ['auto', 'Automatic (chat/global default)']]])
@@ -9397,7 +9418,7 @@ ${bracketFixture}`))
   }
 
   function openSurfacePreview(definition: CustomSurfaceDefinition): void {
-    const modal = ctx.ui.showModal({ title: `${definition.displayName} · ${definition.presetName}`, width: 760 })
+    const modal = ctx.ui.showModal({ title: `${definition.displayName} · ${surfacePresetDisplayName(definition)}`, width: 760 })
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div')
     body.className = 'dg-modal'
@@ -10070,7 +10091,10 @@ ${bracketFixture}`))
     manualImage.className = 'dg-settings-grid'
     const params = current.imageParameters || {}
     const connection = imageConnections.find(item => item.id === current.imageConnectionId)
-    const patchImageParameter = (key: string, value: unknown) => patchConfig({ imageParameters: { ...(current.imageParameters || {}), [key]: value } })
+    // Focused controls deliberately survive panel renders. Merge their edits
+    // against the latest optimistic config, not this render's stale snapshot.
+    const patchImageParameters = (patch: Record<string, unknown>) => patchConfig({ imageParameters: { ...(config?.imageParameters || current.imageParameters || {}), ...patch } })
+    const patchImageParameter = (key: string, value: unknown) => patchImageParameters({ [key]: value })
     const connectionField = selectField('ImageGen Connection', current.imageConnectionId || '', [['', 'Use default connection'], ...imageConnections.map(item => [item.id, `${item.name || item.id} (${item.provider}${item.model ? ` / ${item.model}` : ''})`] as [string, string])], value => {
       const next = imageConnections.find(item => item.id === value)
       patchConfig({ imageConnectionId: value || null, imageModel: next?.model || '' })
@@ -10078,10 +10102,10 @@ ${bracketFixture}`))
     manualImage.append(
       connectionField,
       relayManualModelField(current, connection),
-      selectField('Sampler', String(params.sampler ?? params.sampler_name ?? ''), relayParameterChoices('sampler', String(params.sampler ?? params.sampler_name ?? ''), connection), value => patchConfig({ imageParameters: { ...(current.imageParameters || {}), sampler: value, sampler_name: value } })),
+      selectField('Sampler', String(params.sampler ?? params.sampler_name ?? ''), relayParameterChoices('sampler', String(params.sampler ?? params.sampler_name ?? ''), connection), value => patchImageParameters({ sampler: value, sampler_name: value })),
       selectField('Scheduler', String(params.scheduler ?? ''), relayParameterChoices('scheduler', String(params.scheduler ?? ''), connection), value => patchImageParameter('scheduler', value)),
       numberInput('Steps', Number(params.steps ?? 28), 1, 150, value => patchImageParameter('steps', value)),
-      numberInput('CFG / Guidance', Number(params.cfgScale ?? params.cfg ?? 7), 0, 30, value => patchConfig({ imageParameters: { ...(current.imageParameters || {}), cfgScale: value, cfg: value } })),
+      numberInput('CFG / Guidance', Number(params.cfgScale ?? params.cfg ?? 7), 0, 30, value => patchImageParameters({ cfgScale: value, cfg: value })),
     )
     return manualImage
   }
@@ -10169,8 +10193,9 @@ ${bracketFixture}`))
         ['velvet-prism', 'Velvet Prism'],
         ['clean-panel', 'Clean Panel'],
       ], value => patchConfig({ interfaceTheme: value as RouterConfig['interfaceTheme'] })),
-      selectField('Orb Size', current.orbSize || 'medium', [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']], value => patchConfig({ orbSize: value as RouterConfig['orbSize'] })),
+      renderOrbSizeControl(current),
       selectField('Orb Design', current.orbDesign || 'prism-flower', [
+        ['star', 'Star'],
         ['classic', 'Classic'],
         ...ORB_IMAGE_DESIGNS.map(design => [design.id, design.label] as [string, string]),
         ['custom', current.orbCustomIconDataUrl ? 'Custom Upload' : 'Custom Upload · choose an image below'],
@@ -10205,7 +10230,7 @@ ${bracketFixture}`))
     workload.className = 'dg-settings-grid'
     workload.append(
       selectField('Candidate Count', String(current.defaultCandidateCount), [['1', '1'], ['2', '2'], ['4', '4']], value => patchConfig({ defaultCandidateCount: Number(value) as 1 | 2 | 4 })),
-      numberInput('Concurrent Relay Preprocessing Jobs', current.queueConcurrencyLimit, 1, MAX_RELAY_JOB_CONCURRENCY, value => patchConfig({ queueConcurrencyLimit: value })),
+      describedField(numberInput('Concurrent Relay Preprocessing Jobs', current.queueConcurrencyLimit, 1, MAX_RELAY_JOB_CONCURRENCY, value => patchConfig({ queueConcurrencyLimit: value }), true), settingHelp('Concurrent Relay Preprocessing Jobs')),
     )
     box.appendChild(panelSection('Workload', workload))
     const tutorial = document.createElement('div')
@@ -10221,32 +10246,43 @@ ${bracketFixture}`))
     if (current.generationSettingsSource === 'native') {
         const nativeImageGenNote = document.createElement('div')
         nativeImageGenNote.className = 'dg-recovery-note'
-        nativeImageGenNote.textContent = 'Native ImageGen is active. Relay mirrors the native model, provider parameters, negative prompt, and LoRA preset. NovelAI keeps its saved resolution unless you choose a request or fixed aspect below.'
-        const nativeImageGenSettings = document.createElement('div')
-        nativeImageGenSettings.className = 'dg-settings-grid'
-        nativeImageGenSettings.append(
-          nativeImageGenNote,
-          selectField('NovelAI Resolution', current.imageAspectPolicy || 'native', [
-            ['native', 'Use saved NovelAI resolution'],
-            ['request', 'Follow image request / Illustrator'],
-            ['1:1', 'Square · 1:1'],
-            ['2:3', 'Portrait · 2:3'],
-            ['3:2', 'Landscape · 3:2'],
-            ['3:4', 'Portrait · 3:4'],
-            ['4:3', 'Landscape · 4:3'],
-            ['4:5', 'Portrait · 4:5'],
-            ['5:4', 'Landscape · 5:4'],
-            ['9:16', 'Tall portrait · 9:16'],
-            ['16:9', 'Wide landscape · 16:9'],
-          ], value => patchConfig({ imageAspectPolicy: value as RouterConfig['imageAspectPolicy'] })),
-        )
-        box.appendChild(panelSection('ImageGen · Native Settings', nativeImageGenSettings))
+        nativeImageGenNote.textContent = 'Native ImageGen is active. Relay mirrors the native model, provider parameters, negative prompt, and LoRA preset, so duplicate override controls are hidden.'
+        box.appendChild(panelSection('ImageGen · Native Settings', nativeImageGenNote))
     } else {
         box.appendChild(panelSection('ImageGen · Relay Settings', renderRelayImageSettings(current)))
         box.appendChild(panelSection('Generation · Additional Negative', textareaInput('Negative prompt additions', current.additionalNegativePrompt, value => patchConfig({ additionalNegativePrompt: value }))))
     }
 
     return box
+  }
+
+  function renderOrbSizeControl(current: RouterConfig): HTMLElement {
+    const label = document.createElement('label')
+    label.className = 'dg-field'
+    const title = document.createElement('span'); title.textContent = 'Orb Size'
+    const output = document.createElement('output')
+    const input = document.createElement('input')
+    input.type = 'range'
+    input.min = String(ORB_MIN_SIZE); input.max = String(ORB_MAX_SIZE); input.step = '1'
+    input.value = String(normalizeOrbSizePx(current.orbSizePx, current.orbSize))
+    input.setAttribute('aria-label', 'Orb Size')
+    const preview = () => {
+      const size = normalizeOrbSizePx(Number(input.value))
+      output.textContent = `${size} px`
+      input.setAttribute('aria-valuetext', `${size} pixels`)
+      orbSizePreview = size
+      renderRelayOrb()
+    }
+    output.textContent = `${input.value} px`
+    input.setAttribute('aria-valuetext', `${input.value} pixels`)
+    input.addEventListener('input', preview)
+    input.addEventListener('change', () => {
+      orbSizePreview = null
+      patchConfig({ orbSizePx: normalizeOrbSizePx(Number(input.value)) })
+    })
+    input.addEventListener('blur', () => { orbSizePreview = null; renderRelayOrb() })
+    label.append(title, input, output)
+    return label
   }
 
   function renderPromptProfileSettings(current: RouterConfig): HTMLElement {
@@ -10592,13 +10628,13 @@ ${bracketFixture}`))
         regenerateButton = button('Regenerate', () => void submitPopupAction('regenerate', regenerateButton), !canRestart, 'primary', canRestart ? '' : unavailable),
         reparseButton = button(unresolvedCarousel ? 'Reparse Carousel' : 'Reparse', () => void submitPopupAction('reparse', reparseButton), !canParse, 'standard', canParse ? '' : unavailable),
         button('Regeneration Direction', () => withCompletedRecord(record, loaded => openRegenerationIntent(loaded, acceptedPopup)), busy || !canParse, 'subtle', canParse ? '' : unavailable),
-        button('Edit Prompt', () => withCompletedRecord(record, openEditPrompt), busy || unresolvedCarousel),
-      // Keep the Lightbox inspection action synchronous. A slow or missing
-      // archive reply must never make its primary Details button feel dead.
-      button('Generation Details', () => openResolvedGenerationPlan(record), false, 'subtle'),
       )
     }
-    const historyAction = button(`History (${record.history.length + (record.imageUrl ? 1 : 0)})`, () => {
+    if (!isMarkerOnly(record)) actions.appendChild(button('Edit Prompt', () => withCompletedRecordOrCurrent(record, openEditPrompt), busy || unresolvedCarousel))
+    // Inspection stays available for every lifecycle state, including an
+    // unresolved request that has never reached the provider.
+    actions.appendChild(button('Generation Details', () => openResolvedGenerationPlan(record), false, 'subtle'))
+    const historyAction = button(`History (${Math.max(record.history.length, record.historyCount || 0) + (record.imageUrl ? 1 : 0)})`, () => {
       // History opens another modal; from the lightbox, close this one first
       // so viewing a version still leaves a slot for Generation Details.
       acceptedPopup?.()
@@ -10706,9 +10742,12 @@ ${bracketFixture}`))
       button('Copy Image ID', () => copyText(asset.imageId, 'Image ID copied.'), !asset.imageId, 'subtle'),
     )
     actions.append(
-      button('Export Diagnostic JSON', () => downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
-        metadata: buildMetadata(record, version || record), asset, lifecycle: { status: record.status, placementFailure: record.placementFailure },
-      }), false, 'subtle'),
+      button('Export Diagnostic JSON', () => withCompletedRecordOrCurrent(detailsRecord, loaded => {
+        const selected = version ? mergeCompletedVersionPromptMetadata(loaded, version) : loaded
+        downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
+          metadata: buildMetadata(selected, selected), asset, lifecycle: { status: record.status, placementFailure: record.placementFailure },
+        })
+      }, true), false, 'subtle'),
     )
     if (includeImageIdentity) actions.append(
       button('Copy Image URL', () => copyText(asset.imageUrl, 'Image URL copied.'), !asset.imageUrl, 'subtle'),
@@ -10766,6 +10805,20 @@ ${bracketFixture}`))
       img.src = asset.imageUrl
       img.alt = record.alt || record.slot
       body.appendChild(imageLightboxViewport(img))
+    } else {
+      const stage = document.createElement('div')
+      stage.className = 'dg-slot-lightbox-status dg-image-lightbox-viewport'
+      stage.innerHTML = renderRegenerationLifecycleProjection(record, customSurfaces, {
+        chatId: record.chatId, messageId: record.messageId, swipeId: record.swipeId,
+        generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect),
+      })
+      // The same status art, with one normal control panel underneath.
+      for (const chrome of stage.querySelectorAll('.rrl-actions,.rrl-detail')) chrome.remove()
+      const detail = document.createElement('p')
+      detail.className = 'dg-info-note'
+      detail.textContent = record.error || 'No completed image is available for this slot yet. Inspect the request or edit its prompt using the controls below.'
+      stage.appendChild(detail)
+      body.appendChild(stage)
     }
     if (primaryActions) controlPanel.appendChild(primaryActions)
     controlPanel.appendChild(footer)
@@ -10850,7 +10903,7 @@ ${bracketFixture}`))
       ['Reparse Preview', () => ctx.sendToBackend({ type: 'reparse_preview', key: record.key }), isSlotActionBusy(record) || !canParse, canParse ? '' : unavailable],
       ['Regenerate - Current Native Settings', () => regenerate(record, true), isSlotActionBusy(record) || !canRegen, canRegen ? '' : unavailable],
       ['Edit Prompt', () => withCompletedRecord(record, openEditPrompt), isSlotActionBusy(record) || (record.target === 'instagram.carousel' && !record.imageUrl)],
-      ['History', () => withCompletedRecord(record, openHistory), !archiveBacked && record.history.length === 0],
+      ['History', () => openHistory(record), !archiveBacked && !record.imageUrl && record.history.length === 0],
       ['Generation Details', () => withCompletedRecord(record, openResolvedGenerationPlan), false],
       ['Why Did Relay Do That?', () => openPromptInspector(record), false],
       ['View Metadata', () => openMetadata(record), false],
@@ -11082,10 +11135,11 @@ ${bracketFixture}`))
     else requestCompletedRecord(record, loaded => loaded && action(loaded))
   }
 
-  function withCompletedRecordOrCurrent(record: SlotRecord, action: (record: SlotRecord) => void): void {
+  function withCompletedRecordOrCurrent(record: SlotRecord, action: (record: SlotRecord) => void, requireProviderPrompt = false): void {
     // Generation Details is an inspection action, so it must remain useful for
     // recovered/older slots even when their archive is missing or unavailable.
-    if (!record.diagnosticArchiveId || hasGenerationPromptMetadata(record)) {
+    const providerPrompt = record.resolvedPositivePrompt || record.promptPipeline?.finalProviderPrompt || record.finalImageRequest?.prompt
+    if (!record.diagnosticArchiveId || (requireProviderPrompt ? typeof providerPrompt === 'string' && Boolean(providerPrompt.trim()) : hasGenerationPromptMetadata(record))) {
       action(record)
       return
     }
@@ -11645,7 +11699,10 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
         submitRepairPlacement(record, {
           trigger: insertButton,
           showPopupError: showSubmissionError,
-          closePopup: () => { openedSlotPreviewKeys.delete(record.key); dismissPreview() },
+          // Acceptance precedes the completed-state broadcast. Keep this
+          // preview marked seen so a pending echo cannot reopen it over the
+          // next image; authoritative completion clears the key above.
+          closePopup: dismissPreview,
         })
       }, false, 'primary'),
     )
@@ -11684,6 +11741,28 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     modal.root.classList.add('dg-router-panel', 'dg-modal-host')
     const body = document.createElement('div')
     body.className = 'dg-slot-history-list'
+    modal.root.appendChild(body)
+    const render = (loaded: SlotRecord, warning?: string): void => {
+      if (!modal.root.isConnected) return
+      body.replaceChildren()
+      if (warning) body.append(empty(warning), button('Retry loading history', load, false, 'standard'))
+      renderVersions(loaded)
+    }
+    const load = (): void => {
+      body.replaceChildren(empty('Loading previous image versions…'))
+      const timeout = window.setTimeout(() => render(record, 'Image history did not respond. Your saved images have not been changed.'), 30_000)
+      requestCompletedRecord(record, loaded => {
+        window.clearTimeout(timeout)
+        if (loaded?.key === record.key && loaded.chatId === record.chatId && loaded.imageUrl === record.imageUrl) render(loaded)
+        else render(record, 'Previous image versions could not be loaded. Showing only the versions available here; your saved images have not been changed.')
+      })
+    }
+    // Prompts and image history have independent completeness. Even a row
+    // with prompt metadata can still be a compact, history-free summary.
+    if (record.status === 'completed' && record.diagnosticArchiveId) load()
+    else render(record)
+
+    function renderVersions(record: SlotRecord): void {
     const versions: Array<{ entry?: GenerationSnapshot; index?: number }> = [
       ...(record.imageUrl ? [{}] : []),
       ...record.history.map((entry, index) => ({ entry, index })),
@@ -11722,7 +11801,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       card.append(image, heading, meta, actions)
       body.appendChild(card)
     })
-    modal.root.appendChild(body)
+    }
   }
 
   function openMetadata(record: SlotRecord, version?: GenerationSnapshot, historyIndex?: number): void {
@@ -12260,6 +12339,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       continuityVault,
       customSurfaces,
       proseIllustrator,
+      backgroundQueue,
       logs,
       selfTest,
     }) as Record<string, unknown>
@@ -12285,17 +12365,63 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     return value
   }
 
+  function refreshRepairConnectionFields(): void {
+    for (const [field, refresh] of repairConnectionFields) {
+      if (!field.isConnected) repairConnectionFields.delete(field)
+      else refresh()
+    }
+  }
+
   function surfaceRepairConnectionField(selected = config?.surfaceRepairConnectionId || null, onChange?: (value: string | null) => void): HTMLElement {
-    const inherited = parserConnections.find(connection => connection.id === config?.parserConnectionId)
-    const field = selectField('Assisted Repair Connection', selected || '', [
-      ['', inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : 'Use Surface Parser (not configured)'],
-      ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string]),
-    ], value => {
+    let chosen = selected || ''
+    const choices = (): Array<[string, string]> => {
+      const inherited = parserConnections.find(connection => connection.id === config?.parserConnectionId)
+      const options: Array<[string, string]> = [
+        ['', inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : 'Use Surface Parser (not configured)'],
+        ...parserConnections.map(connection => [connection.id, `${connection.name} / ${connection.model}`] as [string, string]),
+      ]
+      if (chosen && !options.some(([id]) => id === chosen)) options.push([chosen, 'Selected connection unavailable — refresh connections'])
+      return options
+    }
+    const initialOptions = choices()
+    const field = selectField('Assisted Repair Connection', chosen, initialOptions, value => {
+      chosen = value
       const next = value || null
       onChange?.(next)
       patchConfig({ surfaceRepairConnectionId: next })
     })
-    field.querySelector('select')!.setAttribute('aria-label', 'Assisted Repair Connection')
+    const select = field.querySelector('select')!
+    select.setAttribute('aria-label', 'Assisted Repair Connection')
+    let signature = JSON.stringify(initialOptions)
+    const refreshOptions = () => {
+      // Native pickers can close when options are replaced under focus. Wait
+      // until blur, and do not touch unchanged options during status broadcasts.
+      const controlRoot = select.getRootNode()
+      const focused = controlRoot instanceof ShadowRoot ? controlRoot.activeElement : select.ownerDocument.activeElement
+      if (select.disabled || focused === select) return
+      const options = choices()
+      const nextSignature = JSON.stringify(options)
+      if (signature === nextSignature) return
+      signature = nextSignature
+      select.replaceChildren(...options.map(([value, label]) => {
+        const option = document.createElement('option')
+        option.value = value; option.textContent = label; option.selected = value === chosen
+        return option
+      }))
+      select.value = chosen
+    }
+    repairConnectionFields.set(field, refreshOptions)
+    select.addEventListener('blur', () => queueMicrotask(refreshOptions))
+    const refreshButton = button('Refresh connections', () => {
+      refreshButton.disabled = true
+      refreshButton.textContent = 'Refreshing connections…'
+      void Promise.all([loadFrontendParserConnections(), refreshState(false)]).finally(() => {
+        refreshButton.disabled = false
+        refreshButton.textContent = 'Refresh connections'
+        refreshOptions()
+      })
+    }, false, 'subtle', 'Reload saved LLM connection metadata without calling a model or changing your selection.')
+    field.appendChild(refreshButton)
     return field
   }
 
@@ -12472,6 +12598,22 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     return label
   }
 
+  function describedField(field: HTMLElement, description: string): HTMLElement {
+    const help = document.createElement('div')
+    help.className = 'dg-section-sub'
+    help.id = `dg-setting-description-${Math.random().toString(36).slice(2, 10)}`
+    help.textContent = description
+    const control = field.querySelector('input, select, textarea')
+    if (control) {
+      control.id ||= `${help.id}-input`
+      control.setAttribute('aria-describedby', help.id)
+      const label = field.querySelector('label')
+      if (label) label.htmlFor = control.id
+    }
+    field.appendChild(help)
+    return field
+  }
+
   function settingHeading(labelText: string, helpText = ''): HTMLElement {
     const heading = document.createElement('div')
     heading.className = 'dg-field-label dg-label-with-help'
@@ -12556,7 +12698,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     return field
   }
 
-  function numberInput(labelText: string, value: number, min: number, max: number, onChange: (value: number) => void): HTMLElement {
+  function numberInput(labelText: string, value: number, min: number, max: number, onChange: (value: number) => void, commitValidInput = false): HTMLElement {
     const field = document.createElement('div')
     field.className = 'dg-field'
     const label = fieldLabel(labelText)
@@ -12566,7 +12708,25 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     input.min = String(min)
     input.max = String(max)
     input.value = String(value)
-    input.addEventListener('change', () => onChange(Math.max(min, Math.min(max, Math.round(Number(input.value) || value)))))
+    let committedValue = value
+    if (commitValidInput) input.addEventListener('input', () => {
+      const parsed = input.value.trim() ? Number(input.value) : NaN
+      // Keep empty/out-of-range/fractional drafts local until change. Valid
+      // workload edits must survive navigation or reload without a blur event.
+      if (!Number.isInteger(parsed) || parsed < min || parsed > max || parsed === committedValue) return
+      committedValue = parsed
+      onChange(parsed)
+    })
+    input.addEventListener('change', () => {
+      const parsed = input.value.trim() ? Number(input.value) : NaN
+      const next = Math.max(min, Math.min(max, Math.round(Number.isFinite(parsed) ? parsed : commitValidInput ? committedValue : value)))
+      if (commitValidInput) {
+        input.value = String(next)
+        if (next === committedValue) return
+        committedValue = next
+      }
+      onChange(next)
+    })
     field.append(label, input)
     return field
   }
@@ -12738,12 +12898,14 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
   }
 
   function drawerTabLabel(value: DrawerTab): string {
+    if (value === 'illustration-controls') return 'Image Controls'
+    if (value === 'surface-library') return 'Apps & UIs'
+    if (value === 'surface-narratives') return 'Narratives'
+    if (value === 'surface-advanced') return 'Advanced'
     if (value === 'genetics') return 'Appearance Memory'
     if (value === 'recipes') return 'Recipes'
     if (value === 'manual') return 'Guide'
-    if (value === 'story-constellations') return 'Constellations'
     if (value === 'phone') return 'Phone'
-    if (value === 'story-reel') return 'Story Reel'
     return titleCase(value)
   }
 
@@ -12752,7 +12914,7 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     if (value === 'assets') return 'history'
     if (value === 'queue') return 'slots'
     if (value === 'story-phones') return 'phone'
-    const tabs: DrawerTab[] = ['slots', 'illustrator', 'recipes', 'genetics', 'surfaces', 'surface-library', 'surface-presets', 'utility-studio', 'history', 'logs', 'manual', 'settings', 'story-constellations', 'phone', 'story-reel']
+    const tabs: DrawerTab[] = ['slots', 'illustrator', 'illustration-controls', 'recipes', 'genetics', 'surfaces', 'surface-library', 'surface-narratives', 'surface-advanced', 'surface-presets', 'utility-studio', 'history', 'logs', 'manual', 'settings', 'phone']
     return tabs.includes(value as DrawerTab) ? value as DrawerTab : null
   }
 
@@ -12775,6 +12937,24 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
 
   const toastDedupeUntil = new Map<string, number>()
   let toastStack: HTMLElement | null = null
+  function ensureToastStack(): HTMLElement {
+    if (!toastStack?.isConnected) {
+      toastStack = document.createElement('div')
+      toastStack.className = 'dg-toast-stack'
+      toastStack.setAttribute('role', 'region')
+      toastStack.setAttribute('aria-label', 'Relay notifications')
+      document.body.appendChild(toastStack)
+    }
+    return toastStack
+  }
+
+  function removeEmptyToastStack(): void {
+    if (toastStack?.isConnected && !toastStack.childElementCount) {
+      toastStack.remove()
+      toastStack = null
+    }
+  }
+
   function showToast(level: 'info' | 'success' | 'warning' | 'error', message: string): void {
     const text = String(message || '').trim()
     if (!text) return
@@ -12786,14 +12966,6 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
       if ((toastDedupeUntil.get(key) || 0) <= Date.now()) toastDedupeUntil.delete(key)
     }, 1_650)
 
-    if (!toastStack?.isConnected) {
-      toastStack = document.createElement('div')
-      toastStack.className = 'dg-toast-stack'
-      toastStack.setAttribute('role', 'region')
-      toastStack.setAttribute('aria-label', 'Relay notifications')
-      toastStack.setAttribute('aria-live', 'polite')
-      document.body.appendChild(toastStack)
-    }
     const toast = document.createElement('div')
     toast.className = 'dg-toast'
     toast.dataset.level = level
@@ -12809,14 +12981,11 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     const remove = () => {
       window.clearTimeout(timeout)
       toast.remove()
-      if (toastStack?.isConnected && !toastStack.childElementCount) {
-        toastStack.remove()
-        toastStack = null
-      }
+      removeEmptyToastStack()
     }
     dismiss.addEventListener('click', remove, { once: true })
     toast.append(copy, dismiss)
-    toastStack.appendChild(toast)
+    ensureToastStack().appendChild(toast)
     const timeout = window.setTimeout(remove, level === 'error' || level === 'warning' ? 6_000 : 4_000)
   }
 
@@ -12857,6 +13026,10 @@ ${result.imageWidth || '?'}×${result.imageHeight || '?'} (${result.aspectRatio 
     closeActionMenu()
     sidecarNoticeEl?.remove()
     sidecarNoticeEl = null
+    dismissedSidecarNotices.clear()
+    toastStack?.remove()
+    toastStack = null
+    toastDedupeUntil.clear()
     confirmEl?.remove()
     lifecycle.dispose()
     for (const cleanup of lifecycleInterceptorCleanups.splice(0)) cleanup()

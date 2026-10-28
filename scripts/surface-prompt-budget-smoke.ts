@@ -20,8 +20,8 @@ const separator = '\n\n---\n\n'
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 const byId = new Map(definitions.map(definition => [definition.baseSurfaceId, definition]))
 
-assert(definitions.length === 47, `expected 47 built-in definitions, received ${definitions.length}`)
-assert(byId.size === 47, `expected 47 unique baseSurfaceId values, received ${byId.size}`)
+assert(definitions.length === 48, `expected 48 built-in definitions, received ${definitions.length}`)
+assert(byId.size === 48, `expected 48 unique baseSurfaceId values, received ${byId.size}`)
 assert(R45_ACTIVE_SURFACE_IDS.every(id => byId.has(id)), 'active R4.5 inventory is not fully represented')
 assert(definitions.every(definition => definition.builtIn && definition.promptEnabled === true), 'every built-in Surface must remain prompt-enabled by default')
 
@@ -47,7 +47,14 @@ const legacyMeasurement = measureModelMessages('surface-prompt-legacy-equivalent
 const compactMeasurement = measureModelMessages('surface-prompt-compact', [{ role: 'system', content: compactPrompt }])
 
 assert(compactMeasurement.chars <= legacyMeasurement.chars * 0.5, `compact Surface prompt must be <= 50% of legacy-equivalent chars (${compactMeasurement.chars}/${legacyMeasurement.chars})`)
-assert(compactMeasurement.estimatedInputTokens <= 15_000, `compact Surface prompt exceeds 15,000 estimated tokens: ${compactMeasurement.estimatedInputTokens}`)
+// Keep the original inventory under its original cap; the new Amazon contract
+// has a separate bounded allowance instead of silently raising every app's budget.
+const amazonModule = byId.get('amazon')!.promptModule
+const amazonMeasurement = measureModelMessages('amazon-compact', [{ role: 'system', content: amazonModule }])
+const originalInventoryMeasurement = measureModelMessages('surface-prompt-pre-amazon', [{ role: 'system', content: compactPrompt.replace(amazonModule, '').replace('<amazon_store>', '') }])
+assert(originalInventoryMeasurement.estimatedInputTokens <= 15_000, `original Surface inventory exceeds its 15,000-token cap: ${originalInventoryMeasurement.estimatedInputTokens}`)
+assert(amazonMeasurement.estimatedInputTokens <= 750, `Amazon compact contract exceeds its 750-token allowance: ${amazonMeasurement.estimatedInputTokens}`)
+assert(compactMeasurement.estimatedInputTokens <= 15_750, `48-Surface compact prompt exceeds 15,750 estimated tokens: ${compactMeasurement.estimatedInputTokens}`)
 assert(compactModules.every(module => module.includes('FORMAT: compact-v1')), 'every built-in module must use compact-v1')
 assert(compactModules.every(module => !module.includes("CANONICAL XML EXAMPLE")), 'compact built-ins must not embed canonical full examples')
 assert(compactUtility.includes('STRICT ENABLED ROOT REGISTRY'), 'strict enabled-root registry is missing')

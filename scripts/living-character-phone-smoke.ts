@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { emptyStoryConstellationState, createStorySourceRef, ensureStoryActor } from '../src/storyState'
 import { extractCharacterPhoneEntries, ingestCharacterPhoneSnapshot } from '../src/livingCharacterPhone'
-import { phoneFixture } from './event-constellation-fixtures'
+import { phoneFixture } from './legacy-phone-fixtures'
 import { bracketImageControlInstructions } from '../src/imageControlMarkup'
 
 const canonical = phoneFixture()

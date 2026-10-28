@@ -3,6 +3,7 @@ import { compactSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45UtilitySpecificGuidance } from './r45UtilityContracts'
 import { surfaceTriggerGuidance, surfaceTriggerOverride } from './shippedSurfaceDefinitions'
 import { BUILDING_LAYOUT_CONTRACT, BUILDING_LAYOUT_SAMPLE } from './buildingLayoutContract'
+import {AMAZON_SAMPLE} from './amazonDefinition'
 
 type CatalogRow = {
   id: string
@@ -38,6 +39,7 @@ function runtimeUtilityPrompt(row: CatalogRow): string {
 }
 
 const MEDIA_LIMITS: Record<string, readonly [number, number]> = {
+  amazon: [1,8],
   'building-layout': [2, 16],
   smartphone: [0, 8], instagram: [1, 1], twitter: [0, 6], kakao: [0, 8],
   'album-cover': [1, 1], 'magazine-cover': [1, 1], 'photo-booth-strip': [4, 4], polaroid: [1, 1],
@@ -49,6 +51,7 @@ const MEDIA_LIMITS: Record<string, readonly [number, number]> = {
 }
 
 const rows: CatalogRow[] = [
+  {id:'amazon',label:'Amazon',icon:'▱',root:'amazon_store',category:'evidence-editorial',aspect:'1:1',sample:AMAZON_SAMPLE},
   { id: 'building-layout', label: 'Building Layout', icon: '⌂', root: 'building_layout', category: 'evidence-editorial', aspect: '4:3', profile: 'environment-location', sample: BUILDING_LAYOUT_SAMPLE },
   { id: 'smartphone', label: 'Smartphone', icon: '▣', root: 'smart_phone', target: 'smartphone.message-image', category: 'social-messaging', aspect: '4:3', sample: `<smart_phone sender="current contact" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="current contact" time="21:12">New message</s_note></notifications><contact>current contact · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request('phone-message-1', 'smartphone.message-image', '4:3', 'Context-specific photo sent by current contact in this conversation, no phone interface or readable text.')}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
   { id: 'instagram', label: 'Instagram Post', icon: '◎', root: 'ig_app', target: 'instagram.single', category: 'social-messaging', aspect: '1:1', sample: `<ig_app user="@current_account" loc="North Pier" likes="1,284" verified="true">${request('instagram-post-1', 'instagram.single', '1:1', 'Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.')}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reply_author" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@current_account" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
@@ -69,7 +72,7 @@ const rows: CatalogRow[] = [
   { id: 'letter-dispatch', label: 'Letter', icon: '✉', root: 'letter_dispatch', category: 'narrative-visuals', sample: '<letter_dispatch from="current character" to="other participant" date="Friday" subject="The key"><ld_body>I left the key where we agreed. Keep this letter safe.</ld_body><ld_signature>— A</ld_signature><ld_media></ld_media></letter_dispatch>' },
   { id: 'medical-record', label: 'Medical Record', icon: '✚', root: 'medical_record', category: 'evidence-editorial', aspect: '4:3', profile: 'evidence-surveillance', sample: `<medical_record case="MR-104" patient="patient" age="34" status="Stable" doctor="clinician" admitted="Today"><med_summary>Observation after a minor injury.</med_summary><med_media>${request('medical-scan', 'custom.artifact-media', '4:3', 'Clinical documentary image of a bandaged forearm under neutral examination lighting, no text, no interface.')}</med_media><med_vitals><med_vital label="Pulse" value="72 bpm"></med_vital></med_vitals><med_notes>Continue routine monitoring.</med_notes></medical_record>` },
   { id: 'court-transcript', label: 'Court Transcript', icon: '⚖', root: 'court_transcript', category: 'evidence-editorial', sample: '<court_transcript case="CV-104" court="District Court" status="In session" time="10:20" judge="presiding judge"><ct_lines><ct_line speaker="CLERK">All rise.</ct_line><ct_line speaker="COUNSEL">Ready to proceed.</ct_line></ct_lines><ct_objection>Objection noted.</ct_objection><ct_exhibit>Exhibit A entered.</ct_exhibit></court_transcript>' },
-  { id: 'codex-entry', label: 'Reference Article', icon: '▥', root: 'codex_entry', category: 'evidence-editorial', aspect: '4:3', sample: `<codex_entry title="North Pier Station" type="Transit landmark" region="River District" status="Active" era="Modern"><codex_media>${request('codex-media')}</codex_media><codex_body>A compact reference entry about the station and its history.</codex_body><codex_facts>Opened recently · two platforms</codex_facts><codex_related>Riverside Line</codex_related></codex_entry>` },
+  { id: 'codex-entry', label: 'Wikipedia', icon: '▥', root: 'codex_entry', category: 'evidence-editorial', aspect: '4:3', sample: `<codex_entry title="North Pier Station" type="Transit landmark" region="River District" status="Active" era="Modern"><codex_media>${request('codex-media')}</codex_media><codex_body>A compact reference entry about the station and its history.</codex_body><codex_facts>Opened recently · two platforms</codex_facts><codex_related>Riverside Line</codex_related></codex_entry>` },
   { id: 'diary-app', label: 'Diary', icon: '▧', root: 'diary_app', category: 'narrative-visuals', sample: '<diary_app owner="current character" title="Private Notes"><diary_entry slot="1" date="Monday" heading="Rain">The city went quiet after midnight.</diary_entry><diary_entry slot="2" date="Tuesday" heading="Signal">A message arrived without a sender.</diary_entry><diary_entry slot="3" date="Wednesday" heading="Decision">I chose to answer.</diary_entry></diary_app>' },
   { id: 'mission-board', label: 'Mission Board', icon: '✓', root: 'mission_board', category: 'narrative-visuals', sample: '<mission_board type="Investigation" title="North Pier" status="Active" owner="Team A" due="Tonight"><mission_items><mission_item status="done">Review station footage</mission_item><mission_item status="active">Locate the missing case</mission_item></mission_items><mission_note>Keep the public entrance clear.</mission_note></mission_board>' },
   { id: 'cctv-evidence', label: 'CCTV Evidence', icon: '◫', root: 'cctv_evidence', category: 'evidence-editorial', aspect: '16:9', profile: 'evidence-surveillance', sample: `<cctv_evidence case="EV-104" location="North Pier" date="Tonight" integrity="verified"><cv_feeds><cv_feed slot="1" label="North gate" time="22:14">${request('cctv-1', 'custom.artifact-media', '16:9', 'Wide fixed security camera view of an empty north gate at night, timestamp-free, no text.')}</cv_feed><cv_feed slot="2" label="Platform" time="22:16">${request('cctv-2', 'custom.artifact-media', '16:9', 'Wide fixed security camera view of a quiet platform at night, timestamp-free, no text.')}</cv_feed><cv_feed slot="3" label="Service hall" time="22:18">${request('cctv-3', 'custom.artifact-media', '16:9', 'Wide fixed security camera view of a dim service hallway, timestamp-free, no text.')}</cv_feed></cv_feeds><cv_note>No movement after 22:18.</cv_note></cctv_evidence>` },
@@ -89,7 +92,7 @@ export function r45SupplementalSurfaceDefinitions(now = Date.now()): CustomSurfa
     return ({
     surfaceId: row.id,
     baseSurfaceId: row.id,
-    presetName: 'R4.5 FINAL',
+    presetName: 'Reverie Default',
     shellMode: 'plain',
     defaultOpen: false,
     launcherLabel: row.label,

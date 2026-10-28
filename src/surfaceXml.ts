@@ -3,6 +3,7 @@ import { DEFAULT_SURFACE_PROMPT_MODULES } from './protocols'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { r45UtilityContract } from './r45UtilityContracts'
 import { parseBuildingLayout } from './buildingLayout'
+import { protectInlineCodeSpans } from './inlineCodeBoundary'
 
 export type SurfaceXmlNode = { tag: string; attrs: string; children: Array<SurfaceXmlNode | string>; void: boolean }
 const escapeRe = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -165,6 +166,12 @@ function grammarFor(spec: SurfaceNormalizationSpec): Grammar {
     children.set(spec.wrapper, [...new Set(['user', ...(children.get(spec.wrapper) || [])])])
     children.set('user', ['name', 'avatar'])
     children.set('avatar', ['image_request', 'image_request_error', 'img'])
+  }
+  if (spec.wrapper === 'diary_app') {
+    // Diary photos are optional, so the text-only example cannot describe
+    // this edge. The contract owns each attachment in its authored entry;
+    // root-level media still has three possible destinations and must fail.
+    children.set('diary_entry', [...new Set([...(children.get('diary_entry') || []), 'image_request', 'image_request_error', 'img'])])
   }
   const mediaLike = [...known].filter(tag => /(?:^|_)(?:media|image|photo|avatar|cover|artwork|feed|frame|attachment|portrait)$/i.test(tag) || ['photo', 'image', 'artwork', 'portrait'].includes(tag))
   for (const tag of mediaLike) children.set(tag, [...new Set([...(children.get(tag) || []), 'image_request', 'image_request_error', 'img'])])
@@ -515,6 +522,36 @@ function normalizePropertyListingSurface(root: SurfaceXmlNode): void {
     root.children.push({ tag: 'details', attrs: '', children: [childTextNode('summary', 'History'), history], void: false })
   }
 }
+function recoverDatingUserOpener(input: string): { markup: string; diagnostic?: string } {
+  const orphan = /^(\s*<tinder\b[^>]*>)([\s\S]*?)<\/user\s*>(?=\s*<profiles\b)/i.exec(input)
+  if (!orphan || /<user\b/i.test(orphan[2])) return { markup: input }
+  const nameStart = orphan[2].search(/<name\b/i)
+  const fields = nameStart >= 0 ? orphan[2].slice(nameStart) : ''
+  const user = parseSurfaceXml(`<user>${fields}</user>`)
+  const children = user ? xmlChildren(user) : []
+  const duplicate = nameStart >= 0 ? orphan[2].slice(0, nameStart).trim() : ''
+  const safe = user && children.length === 2 && children[0].tag === 'name' && children[1].tag === 'avatar'
+    && user.children.every(child => typeof child !== 'string' || !child.trim())
+    && (!duplicate || (!/[<>]/.test(duplicate) && plainSurfaceText(duplicate) === plainSurfaceText(xmlText(children[0]))))
+  if (!safe) return { markup: input, diagnostic: 'Tinder is missing its <user> opening tag before <name> and <avatar>. The surrounding text is ambiguous, so it was preserved for Inspect / Fix.' }
+  // Only recover the uniquely owned wrapper; all fields/media are authored.
+  return { markup: input.replace(orphan[0], `${orphan[1]}<user>${fields}</user>`) }
+}
+
+function datingProfileDiagnostics(root: SurfaceXmlNode): string[] {
+  const profiles = xmlChildren(root).filter(child => child.tag === 'profiles')
+  const records = profiles.length === 1 ? xmlChildren(profiles[0]).filter(child => child.tag === 'profile') : []
+  if (profiles.length !== 1 || records.length !== 3) return [`Tinder requires exactly 3 profiles; found ${records.length}. Add the missing <profile> records inside <profiles>, or keep an example inside backticks.`]
+  const errors: string[] = []
+  records.forEach((profile, index) => {
+    for (const tag of ['name', 'age', 'bio', 'photo']) {
+      const fields = xmlChildren(profile).filter(child => child.tag === tag)
+      if (fields.length !== 1 || (tag !== 'photo' && !xmlText(fields[0]).trim() && !xmlChildren(fields[0]).length)) errors.push(`Tinder profile ${index + 1} needs one ${tag === 'photo' ? '' : 'non-empty '}<${tag}> field.`)
+    }
+  })
+  return errors
+}
+
 function normalizeDatingProfileSurface(root: SurfaceXmlNode): void {
   const profiles = directChild(root, 'profiles')
   if (!directChild(root, 'user')) {
@@ -740,7 +777,13 @@ function normalizeAttributeChildFieldDrift(root: SurfaceXmlNode, grammar: Gramma
   return notes
 }
 export function normalizeSurfaceBlock(input: string, spec: SurfaceNormalizationSpec): SurfaceNormalizationResult {
+  const authoredInput = input
   if (spec.id === 'building-layout') return { markup: input, changed: false, diagnostics: parseBuildingLayout(input).diagnostics }
+  if (spec.wrapper === 'tinder') {
+    const recovered = recoverDatingUserOpener(input)
+    if (recovered.diagnostic) return { markup: input, changed: false, diagnostics: [recovered.diagnostic] }
+    input = recovered.markup
+  }
   input = repairSurfaceLexicalMarkup(input)
   if (spec.wrapper === 'smart_phone') input = normalizeSmartphoneBlockForCanonicalParsing(input)
   const grammar = grammarFor(spec); const stack: SurfaceXmlNode[] = []; let root: SurfaceXmlNode | null = null; let at = 0; let error = ''
@@ -848,12 +891,12 @@ export function normalizeSurfaceBlock(input: string, spec: SurfaceNormalizationS
       if (!node.void) stack.push(node)
     } else append(node)
   }
-  if (ignoredStack.length) error ||= 'Unsupported child wrapper was not safely closed.'
+  if (ignoredStack.length) error ||= `Unrecognized <${ignoredStack[0]}> has no matching </${ignoredStack[0]}>. Check that tag in Inspect / Fix.`
   const trailing = input.slice(at)
   if (stack.length && trailing) stack.at(-1)!.children.push(trailing)
   else if (trailing.trim()) error ||= 'Unclosed Surface contains trailing text with no safe boundary.'
   if (!root || (root as SurfaceXmlNode).tag !== spec.wrapper) error ||= 'Surface root could not be resolved.'
-  if (error) return { markup: input, changed: false, diagnostics: [`${spec.id}: ${error}`] }
+  if (error) return { markup: spec.wrapper === 'tinder' ? authoredInput : input, changed: false, diagnostics: [`${spec.id}: ${error}`] }
   const driftDiagnostics = normalizeAttributeChildFieldDrift(root!, grammar)
   const reorder = (node: SurfaceXmlNode) => {
     // Conversation order is authored semantics. Reorder only fixed section groups.
@@ -896,7 +939,11 @@ export function normalizeSurfaceBlock(input: string, spec: SurfaceNormalizationS
   if (spec.wrapper === 'ig_app') normalizeInstagramSurface(root!)
   if (spec.wrapper === 'twitter_app') normalizeTwitterSurface(root!)
   if (spec.wrapper === 'discord_server') normalizeDiscordServerSurface(root!)
-  if (spec.wrapper === 'tinder') normalizeDatingProfileSurface(root!)
+  if (spec.wrapper === 'tinder') {
+    const diagnostics = datingProfileDiagnostics(root!)
+    if (diagnostics.length) return { markup: authoredInput, changed: false, diagnostics }
+    normalizeDatingProfileSurface(root!)
+  }
   if (spec.wrapper === 'property_listing') normalizePropertyListingSurface(root!)
   if (spec.wrapper === 'case_file') normalizeCaseFileSurface(root!)
   if (spec.wrapper === 'cctv_evidence') normalizeCctvSurface(root!)
@@ -908,10 +955,13 @@ export function normalizeSurfaceBlock(input: string, spec: SurfaceNormalizationS
   if (spec.wrapper === 'mission_board') normalizeMissionBoardSurface(root!)
   normalizeEscapedRootMedia(root!, grammar)
   const markup = serializeSurfaceXml(root!)
-  return { markup, changed: markup !== input, diagnostics: [], driftDiagnostics }
+  return { markup, changed: markup !== authoredInput, diagnostics: [], driftDiagnostics }
 }
 export type SurfaceDocumentBlock = { spec: SurfaceNormalizationSpec; original: string; markup: string; diagnostics: string[]; driftDiagnostics?: string[] }
 export function normalizeSurfaceDocument(input: string, supplied: SurfaceNormalizationSpec[], render?: (block: SurfaceDocumentBlock) => string): SurfaceNormalizationResult {
+  const literalCode = protectInlineCodeSpans(input)
+  const originalInput = input
+  input = literalCode.markup
   const specs = completeSurfaceSpecs(supplied); const aliases = specs.flatMap(spec => surfaceRootAliases(spec).map(alias => ({ alias, spec })))
   const startPattern = new RegExp(`<(${aliases.map(row => escapeRe(row.alias)).join('|')})(?=[\\s>])`, 'gi')
   let output = ''; let cursor = 0; const diagnostics: string[] = []; const driftDiagnostics: string[] = []
@@ -936,5 +986,6 @@ export function normalizeSurfaceDocument(input: string, supplied: SurfaceNormali
     cursor = finish
   }
   output += input.slice(cursor)
-  return { markup: output, changed: output !== input, diagnostics, driftDiagnostics }
+  output = literalCode.restore(output)
+  return { markup: output, changed: output !== originalInput, diagnostics, driftDiagnostics }
 }

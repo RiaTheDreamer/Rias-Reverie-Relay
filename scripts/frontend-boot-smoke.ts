@@ -41,6 +41,11 @@ class FakeElement {
   style = new FakeStyle()
   textContent = ''
   innerHTML = ''
+  insertAdjacentHTML(position: string, html: string): void {
+    if (position === 'afterbegin') this.innerHTML = html + this.innerHTML
+    else if (position === 'beforeend') this.innerHTML += html
+    else throw new Error('Unsupported fake DOM insertion position: ' + position)
+  }
   title = ''
   type = ''
   value = ''
@@ -247,11 +252,11 @@ const cleanup = frontendModule.setup(ctx)
 assert(typeof cleanup === 'function', 'built frontend setup must return its lifecycle cleanup')
 assert(stylesRegistered === 2, 'frontend setup must register panel and lifecycle reservation styles')
 assert(drawerRegistrations.length === 1 && drawerRegistrations[0].id === 'private-relay', 'frontend setup must register the Private Relay drawer tab')
-assert(drawerRegistrations[0].shortName === 'Reverie', 'sidebar label must use Reverie without changing the private drawer identity')
-assert(drawerRegistrations[0].title === "Ria's Reverie Relay" && drawerRegistrations[0].headerTitle === "Ria's Reverie Relay", 'dashboard and drawer header must use the requested Reverie name')
+assert(drawerRegistrations[0].shortName === 'Reverie', 'sidebar must use public branding without changing its drawer identity')
+assert(drawerRegistrations[0].title === "Ria's Reverie Relay" && drawerRegistrations[0].headerTitle === "Ria's Reverie Relay", 'dashboard and drawer header must use public branding')
 assert(inputRegistrations.length === 2, 'frontend setup must register both input-bar actions')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-private-relay'), 'Private Relay input-bar action must be registered')
-assert(inputRegistrations.find(entry => entry.options.id === 'open-private-relay')!.options.label === "Open Ria's Reverie Relay", 'input action must match the dashboard branding')
+assert(inputRegistrations.find(entry => entry.options.id === 'open-private-relay')!.options.label === "Open Ria's Reverie Relay", 'input action must match public branding')
 assert(inputRegistrations.some(entry => entry.options.id === 'open-private-relay-surfaces'), 'Surface Registry input-bar action must be registered')
 const primaryTabs = drawer.root.querySelectorAll('.dg-suite-primary-tab')
 const expectedPrimaryTabs = [
@@ -259,12 +264,11 @@ const expectedPrimaryTabs = [
   ['Illustrations', 'path', 4],
   ['Surfaces', 'path', 3],
   ['Appearance', 'path', 3],
-  ['Story', 'path', 2],
   ['Phone', 'rect', 2],
   ['Archive', 'rect', 3],
   ['Settings', 'path', 2],
 ]
-assert(primaryTabs.length === expectedPrimaryTabs.length, 'dashboard must render all eight primary tabs')
+assert(primaryTabs.length === expectedPrimaryTabs.length, 'public dashboard must render seven primary tabs without Story')
 for (const [index, primaryTab] of primaryTabs.entries()) {
   const [label, firstShape, shapeCount] = expectedPrimaryTabs[index]
   assert(primaryTab.children[1]?.textContent === label, `primary tab ${index + 1} must preserve its label and order`)
@@ -276,7 +280,7 @@ for (const [index, primaryTab] of primaryTabs.entries()) {
   assert(svg.children.length === shapeCount && svg.children[0].tagName === firstShape, `${label} must render the selected Lucide shapes`)
   assert(svg.children.every(child => child.namespaceURI === svg.namespaceURI), `${label} shapes must use the SVG namespace`)
 }
-const phoneSvg = primaryTabs[5].querySelector('svg')!
+const phoneSvg = primaryTabs[4].querySelector('svg')!
 assert(phoneSvg.children[0].getAttribute('width') === '14' && phoneSvg.children[0].getAttribute('height') === '20' && phoneSvg.children[1].getAttribute('d') === 'M12 18h.01', 'Phone must use the supplied smartphone icon')
 for (const registration of [...drawerRegistrations, ...inputRegistrations.map(entry => entry.options)]) {
   assert(typeof registration.iconUrl === 'string' && registration.iconUrl.startsWith('data:image/png;base64,'), `${registration.id} must receive an embedded PNG data URL`)
@@ -624,6 +628,16 @@ for (const label of ['Booru Tag Mode', 'Natural Language']) {
   assert(!walk(formatPanel).some(node => node.textContent.startsWith('Image request:')), `${label}: inline example explanation must not return`)
 }
 cleanupPromptFormats()
+
+// A preference saved by a private build cannot revive its removed public route.
+const cleanupPublicRoutes = frontendModule.setup(ctx)
+backendHandler!({ ...bootState, config: { ...bootState.config, lastActiveDrawerTab: 'story-constellations', storyConstellationsEnabled: true } })
+assert(!findButton('Story') && !findButton('Constellations') && !findButton('Story Reel'), 'private Story routes must be absent from the mounted public drawer')
+findButton('Phone')!.click()
+assert(findButton('Open Phone'), 'Phone must remain independently accessible after removing Story')
+findButton('Illustrations')!.click()
+assert(findButton('Storyboard'), 'Storyboard framing must remain accessible')
+cleanupPublicRoutes()
 
 // The host invalidates a frontend generation before invoking its disposer.
 // A rejected disconnect notification must not strand document observers.

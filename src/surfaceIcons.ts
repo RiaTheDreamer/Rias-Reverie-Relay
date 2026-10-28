@@ -2,10 +2,13 @@
  * Lucide: ISC; SVG Repo Spider Web: CC0. See surfaceIcons.sources.md.
  * The keys are stable Surface identifiers, never presentation labels. */
 
+import { GLASS_BUTTON_LAUNCHER_DECLARATIONS, surfaceLauncherDeclarations, type LauncherPresentation } from './surfaceLauncherStyle'
+
 export type SurfaceIconFamily = 'core' | 'narrative'
 export type SurfaceIconDefinition = { svg: string; source: 'lucide' | 'svgrepo'; sourceUrl: string }
 
 const VECTORS: Record<string, string> = {
+  "blocks": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2\"/><rect x=\"14\" y=\"2\" width=\"8\" height=\"8\" rx=\"1\"/></svg>",
   "archive": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect width=\"20\" height=\"5\" x=\"2\" y=\"3\" rx=\"1\" /><path d=\"M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8\" /><path d=\"M10 12h4\" /></svg>",
   "audio-lines": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2 10v3\" /><path d=\"M6 6v11\" /><path d=\"M10 3v18\" /><path d=\"M14 8v7\" /><path d=\"M18 5v13\" /><path d=\"M22 10v3\" /></svg>",
   "book-heart": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20\" /><path d=\"M8.62 9.8A2.25 2.25 0 1 1 12 6.836a2.25 2.25 0 1 1 3.38 2.966l-2.626 2.856a.998.998 0 0 1-1.507 0z\" /></svg>",
@@ -62,6 +65,7 @@ const VECTORS: Record<string, string> = {
 }
 
 export const SURFACE_ICON_REGISTRY: Record<string, SurfaceIconDefinition> = {
+  "core:amazon": {svg:VECTORS["shopping-bag"],source:"lucide",sourceUrl:"https://github.com/lucide-icons/lucide/blob/main/icons/shopping-bag.svg"},
   "core:forum-thread": { svg: VECTORS["messages-square"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/messages-square.svg" },
   "core:email-thread": { svg: VECTORS["mail"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/mail.svg" },
   "core:imessage-chat": { svg: VECTORS["message-circle"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/message-circle.svg" },
@@ -98,7 +102,8 @@ export const SURFACE_ICON_REGISTRY: Record<string, SurfaceIconDefinition> = {
   "core:notes-app": { svg: VECTORS["notebook-pen"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/notebook-pen.svg" },
   "core:market-listing": { svg: VECTORS["shopping-bag"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/shopping-bag.svg" },
   "core:property-listing": { svg: VECTORS["house"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/house.svg" },
-  "core:building-layout": { svg: VECTORS["house"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/house.svg" },
+  "core:building-layout": { svg: VECTORS["blocks"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/blocks.svg" },
+  "narrative:Building Layout": { svg: VECTORS["blocks"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/blocks.svg" },
   "core:letter-dispatch": { svg: VECTORS["send"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/send.svg" },
   "core:medical-record": { svg: VECTORS["stethoscope"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/stethoscope.svg" },
   "core:court-transcript": { svg: VECTORS["scale"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/scale.svg" },
@@ -140,6 +145,11 @@ export const SURFACE_ICON_STYLE = `<style data-rr-surface-icon-style="1">
 .rr-surface-svg-icon{position:relative;z-index:3;display:inline-grid;place-items:center;flex:0 0 auto;width:18px;height:18px;color:currentColor;line-height:0;vertical-align:middle}
 .rr-surface-svg-icon>svg{display:block;width:100%;height:100%;overflow:visible}
 .rr-surface-launcher-iconized>.rr-surface-svg-icon[data-rr-surface-icon^="core:"]{width:12px!important;height:12px!important;margin-right:6px!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]>.rr-surface-svg-icon{width:18px!important;height:18px!important;margin:0!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]>:is([class*="spark"],[class*="particle"]):not(.rr-surface-sparks){display:none!important;animation:none!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]:not(.rr-surface-launcher-sparkling)>.rr-surface-sparks{display:none!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]::before,.rr-surface-launcher-iconized[data-rr-launcher-mode]::after{content:none!important;animation:none!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]::-webkit-details-marker{display:none!important}
 .rr-surface-launcher-iconized[data-rr-plain-glass="1"] [class*="spark"],.rr-surface-launcher-iconized[data-rr-plain-glass="1"] [class*="particle"]{display:none!important;animation:none!important}
 .rr-surface-launcher-iconized[data-rr-plain-glass="1"]::before,.rr-surface-launcher-iconized[data-rr-plain-glass="1"]::after{content:none!important;animation:none!important}
 .rr-surface-launcher-iconized.rr-surface-launcher-sparkling>.rr-surface-sparks[aria-hidden="true"]{position:absolute!important;inset:0!important;z-index:1!important;display:block!important;overflow:hidden;pointer-events:none}
@@ -160,6 +170,69 @@ export const SURFACE_ICON_STYLE = `<style data-rr-surface-icon-style="1">
 @media(prefers-reduced-motion:reduce){.rr-surface-launcher-iconized>.rr-surface-sparks i,:is([data-reverie-glass-button],[data-reverie-narrative-glass-button]) .rr-surface-launcher-iconized.rr-surface-launcher-sparkling>.rr-surface-sparks[aria-hidden="true"]>i{animation:none!important;opacity:.5!important;transform:none!important}}
 </style>`
 
+// Supplemental launchers ship inline !important styles. The same declarations
+// must own both the stylesheet and inline layer, including already-saved cards.
+export const CORE_GLASS_LAUNCHER_DECLARATIONS = GLASS_BUTTON_LAUNCHER_DECLARATIONS.replace('margin:0 auto!important', 'margin:16px auto!important') + ';box-sizing:border-box!important;gap:9px!important'
+
+function launcherInlineStyle(original: string, declarations: string): string {
+  const owned = new Set(declarations.split(';').map(value => value.slice(0, value.indexOf(':'))))
+  const retained: string[] = []
+  let start = 0, depth = 0, quote = ''
+  // Split only top-level declarations; preserve custom values containing URLs,
+  // quoted semicolons or nested functions instead of corrupting their syntax.
+  for (let i = 0; i <= original.length; i++) {
+    const char = original[i]
+    if (char === '\\') { i++; continue }
+    if (quote) { if (char === quote) quote = ''; continue }
+    if (char === '"' || char === "'") { quote = char; continue }
+    if (char === '(') depth++
+    if (char === ')') depth--
+    if (i === original.length || (char === ';' && depth === 0)) {
+      const declaration = original.slice(start, i).trim()
+      const property = declaration.slice(0, declaration.indexOf(':')).trim().toLowerCase()
+      if (declaration && !owned.has(property) && !/^(?:background|border|font|margin|padding)-/.test(property)) retained.push(declaration)
+      start = i + 1
+    }
+  }
+  return [...retained, declarations].join(';')
+}
+
+/** Used on saved HTML as well as fresh render output. Never infer the mode
+ * from the current global preference: saved per-Surface intent owns it. */
+export function applySurfaceLauncherInlineStyle(launcher: HTMLElement, mode: LauncherPresentation): void {
+  launcher.classList.add('rr-surface-launcher-iconized')
+  const animated = mode === 'glass' || mode === 'sparkling'
+  launcher.classList.toggle('rr-surface-launcher-sparkling', animated)
+  if (animated && !launcher.querySelector(':scope>.rr-surface-sparks')) {
+    const field = launcher.ownerDocument.createElement('span')
+    field.className = 'rr-surface-sparks'; field.setAttribute('aria-hidden', 'true')
+    for (let i = 0; i < 8; i++) field.appendChild(launcher.ownerDocument.createElement('i'))
+    launcher.prepend(field)
+  }
+  const core = Boolean(launcher.querySelector('[data-rr-surface-icon^="core:"]'))
+  const next = launcherInlineStyle(launcher.getAttribute('style') || '', surfaceLauncherDeclarations(mode, core))
+  if (launcher.getAttribute('style') !== next) launcher.setAttribute('style', next)
+  launcher.setAttribute('data-rr-launcher-mode', mode)
+}
+
+export function applyCoreGlassLauncherInlineStyle(launcher: HTMLElement): void {
+  for (const declaration of CORE_GLASS_LAUNCHER_DECLARATIONS.split(';')) {
+    const colon = declaration.indexOf(':')
+    const property = declaration.slice(0, colon)
+    const value = declaration.slice(colon + 1).replace(/!important$/, '')
+    if (launcher.style.getPropertyValue(property) !== value || launcher.style.getPropertyPriority(property) !== 'important') launcher.style.setProperty(property, value, 'important')
+  }
+}
+
+export const CORE_GLASS_LAUNCHER_RULES = `
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]{${CORE_GLASS_LAUNCHER_DECLARATIONS}}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]>.rr-surface-svg-icon[data-rr-surface-icon^="core:"]{width:18px!important;height:18px!important;margin-right:0!important}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]>.r43-particles{display:none!important}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]::before,.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]::after{content:none!important}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]::-webkit-details-marker{display:none!important}
+`
+const CORE_GLASS_LAUNCHER_STYLE = `<style data-rr-core-glass-launcher-style="1">${CORE_GLASS_LAUNCHER_RULES}</style>`
+
 const SPARKS = '<span class="rr-surface-sparks" aria-hidden="true">' + '<i></i>'.repeat(8) + '</span>'
 
 /** Narrative packs predate the shared SVG registry. Remove only their
@@ -176,17 +249,18 @@ function removeLegacyNarrativeLauncherIcon(markup: string, id: string): string {
   return markup.replace(new RegExp(`(<span class="${labelClass}">)\\s*<span>[^<]*<\\/span>(?=\\s*<span>)`, 'i'), '$1')
 }
 
-function includeSurfaceIconStyle(markup: string): string {
+function includeSurfaceIconStyle(markup: string, coreGlass = false): string {
+  const style = SURFACE_ICON_STYLE + (coreGlass ? CORE_GLASS_LAUNCHER_STYLE : '')
   // A style *before* the isolated Surface root can be discarded by Lumiverse.
   // Keep the CSS inside its owned details element, after the summary, while
   // retaining the trailing </section></details> Narrative action hook.
   if (/<\/summary>/i.test(markup)) {
-    return markup.replace(/<\/summary>/i, `</summary>${SURFACE_ICON_STYLE}`)
+    return markup.replace(/<\/summary>/i, `</summary>${style}`)
   }
   if (/<label\b[^>]*\brrcp-launch\b[\s\S]*?<\/label>/i.test(markup)) {
-    return markup.replace(/<\/label>/i, `</label>${SURFACE_ICON_STYLE}`)
+    return markup.replace(/<\/label>/i, `</label>${style}`)
   }
-  return `${SURFACE_ICON_STYLE}${markup}`
+  return `${style}${markup}`
 }
 
 /** Pure/idempotent markup decoration. Inline mode only uses a real header slot;
@@ -198,19 +272,25 @@ export function decorateSurfaceLauncherMarkup(
   presentation: 'inline' | 'plain' | 'sparkling' | 'glass' | 'plain-glass',
 ): string {
   const icon = surfaceIconMarkup(family, id)
-  if (!icon || markup.includes(`data-rr-surface-icon="${family}:${id}"`)) return markup
+  if (!icon || /data-rr-launcher-mode=/.test(markup) || markup.includes(`data-rr-surface-icon="${family}:${id}"`)) return markup
   const animated = presentation === 'sparkling' || presentation === 'glass'
   const launcher = family === 'narrative' && id === 'Character Phone'
     ? /<label\b(?=[^>]*\bclass="[^"]*\brrcp-launch\b)[^>]*>/i
     : /<summary\b[^>]*>/i
   if (presentation === 'inline') {
     const header = family === 'narrative'
-      ? /<(?:header|div)\b(?=[^>]*\bclass="[^"]*\b(?:r65-head|ra66-head|rrcp-hero|ch-meta|dg-meta-strip)\b)[^>]*>/i
+      ? /<(?:header|div)\b(?=[^>]*\bclass="[^"]*\b(?:r65-head|ra66-head|rrcp-hero|ch-meta|dg-meta-strip|pw-head)\b)[^>]*>/i
       : /<(?:header|div|h[1-3])\b(?=[^>]*\bclass="[^"]*(?:\bhead\b|\bheading\b|\btitle\b|rrn-surface-head)[^"]*")[^>]*>/i
     let inserted = false
     let output = markup.replace(header, opening => { inserted = true; return `${opening}${icon}` })
     if (!inserted && family === 'core') output = markup.replace(/<header\b[^>]*>/i, opening => { inserted = true; return `${opening}${icon}` })
-    return inserted ? includeSurfaceIconStyle(output) : markup
+    output = output.replace(launcher, opening => {
+      const hidden = /\bstyle=(['"])([\s\S]*?)\1/i.test(opening)
+        ? opening.replace(/\bstyle=(['"])([\s\S]*?)\1/i, (_full, quote, style) => `style=${quote}${style};display:none!important${quote}`)
+        : opening.replace(/>$/, ' style="display:none!important">')
+      return hidden.replace(/>$/, ' data-rr-launcher-mode="inline">')
+    })
+    return inserted || output !== markup ? includeSurfaceIconStyle(output) : markup
   }
   let inserted = false
   const output = markup.replace(launcher, opening => {
@@ -219,12 +299,18 @@ export function decorateSurfaceLauncherMarkup(
     const marked = /\bclass="/.test(opening)
       ? opening.replace(/\bclass="/, `class="${className} `)
       : opening.replace(/>$/, ` class="${className}">`)
+    const coreGlass = family === 'core' && (presentation === 'glass' || presentation === 'plain-glass')
+    const declarations = surfaceLauncherDeclarations(presentation, family === 'core')
+    const styled = /\bstyle=(['"])([\s\S]*?)\1/i.test(marked)
+      ? marked.replace(/\bstyle=(['"])([\s\S]*?)\1/i, (_full, quote, style) => `style=${quote}${launcherInlineStyle(style, declarations).replaceAll(quote, quote === '"' ? '&quot;' : '&#39;')}${quote}`)
+      : marked.replace(/>$/, ` style="${declarations.replaceAll('"', '&quot;')}">`)
+    const glass = coreGlass ? styled.replace(/>$/, ' data-rr-glass-launcher="1">') : styled
     const plainGlass = presentation === 'plain-glass'
-      ? marked.replace(/>$/, ' data-rr-plain-glass="1">')
-      : marked
-    return `${plainGlass}${animated ? SPARKS : ''}${icon}`
+      ? glass.replace(/>$/, ' data-rr-plain-glass="1">')
+      : glass
+    return `${plainGlass.replace(/>$/, ` data-rr-launcher-mode="${presentation}">`)}${animated ? SPARKS : ''}${icon}`
   })
   if (!inserted) return markup
   const withoutLegacyIcon = family === 'narrative' ? removeLegacyNarrativeLauncherIcon(output, id) : output
-  return includeSurfaceIconStyle(withoutLegacyIcon)
+  return includeSurfaceIconStyle(withoutLegacyIcon, family === 'core' && (presentation === 'glass' || presentation === 'plain-glass'))
 }

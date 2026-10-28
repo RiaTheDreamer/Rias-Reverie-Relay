@@ -106,7 +106,7 @@ assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('knee-length blonde hair" be
 assert(BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE.includes('For every visible person supported by the anchored paragraph—including an unnamed role'), 'Booru guidance must retain full visible unnamed subjects')
 const storyboardWheelTags = normalizeBooruTagPrompt('wide_shot, 3people, cart, wheel, raised_floor_seam, stuck, wheel_caught_on_raised_floor_seam')
 assert(storyboardWheelTags.includes('cart, wheel, raised_floor_seam, stuck'), 'Separate concise event tags must survive provider normalization')
-assert(!storyboardWheelTags.includes('wheel_caught_on_raised_floor_seam'), 'Overlong pseudo-relations must not masquerade as valid provider tags')
+assert(storyboardWheelTags.includes('wheel_caught_on_raised_floor_seam'), 'a supplied custom relation must remain usable provider content, not disappear because it is not a canonical Booru tag')
 for (const mode of ['inline-protocol', 'relay-planned'] as const) {
   for (const promptFormat of ['natural-language', 'danbooru-tags'] as const) {
     const selected = { ...settings, enabled: true, mode, perspectiveMode: 'storyboard', promptFormat, characterOnlySubjects: 'Tavi' }
@@ -136,7 +136,7 @@ for (const [mode, marker, requiredBody] of [
   const partialOverride = `${marker}\nA user customization that retained the heading only.`
   const selected = { ...settings, enabled: true, mode, promptRegistry: { [promptId]: partialOverride } }
   const story = backend.resolveIllustratorStoryPrompt(selected, [])
-  const expectedGuidance = mode === 'relay-planned' ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
+  const expectedGuidance = mode === 'relay-planned' ? backend.RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
   assert(story.includes(requiredBody) && story.includes(expectedGuidance), `${mode}: incomplete customized header suppressed required channel-separation guidance`)
 }
 const scene = 'Alpha sits side-on beside an open window, bracing one hand on the sill, eyes lowered toward a letter, jaw tight.'
@@ -357,9 +357,26 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
   for (const script of narrativeRegexScripts(variant, colorMode)) {
     const original = originals.find(row => row.script_id === (script.script_id === PLOT_SPARKS_LEGACY_SCRIPT_ID ? PLOT_SPARKS_SCRIPT_ID : script.script_id))
     if (original && script.script_id !== 'reverie_scene_tracker_images_v1') {
-      const suppliedReplacement = script.replace_string.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
-        ? script.replace_string.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
-        : script.replace_string
+      // The 0.5.1.8 identity fix intentionally prefixes these exact captures.
+      // Verify that addition, then compare the protected card body unchanged.
+      const identityById = {
+        reverie_npc_intro_images_v1: ['cast-introduction', 'name'],
+        reverie_npc_upgrade_images_v1: ['cast-introduction', 'name'],
+        reverie_npc_ref_v1: ['cast-introduction', 'name'],
+        reverie_npc_relationship_v1: ['cast-introduction', 'name'],
+        relay_shenanigans_dossier_images_sparkle_v1: ['character-dossier', 'visible'],
+        relay_shenanigans_location_images_sparkle_v1: ['location-file', 'visible'],
+      }
+      const identity = identityById[script.script_id]
+      let authoredBody = script.replace_string
+      if (identity) {
+        const prefix = `<span data-reverie-narrative-identity="${identity[0]}">$<${identity[1]}></span>`
+        assert(authoredBody.startsWith(prefix), `${script.script_id}: exact identity-preservation prefix missing`)
+        authoredBody = authoredBody.slice(prefix.length)
+      }
+      const suppliedReplacement = authoredBody.startsWith(NARRATIVE_MEDIA_COMPATIBILITY_STYLE)
+        ? authoredBody.slice(NARRATIVE_MEDIA_COMPATIBILITY_STYLE.length)
+        : authoredBody
       // Strip only generated icon/ember presentation before comparing the
       // author-owned Narrative body byte for byte with the shipped source.
       const iconFreeReplacement = suppliedReplacement
@@ -408,7 +425,11 @@ for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass'] as c
           .replace(/<span class="ch-launch-emoji" aria-hidden="true">[\s\S]*?<\/span>/i, '')
           .replace(/(<span class="(?:rrcp-label|r65-label|ra66-label)">)\s*<span>[^<]*<\/span>(?=\s*<span>)/i, '$1')
         : expectedBeforeLauncherIcon
-      if (suppliedBase !== expectedAuthorBody) {
+      // Launcher opening attributes now belong to the global five-mode
+      // contract. Protect all inner labels, complete app bodies and authored
+      // styles; the dedicated authority test also locks their previous hashes.
+      const withoutLauncherOpening = (html: string) => html.replace(/<summary\b[^>]*>/gi, '<summary>').replace(/<label\b(?=[^>]*class="[^"]*\brrcp-launch\b)[^>]*>/gi, '<label>')
+      if (withoutLauncherOpening(suppliedBase) !== withoutLauncherOpening(expectedAuthorBody)) {
         let firstDiff = 0
         while (firstDiff < Math.min(suppliedBase.length, expectedAuthorBody.length) && suppliedBase[firstDiff] === expectedAuthorBody[firstDiff]) firstDiff += 1
         throw new Error(`${variant}/${script.script_id}: supplied Narrative styling changed at ${firstDiff}: ${JSON.stringify(suppliedBase.slice(firstDiff, firstDiff + 100))} versus ${JSON.stringify(expectedAuthorBody.slice(firstDiff, firstDiff + 100))}`)

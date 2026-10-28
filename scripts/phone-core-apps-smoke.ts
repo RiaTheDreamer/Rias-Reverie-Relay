@@ -8,7 +8,7 @@ import {bracketExampleFromXml} from '../src/bracketSurfaceAuthoring'
 import {parseImageRequests} from '../src/contracts'
 const definitions=[...shippedSurfaceDefinitions(1),...r45SupplementalSurfaceDefinitions(1)]
 const studio={definitions:Object.fromEntries(definitions.map(d=>[d.surfaceId,d])),activePresetIds:Object.fromEntries(definitions.map(d=>[d.baseSurfaceId,d.surfaceId])),defaultShellMode:'plain',rendererMode:'relay',colorMode:'realistic'}
-assert.equal(PHONE_CORE_APPS.length,47);assert.equal(new Set(PHONE_CORE_APPS.map(app=>app.id)).size,47)
+assert.equal(PHONE_CORE_APPS.length,48);assert.equal(new Set(PHONE_CORE_APPS.map(app=>app.id)).size,48)
 for(const definition of definitions){
   const records=phoneCoreRecords(definition.sampleXml,'sample-message',0)
   const record=records.find(row=>row.appId===definition.baseSurfaceId)
@@ -41,4 +41,4 @@ assert.equal(phoneCoreRecords('```xml\n'+sample+'\n```','example',0).length,0)
 assert.equal(phoneCoreRecords('<think>'+sample+'</think>','reasoning',0).length,0)
 const empty=phoneCoreRecords('<instagram_dm name="—" handle="—" time="—">\n</instagram_dm>','empty-app',0)[0]
 assert(renderPhoneCoreRecord(empty,studio,{chatId:'test-chat',records:[]}).includes('contains no readable content'),'empty authored app reports exact-source recovery instead of displaying a misleading blank thread')
-console.log('Phone Core apps passed: all 46 canonical and saved-bracket roots extracted, source/swipe identity preserved, production renderers mounted with real app controls and no scripts/provider writes.')
+console.log('Phone Core apps passed: all 48 canonical and saved-bracket roots extracted, source/swipe identity preserved, production renderers mounted with real app controls and no scripts/provider writes.')

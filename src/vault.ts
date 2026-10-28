@@ -1,3 +1,4 @@
+import { normalizeSceneAppearanceTimeline } from './sceneAppearance'
 import type {
   AppearanceCharacterSheet,
   AppearanceFactCategory,
@@ -215,7 +216,9 @@ const BODY_TAGS: Array<[RegExp, string]> = [
   [/\bstocky(?:\s+(?:build|frame|physique))?\b|\bstocky_build\b/i, 'stocky_build'],
   [/\bbroad[- ]shouldered\b|\bbroad\s+shoulders\b|\bbroad_shoulders\b/i, 'broad_shoulders'],
   [/\btall\b/i, 'tall'],
-  [/\bshort\b/i, 'short'],
+  // A bare stature tag or explicit body/person predicate is evidence of height;
+  // "short hair" (including normalized short_hair) is not.
+  [/^short$|\bshort[-_ ]+(?:stature|build|height|person|man|woman|boy|girl|character)\b|\bshort\s+in\s+stature\b|\b(?:is|are|was|were)\s+(?:(?:very|quite)\s+)?short\b/i, 'short'],
 ]
 
 const WARDROBE_TAGS: Array<[RegExp, string]> = [
@@ -470,8 +473,18 @@ function currentAppearanceDomain(fact: Pick<AppearanceVaultFact, 'category' | 'v
 function isSceneActionOnlyAppearanceValue(value: string, category?: AppearanceFactCategory): boolean {
   const text = clean(value).replace(/_/g, ' ').toLocaleLowerCase()
   if (!text) return false
+  // A removed garment placed on furniture is a scene prop, not a persistent
+  // trait of its former wearer. Do not confuse worn folds or shoulder draping
+  // with this bounded off-body placement shape.
+  if (/\b(?:coat|jacket|shirt|blouse|cardigan|dress|skirt|trousers|pants|shoes|boots|clothes|clothing)\b.{0,60}\b(?:folded|flattened|draped|hung|hanging|laid|left|resting)\b.{0,40}\b(?:on|over|against|beside)\b.{0,25}\b(?:table|chair|bench|bed|floor|hook|rack)\b/.test(text)) return true
   const visualState = /\b(?:wet|drying|dry|damp|loose|curled?|wavy|makeup|eyeliner|liner|mascara|washed away|smudged|bandage|bruise|blood|injur|swollen|scratch|torn|damaged|muddy|barefoot|hair|eyes?|scar|mole|tattoo|birthmark|freckles|skin)\b/.test(text)
-  const staging = /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|emitting|projecting|shining|casting|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text)
+  // The Sidecar also emits noun-only occupancy such as "blue cup in left
+  // hand". Like "holding a cup", this belongs to its shot, not Appearance
+  // continuity: otherwise the response's final prop state contaminates earlier
+  // illustrations. Keep this bounded to portable props and explicit in-hand
+  // syntax; rings/gloves worn on hands and injuries remain appearance state.
+  const handHeldProp = /\b(?:cup|mug|glass|bottle|bowl|plate|book|notebook|folder|paper|phone|camera|pen|pencil|umbrella|bag|suitcase|key|keys)\b.{0,35}\bin\s+(?:(?:his|her|their|the|a|left|right)\s+){0,3}hands?\b/.test(text)
+  const staging = handHeldProp || /\b(?:standing|sitting|running|walking|fled|holding|watching|leaning|lying|kneeling|emitting|projecting|shining|casting|by the door|floor cushion|center room|tea in hand|folder|stage|van bench|shoulder|room)\b/.test(text)
   if (staging && !visualState) return true
   if (staging && category === 'temporary-expression' && !/\b(?:tear|flushed|smile|frown|angry|sad|afraid|expression|makeup|hair|injur|bandage|blood|bruise)\b/.test(text)) return true
   return false
@@ -614,7 +627,7 @@ export function emptyContinuityVault(chatId: string): ContinuityVaultState {
     migrationPreview: null,
     ignoredForSlotKeys: [],
     deliberateBreaks: {},
-    appearanceSidecar: { revision: 0, processedTurnKeys: {}, lastRunAt: 0 },
+    appearanceSidecar: { revision: 0, processedTurnKeys: {}, lastRunAt: 0, lastFullRefreshMessageId: '' },
     updatedAt: 0,
   }
 }
@@ -624,6 +637,7 @@ export function normalizeContinuityVault(value: unknown, chatId = '', sourceSche
   const vault = emptyContinuityVault(clean(raw.chatId) || chatId)
   const strength = clean(raw.strength)
   vault.strength = isStrength(strength) ? strength : 'off'
+  vault.sceneAppearance = normalizeSceneAppearanceTimeline(raw.sceneAppearance)
   vault.characters = normalizeCharacters(raw.characters)
   vault.characterSheets = normalizeCharacterSheets(raw.characterSheets, vault.characters)
   vault.visualIdentity = normalizeFactMap(raw.visualIdentity, 'visual-identity', vault.characters)
@@ -660,6 +674,9 @@ export function normalizeContinuityVault(value: unknown, chatId = '', sourceSche
       .sort(([, left], [, right]) => right - left)
       .slice(0, 128)),
     lastRunAt: Math.max(0, finite(rawSidecar.lastRunAt) || 0),
+    lastFullRefreshMessageId: typeof rawSidecar.lastFullRefreshMessageId === 'string'
+      ? clean(rawSidecar.lastFullRefreshMessageId)
+      : finite(rawSidecar.lastRunAt) > 0 ? clean(rawSidecar.lastMessageId) : '',
     lastMessageId: clean(rawSidecar.lastMessageId) || undefined,
     lastSwipeId: Number.isFinite(Number(rawSidecar.lastSwipeId)) ? Number(rawSidecar.lastSwipeId) : undefined,
     lastConnectionId: clean(rawSidecar.lastConnectionId) || undefined,
@@ -689,6 +706,16 @@ export function isValidCanonicalCharacterName(value: string): boolean {
   if (words.length > 4) return false
   if (words.some(word => INVALID_SUBJECTS.has(normalizeAlias(word)))) return false
   return /[\p{L}]/u.test(name) && !/^\d+$/.test(name)
+}
+
+/** Confirmed host card titles are not inferred scene labels. A stable host ID
+ * is required at callers; keep placeholders/markup out without imposing the
+ * guessed-name word count or treating words in a library title as style tags. */
+export function isValidHostIdentityName(value: string): boolean {
+  if (/[\x00-\x1f\x7f<>]|\{\{|\}\}/.test(value)) return false
+  const name = clean(value)
+  return Boolean(name) && name.length <= 512 && /[\p{L}]/u.test(name)
+    && !isUnresolvedAppearanceRole(name) && !INVALID_SUBJECTS.has(normalizeAlias(name))
 }
 
 export function resolveCanonicalCharacter(vault: ContinuityVaultState, candidate: string): CanonicalVisualCharacter | null {
@@ -884,6 +911,7 @@ function addCanonicalAppearanceFact(
     pinned: Boolean(input.pinned || existing?.pinned),
     userConfirmed: Boolean(input.userConfirmed || existing?.userConfirmed),
     referenceAssetIds: unique([...(existing?.referenceAssetIds || []), ...stringList(input.referenceAssetIds)]),
+    manuallyExcluded: false,
     notes: clean(input.notes) || existing?.notes,
     outfitName: clean(input.outfitName) || existing?.outfitName,
     defaultWardrobe: input.layer === 'wardrobe' ? Boolean(input.defaultWardrobe ?? existing?.defaultWardrobe) : undefined,
@@ -917,6 +945,9 @@ function addCanonicalAppearanceRows(vault: ContinuityVaultState, input: AddAppea
   const currentWardrobeBatch = input.layer === 'wardrobe' && input.currentWardrobe && rows.some(row => row.layer === 'wardrobe')
   const saved: AppearanceVaultFact[] = []
   for (const [index, row] of rows.entries()) {
+    if (input.sourceType !== 'manual' && input.semanticAuthority !== 'explicit-user'
+      && Object.values(layerMap(vault, row.layer)).some(fact => fact.canonicalCharacterId === input.characterId
+        && fact.manuallyExcluded && normalizeValue(fact.value) === normalizeValue(row.value))) continue
     saved.push(addCanonicalAppearanceFact(vault, {
       ...input,
       layer: row.layer,
@@ -936,7 +967,16 @@ function addCanonicalAppearanceRows(vault: ContinuityVaultState, input: AddAppea
 
 export function addAppearanceFact(vault: ContinuityVaultState, input: AddAppearanceFactInput, now = Date.now()): AppearanceVaultFact {
   const facts = addAppearanceFacts(vault, input, now)
-  return facts[0]
+  if (facts[0]) return facts[0]
+  // The plural API reports only accepted additions. Its single-fact facade
+  // still returns the existing rejected record when an automatic source is
+  // blocked by an editor exclusion, rather than violating its return contract.
+  for (const row of canonicalizeAppearanceFactInput(input)) {
+    const rejected = Object.values(layerMap(vault, row.layer)).find(fact => fact.canonicalCharacterId === input.characterId
+      && fact.manuallyExcluded && normalizeValue(fact.value) === normalizeValue(row.value))
+    if (rejected) return rejected
+  }
+  throw new Error('Appearance value could not be normalized into canonical appearance tags.')
 }
 
 export function addAppearanceSuggestion(
@@ -1255,7 +1295,9 @@ export function selectContinuityForSubjects(
 
 function analyzeSceneVisibility(sceneBrief: string, framingMode = '', expectedPeopleCount = 0): SceneVisibilityAnalysis {
   const scene = `${sceneBrief} ${framingMode}`.replace(/[_-]+/g, ' ').toLocaleLowerCase()
-  const sleeping = /\b(?:sleeping|asleep|napping|napped|passed out|resting|dozing|dozed off)\b/.test(scene)
+  // Bare "resting" also describes awake poses, hands and props; it cannot
+  // establish sleep. Explicit closed eyes are handled independently below.
+  const sleeping = /\b(?:sleeping|asleep|napping|napped|passed out|dozing|dozed off)\b/.test(scene)
   const eyesClosed = sleeping || /\b(?:eyes? closed|closed eyes?|eyelids? shut|shut eyes?)\b/.test(scene)
   const backTurned = /\b(?:back turned|seen from behind|rear view|back facing|facing away|turned away|from behind)\b/.test(scene)
   const faceOutOfFrame = /\b(?:face out of frame|head out of frame|cropped above the neck|faceless crop)\b/.test(scene)
@@ -1673,9 +1715,11 @@ export function saveManualAppearanceMemory(
   // Stable Appearance is one complete editor-owned field, not an additive
   // suggestion. Preserve provenance/history while removing every older active
   // canonical value from presentation authority.
+  const retainedStableValues = new Set(stableRows.map(row => normalizeValue(row.value)))
   for (const fact of Object.values(vault.visualIdentity)) {
     if (fact.canonicalCharacterId !== input.characterId || fact.status !== 'active') continue
-    fact.status = 'superseded'
+    fact.manuallyExcluded = !retainedStableValues.has(normalizeValue(fact.value))
+    fact.status = fact.manuallyExcluded ? 'rejected' : 'superseded'
     fact.updatedAt = now
   }
   // Current Outfit has the same replacement semantics, including an explicit
@@ -2240,6 +2284,7 @@ function normalizeFactMap(value: unknown, layer: AppearanceVaultLayer, character
         pinned: Boolean(existing?.pinned || raw.pinned === true),
         userConfirmed: Boolean(existing?.userConfirmed || raw.userConfirmed === true),
         referenceAssetIds: unique([...(existing?.referenceAssetIds || []), ...stringList(raw.referenceAssetIds)]),
+        manuallyExcluded: Boolean(existing?.manuallyExcluded || raw.manuallyExcluded === true),
         notes: clean(raw.notes) || existing?.notes,
         outfitName: clean(raw.outfitName) || existing?.outfitName,
         defaultWardrobe: layer === 'wardrobe' ? Boolean(raw.defaultWardrobe === true || existing?.defaultWardrobe) : undefined,

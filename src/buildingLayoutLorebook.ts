@@ -37,15 +37,18 @@ export async function exportBuildingRoomToLorebook(input: { api: Api; chat: Narr
   const lockKey = `${userId || ''}:${chat.id}`
   const run = async () => {
     const record = buildingLayoutLoreRecord(layout, roomId)
+    const buildingName = (name: string) => name.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
     const books = await pages(offset => api.world_books.list({ limit: 100, offset, userId }))
-    let book = books.find(candidate => candidate.metadata?.reverie_relay_building_layout_id === layout.id && candidate.metadata?.reverie_relay_lorebook_chat_id === chat.id)
+    let book = books.find(candidate => candidate.metadata?.reverie_relay_building_layout_id === layout.id
+      && candidate.metadata?.reverie_relay_lorebook_chat_id === chat.id
+      && buildingName(String(candidate.metadata?.reverie_relay_building_name || candidate.name)) === buildingName(layout.context.name))
     let createdBook = false, createdEntryId = ''
     try {
       if (!book) {
         book = await api.world_books.create({
           name: layout.context.name,
           description: `Building Layout rooms exported from ${chat.name || 'this chat'}.`,
-          metadata: { reverie_relay_building_layout_id: layout.id, reverie_relay_lorebook_chat_id: chat.id, reverie_relay_created_at: new Date().toISOString() },
+          metadata: { reverie_relay_building_layout_id: layout.id, reverie_relay_building_name: layout.context.name, reverie_relay_lorebook_chat_id: chat.id, reverie_relay_created_at: new Date().toISOString() },
         }, userId)
         createdBook = true
       }

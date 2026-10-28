@@ -92,9 +92,11 @@ assert.equal(preservedCustomInline.promptRegistry['story.inline-protocol'], cust
 
 const definitions = protocols.PROMPT_REGISTRY_DEFINITIONS.filter((row: any) => row.id.startsWith('story.framing.'))
 assert.deepEqual(definitions.map((row: any) => row.id), [
+  'story.framing.scene-flow', 'story.framing.dreamcut',
   'story.framing.scene-snapshot', 'story.framing.sequence', 'story.framing.emotional-beat', 'story.framing.solo-scene', 'story.framing.persona-pov', 'story.framing.storyboard',
+  'story.framing.blocking-fidelity',
 ])
-assert(definitions.every((row: any) => row.status === 'stable' && row.version >= 1), 'all framing defaults must be finalized and versioned')
+assert(definitions.every((row: any) => row.version >= 1 && row.status === (['story.framing.blocking-fidelity', 'story.framing.scene-flow', 'story.framing.dreamcut'].includes(row.id) ? 'provisional' : 'stable')), 'existing defaults stay stable; experimental framings are explicitly provisional and versioned')
 const personaDefinition = definitions.find((row: any) => row.id === 'story.framing.persona-pov')
 assert.equal(personaDefinition.version, 6, 'Persona POV visibility contract must publish as framing version 6')
 for (const contract of ['active Persona is the camera/viewpoint only', 'never visible', 'Never depict any part of the Persona\'s body', 'must not appear as imagery on a monitor', 'Never turn this first-person view into a selfie']) {

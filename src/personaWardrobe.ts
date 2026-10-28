@@ -1,5 +1,6 @@
 import type { NarrativeSurfacePresentationVariant } from './surfacePresentation'
-import { surfaceIconMarkup } from './surfaceIcons'
+import { decorateSurfaceLauncherMarkup } from './surfaceIcons'
+import { surfaceShellModeForNarrativeVariant } from './surfacePresentation'
 import { xmlNarrativeAsLegacy } from './xmlSurfaceFormat'
 import { SURFACE_MEDIA_GEOMETRY_STYLE } from './surfaceMediaGeometry'
 
@@ -101,7 +102,7 @@ function renderOwner(body: string, variant: NarrativeSurfacePresentationVariant,
     const wear = wearTextForSubject(look.wear, character || '')
     return `<section class="pw-panel pw-panel-${index + 1}" aria-label="${escapeHtml(look.name)}"><div class="pw-look${hasMedia ? '' : ' pw-look-text-only'}">${hasMedia ? `<div class="pw-mirror"><div class="pw-media">${look.media}</div></div>` : ''}<div class="pw-copy"><div class="pw-lookno">Look ${String(index + 1).padStart(2, '0')} · ${escapeHtml(look.fit)}</div><h3 class="pw-name">${escapeHtml(look.name)}</h3><p class="pw-summary">${escapeHtml(look.summary)}</p><div class="pw-tags"><span class="pw-chip">${escapeHtml(look.tags)}</span><span class="pw-chip">${escapeHtml(look.colors)}</span></div><div class="pw-pieces">${parts}</div><div class="pw-wearcopy">${escapeHtml(wear)}</div><button type="button" class="pw-wear" data-rrn-action="wardrobe-wear"><span>Wear this outfit</span><em>→ Composer</em></button></div></div></section>`
   }).join('')
-  return `<!-- UI_START -->${PERSONA_WARDROBE_STYLE}<details class="pw-wardrobe rr-surface-presentation-${mode}" data-pw-variant="${variant}"${variant === 'inline' ? ' open' : ''}><summary>${surfaceIconMarkup('narrative', 'Persona Wardrobe')}<span>Persona Wardrobe</span></summary><div class="pw-shell"><header class="pw-head"><div><div class="pw-eyebrow">Private Atelier · ${escapeHtml(character || '')}</div><h2 class="pw-title">${escapeHtml(title)}</h2><p class="pw-sub">${escapeHtml(subtitle)}</p></div><div class="pw-context"><strong>${escapeHtml(occasion || '')} · ${escapeHtml(season || '')}</strong><span>${escapeHtml(location || '')}</span></div></header>${radios}<nav class="pw-rail" aria-label="Wardrobe looks">${tabs}</nav><div class="pw-stage">${panels}</div></div></details><!-- UI_END -->`
+  return decorateSurfaceLauncherMarkup(`<!-- UI_START -->${PERSONA_WARDROBE_STYLE}<details class="pw-wardrobe rr-surface-presentation-${mode}" data-pw-variant="${variant}"${variant === 'inline' ? ' open' : ''}><summary><span>Persona Wardrobe</span></summary><div class="pw-shell"><header class="pw-head"><div><div class="pw-eyebrow">Private Atelier · ${escapeHtml(character || '')}</div><h2 class="pw-title">${escapeHtml(title)}</h2><p class="pw-sub">${escapeHtml(subtitle)}</p></div><div class="pw-context"><strong>${escapeHtml(occasion || '')} · ${escapeHtml(season || '')}</strong><span>${escapeHtml(location || '')}</span></div></header>${radios}<nav class="pw-rail" aria-label="Wardrobe looks">${tabs}</nav><div class="pw-stage">${panels}</div></div></details><!-- UI_END -->`, 'narrative', 'Persona Wardrobe', surfaceShellModeForNarrativeVariant(variant))
 }
 
 /** Transform only complete five-look owners; ambiguous or partial markup stays

@@ -1,4 +1,5 @@
 import type { AppearanceFactCategory, AppearanceVaultLayer, CanonicalVisualCharacter, ContinuityVaultState } from './contracts'
+import { sanitizeRelayPromptHistoryText } from './contracts'
 import { CONTEXT_LIMITS, selectExcerpts, selectHistoryContext, selectLorebookContext, visualSourceSnapshot, type ContextTier } from './contextBudget'
 import {
   addAppearanceFacts,
@@ -145,7 +146,20 @@ export function normalizeAppearanceSidecarOutput(raw: string): AppearanceSidecar
       })
     }
   }
-  return observations
+  return observations.map(observation => ({ ...observation, facts: observation.facts.flatMap(fact => {
+    if (fact.layer !== 'current-appearance' || fact.category !== 'temporary-clothing-state') return [fact]
+    const parts = fact.value.split(/[,;\n]+/).map(clean).filter(Boolean)
+    const fullUndress = (value: string) => /^(?:nude|naked|unclothed|(?:fully|completely) (?:nude|naked|undressed)|no clothes|without clothing)$/i.test(value.replace(/_/g, ' '))
+    if (!parts.some(fullUndress)) return [fact]
+    // Full undress is a replacement outfit, not an additive trait that can
+    // coexist with yesterday's shirt and trousers. Keep partial exposure and
+    // unrelated temporary state in their original domain, attached to its owner.
+    const remaining = parts.filter(value => !fullUndress(value))
+    return [
+      { ...fact, layer: 'wardrobe' as const, category: 'current-outfit' as const, value: 'nude', conflictDomain: undefined },
+      ...(remaining.length ? [{ ...fact, value: remaining.join(', ') }] : []),
+    ]
+  }) }))
 }
 
 export function normalizeAppearanceFieldRefreshOutput(raw: string, expectedField: AppearanceMemoryRefreshField): AppearanceFieldRefreshResult {
@@ -201,7 +215,14 @@ export function buildAppearanceSidecarPayload(input: {
 }): Record<string, unknown> {
   const tier = input.tier || 'routine'
   if (tier !== 'routine' && !input.expansionReason) throw new Error('Expanded Appearance context requires an explicit reason.')
-  const query = [input.currentAssistantMessage, input.focusCharacter?.name, asRecord(input.activeCharacter).name, asRecord(input.activePersona).name].filter(Boolean).join('\n')
+  // Image requests describe a proposed rendering, not new character canon.
+  // Strip them before ranking context, including the current completed message.
+  const currentAssistantMessage = sanitizeRelayPromptHistoryText(input.currentAssistantMessage)
+  const cleanHistory = (Array.isArray(input.fullHistory) ? input.fullHistory : []).map(value => {
+    const row = asRecord(value)
+    return { ...row, content: sanitizeRelayPromptHistoryText(clean(row.content)) }
+  })
+  const query = [currentAssistantMessage, input.focusCharacter?.name, asRecord(input.activeCharacter).name, asRecord(input.activePersona).name].filter(Boolean).join('\n')
   const active = (value: unknown, role: string) => {
     const source = asRecord(value)
     const snapshot = visualSourceSnapshot(`${role}:${source.id || source.name}`, value, query, tier, tier === 'diagnostic')
@@ -210,7 +231,7 @@ export function buildAppearanceSidecarPayload(input: {
   const character = input.activeCharacter ? active(input.activeCharacter, 'character') : null
   const persona = input.activePersona ? active(input.activePersona, 'persona') : null
   const lorebook = selectLorebookContext(input.lorebook, query, tier)
-  const history = selectHistoryContext(input.fullHistory, input.currentAssistantMessage, tier)
+  const history = selectHistoryContext(cleanHistory, currentAssistantMessage, tier)
   const relevantCharacters = Object.values(input.appearanceMemory.characters).filter(character => [character.canonicalCharacterName, character.canonicalCharacterId, ...character.aliases].some(name => name && query.toLowerCase().includes(name.toLowerCase())))
   const ids = new Set(relevantCharacters.map(character => character.canonicalCharacterId))
   const memory: unknown[] = []; let memoryChars = 0
@@ -222,7 +243,7 @@ export function buildAppearanceSidecarPayload(input: {
   }
   const contextMetrics = { tier, expansionReason: input.expansionReason || '', historyMessages: history.length, lorebookEntries: lorebook.entries, lorebookSegments: lorebook.segments, characterChars: character?.visualSource.length || 0, personaChars: persona?.visualSource.length || 0, appearanceMemoryChars: memoryChars, cacheHits: lorebook.cacheHits + Number(Boolean(character?.cacheHit)) + Number(Boolean(persona?.cacheHit)), cacheMisses: lorebook.cacheMisses + Number(Boolean(character && !character.cacheHit)) + Number(Boolean(persona && !persona.cacheHit)) }
   return {
-    currentAssistantMessage: input.currentAssistantMessage.length <= CONTEXT_LIMITS[tier].scene ? input.currentAssistantMessage : selectExcerpts(input.currentAssistantMessage, query, CONTEXT_LIMITS[tier].scene),
+    currentAssistantMessage: currentAssistantMessage.length <= CONTEXT_LIMITS[tier].scene ? currentAssistantMessage : selectExcerpts(currentAssistantMessage, query, CONTEXT_LIMITS[tier].scene),
     recentContext: history,
     activeCharacter: character,
     activePersona: persona,

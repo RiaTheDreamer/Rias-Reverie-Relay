@@ -14,6 +14,7 @@ import inlineGlass from '../regex-packs/Core/Reverie-Core-Surfaces-INLINE-GLASS.
 import plainGlass from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-PLAIN-GLASS.json'
 import sparklingGlass from '../regex-packs/Core/Reverie-Core-Surfaces-COLLAPSIBLE-SPARKLING-GLASS.json'
 import glassButtonGlass from '../regex-packs/Core/Reverie-Core-Surfaces-GLASS-BUTTON-GLASS.json'
+import { parseSurfaceXml, serializeSurfaceXml, surfaceXmlAttributes, xmlChildren, type SurfaceXmlNode } from './surfaceXml'
 
 export type R45PresentationMode = 'inline' | 'plain' | 'sparkling' | 'glass'
 export type R45ColorMode = 'realistic' | 'primary' | 'glass'
@@ -187,22 +188,52 @@ function expandR45Replacement(template: string, captures: string[], macro: strin
     .replace(/\$(\d{1,2})/g, (_full, raw: string) => captures[Number(raw) - 1] || '')
 }
 
+type AuthoredNote = { title: string; updated: string; body: string }
+
+function renderNotesTemplate(folder: string, owner: string, notes: AuthoredNote[], template: string, macro: string): string {
+  const captures = [folder, owner]
+  for (const note of notes) captures.push(note.title, note.updated, note.body)
+  while (captures.length < 14) captures.push('')
+  let rendered = expandR45Replacement(template, captures, macro)
+  for (let index = notes.length + 1; index <= 4; index += 1) {
+    const id = `rr23-note-${index}-${macro}`
+    rendered = rendered
+      .replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, 'i'), '')
+      .replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, 'i'), '')
+      .replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, 'i'), '')
+  }
+  return rendered
+}
+
 function renderVariableNotes(markup: string, template: string, macro: string): string {
   return markup.replace(/\[notes_app\]\s*\[folder\]\s*([\s\S]*?)\s*\[\/folder\]\s*\[owner\]\s*([\s\S]*?)\s*\[\/owner\]\s*\[nt_list\]([\s\S]*?)\[\/nt_list\]\s*\[\/notes_app\]/gi, (full, folder: string, owner: string, body: string) => {
-    const notes = [...body.matchAll(/\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi)]
-    if (!notes.length || notes.length > 4) return full
-    const captures = [folder, owner]
-    for (const note of notes) captures.push(note[2], note[3], note[4])
-    while (captures.length < 14) captures.push('')
-    let rendered = expandR45Replacement(template, captures, macro)
-    for (let index = notes.length + 1; index <= 4; index += 1) {
-      const id = `rr23-note-${index}-${macro}`
-      rendered = rendered
-        .replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, 'i'), '')
-        .replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, 'i'), '')
-        .replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, 'i'), '')
+    const pattern = /\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi
+    const notes = [...body.matchAll(pattern)]
+    if (!notes.length || notes.length > 4 || notes.some((note, index) => note[1] !== String(index + 1)) || body.replace(pattern, '').trim()) return full
+    return renderNotesTemplate(folder, owner, notes.map(note => ({ title: note[2], updated: note[3], body: note[4] })), template, macro)
+  })
+}
+
+function renderVariableXmlNotes(markup: string, template: string, macro: string): string {
+  return markup.replace(/<notes_app\b[\s\S]*?<\/notes_app>/gi, full => {
+    const root = parseSurfaceXml(full)
+    if (!root || root.tag !== 'notes_app') return full
+    const attrs = surfaceXmlAttributes(root.attrs)
+    const rootChildren = xmlChildren(root)
+    const whitespaceOnly = (node: SurfaceXmlNode) => node.children.every(child => typeof child !== 'string' || !child.trim())
+    if (attrs.folder === undefined || attrs.owner === undefined || !whitespaceOnly(root) || rootChildren.length !== 1 || rootChildren[0].tag !== 'nt_list') return full
+    const list = rootChildren[0]
+    const notes = xmlChildren(list)
+    if (!whitespaceOnly(list) || notes.length < 1 || notes.length > 4) return full
+    const authored: AuthoredNote[] = []
+    for (const [index, note] of notes.entries()) {
+      const fields = surfaceXmlAttributes(note.attrs)
+      if (note.tag !== 'nt_note' || fields.slot !== String(index + 1) || fields.title === undefined || fields.updated === undefined) return full
+      authored.push({ title: fields.title, updated: fields.updated, body: note.children.map(child => typeof child === 'string' ? child : serializeSurfaceXml(child)).join('') })
     }
-    return rendered
+    // Use the established Notes template directly. Example conversion would
+    // rewrite literal brackets/whitespace and must never touch authored data.
+    return renderNotesTemplate(attrs.folder, attrs.owner, authored, template, macro)
   })
 }
 
@@ -210,7 +241,7 @@ export function r45SurfaceAuthorityPack(presentation: R45PresentationMode, color
   const key = `${presentation}:${color}` as const
   const pack = LEGACY_XML_PACKS[key]
   if (!pack || pack.type !== 'lumiverse_regex_scripts' || pack.relay_product_version !== '0.2.8' || pack.scripts.length !== 138) {
-    throw new Error(`Invalid R4.5 Surface authority selection: ${key}`)
+    throw new Error(`Invalid Surface renderer selection: ${key}`)
   }
   return pack
 }
@@ -338,6 +369,11 @@ export function renderR45SurfaceAuthority(
   const macro = safeMessageId(messageId)
   for (const script of r45RendererScripts('legacy-xml', presentation, color, overrides)) {
     try {
+      const override = overrides[r45ScriptOverrideKey('legacy-xml', presentation, color, script.script_id)]
+      if (script.find_regex.includes('<notes_app') && override?.findRegex === undefined) {
+        output = renderVariableXmlNotes(output, script.replace_string, macro)
+        continue
+      }
       const flags = script.flags.includes('g') ? script.flags : `${script.flags}g`
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro)
       output = output.replace(new RegExp(script.find_regex, flags), replacement)

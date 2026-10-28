@@ -193,7 +193,7 @@ for(let page=0;page<4;page++){
  for(const icon of root().querySelectorAll('[aria-label^="Open Core app "]')){assert(icon.querySelector('svg'),'every Core home icon has a vector');allHomeApps.add(icon.getAttribute('aria-label'))}
  const next=root().querySelector('[aria-label="Next app page"]');if(next&&!next.disabled)next.click()
 }
-assert.equal(allHomeApps.size,47,'all 47 Core apps are reachable from paged phone home icons')
+assert.equal(allHomeApps.size,48,'all 48 Core apps, including Amazon and Building Layout, are reachable from paged phone home icons')
 // Exercise the persistent Messages doorway from every Core app, not just Instagram.
 handlers[0]({...projected,operationId:'app-doorway-sweep',state:{...projected.state,revision:108},apps:PHONE_CORE_APPS,appRecords:[]})
 while(root().querySelector<HTMLButtonElement>('[aria-label="Previous app page"]')&&!root().querySelector<HTMLButtonElement>('[aria-label="Previous app page"]')!.disabled)root().querySelector<HTMLButtonElement>('[aria-label="Previous app page"]')!.click()
@@ -330,4 +330,4 @@ assert(optionalRoot.querySelector('#phone-connection'),'Settings exposes the act
 optionalController.destroy();settingsHost.remove()
 window.setTimeout=originalSchedule;window.clearTimeout=originalCancel
 assert.equal(handlers.length,0);assert.equal(events.size,0)
-console.log('Phone widget smoke passed: durable delivery, shared ownership, bounded context, restart recovery, all 46 Core app message doorways, Tinder notification-to-DM navigation, exact app-image retry routing, resize controls, drafts/focus and teardown. Device geometry and actual generation require live-host tests.')
+console.log('Phone widget smoke passed: durable delivery, shared ownership, bounded context, restart recovery, all 48 Core app message doorways, Tinder notification-to-DM navigation, exact app-image retry routing, resize controls, drafts/focus and teardown. Device geometry and actual generation require live-host tests.')

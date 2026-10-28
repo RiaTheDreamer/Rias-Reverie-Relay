@@ -1,5 +1,26 @@
 /** User-facing summaries only. These never alter the authoritative Utility contracts. */
+export const SURFACE_RENDER_FAILURE_MESSAGE = 'The markup does not match the selected Surface layout. Inspect / Fix shows the original fields; check them against the Surface Library example.'
+
+export function surfaceRepairEditorHelp(diagnostic: string): string {
+  return `${diagnostic ? `${diagnostic}\n\n` : ''}Edit the original markup below, then choose Save Surface. Assisted Repair can preview closing-tag fixes only; it cannot add missing opening tags or fields. Review its preview before applying. Opening this editor makes no model call.`
+}
+
+export function surfacePresetDisplayName(definition: { builtIn?: boolean; presetName: string }): string {
+  return definition.builtIn && /^(?:R4\.5\s+FINAL|FINAL\s+R4\.5)$/i.test(definition.presetName.trim())
+    ? 'Reverie Default'
+    : definition.presetName
+}
+
+export function rendererScriptDisplayName(name: string, customName = false): string {
+  if (customName) return name
+  return name.split(/\s+[—–]\s+/)
+    .map(part => part.replace(/\b(?:FINAL\s+)?R\d+(?:\.\d+)+(?:\s+FINAL)?\b/gi, '').trim())
+    .filter(Boolean).join(' — ').replace(/^↳\s*—\s*/, '↳ ').replace(/\s{2,}/g, ' ').trim()
+    || 'Surface renderer'
+}
+
 export const SURFACE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
+  amazon: 'A fictional Amazon catalog with product-owned images and an interactive Phone cart, wishlist, reviewed in-story purchases, saved orders, and queued shopping receipts. No real Amazon payments or purchases.',
   'building-layout': 'An architectural atlas with variable floors, selectable rooms, owned room images, and manual Add to lorebook actions. Selection never moves a character or writes a Composer draft.',
   'forum-thread': 'A structured discussion board with separate posts, replies, authors, timestamps, and owned attachments.',
   'email-thread': 'An email client view that preserves each message, sender, subject, time, body, and attachment.',
@@ -50,6 +71,7 @@ export const SURFACE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
 }
 
 export const NARRATIVE_UTILITY_OVERVIEWS: Readonly<Record<string, string>> = {
+  'Building Layout': 'An interactive architectural atlas with floors and rooms. Add the selected room to its building’s lorebook and link it to this chat; never sends movement or changes the Composer.',
   'Character Phone': 'Builds a story-aware character phone with apps, messages, records, and a real multi-image Photos gallery.',
   'Dramatic Cutaway': 'Shows a cinematic parallel beat or interruption without losing the main scene viewpoint.',
   'Plot Sparks': 'Offers ten fresh, optional branches rooted in the current scene: complications, personal turns, opportunities, bargains and overlooked connections.',
@@ -74,7 +96,6 @@ export const SETTING_HELP: Readonly<Record<string, string>> = {
   'High-Res / Polished Capture': 'Adds a quality pass to image prompts while preserving the chosen camera framing and subject identity.',
   'Save completed images to Character Gallery': 'Adds completed Relay images to the active character Gallery after Lumiverse confirms the destination. Existing images are not regenerated.',
   'Generation Settings Source': 'Use the active Native ImageGen settings or Relay-specific provider overrides for new generations.',
-  'NovelAI Resolution': 'Only affects NovelAI while Native ImageGen settings are active. Keep the saved connection resolution, follow each image request, or choose a fixed aspect. Other providers are unchanged.',
   'LoRA Source': 'Use Native ImageGen LoRAs, a Relay LoRA stack, or no LoRAs for new Relay images.',
   'Candidate Count': 'Default number of image candidates for a request. More candidates use more provider work.',
   'Follow Native Parser': 'Use the parser connection and instructions selected by Lumiverse instead of Relay-specific parser overrides.',
@@ -119,15 +140,17 @@ export const SETTING_HELP: Readonly<Record<string, string>> = {
   'Model Weight': 'How strongly this LoRA affects the diffusion model. Start near the model author’s recommended value.',
   'CLIP Weight': 'How strongly this LoRA affects text conditioning. Leave at the model weight unless the LoRA documents a different value.',
   'Auto Generate': 'When off, Relay may prepare requests but cannot spend an image-generation job automatically. This is enforced by the backend.',
-  'Concurrent Relay Preprocessing Jobs': 'Maximum Relay jobs that may analyze, parse, and prepare prompts at the same time (1–8). ImageGen requests still follow each provider’s safe lane, so raising this does not necessarily make images generate in parallel.',
+  'Concurrent Relay Preprocessing Jobs': 'Maximum image-prompt preparation workers at once (1–8), shared across this user’s chats. It controls Surface parsing and illustration prompt preparation. Appearance scans and the Relay Director coordinate separately. Image generation keeps its provider lane; this setting does not make images generate in parallel.',
   'Appearance Sidecar Source': 'Chooses whether Illustrator uses the shared global Appearance Sidecar routing or its own connection, model, and parameter overrides.',
+  'Automatic Appearance Updates': 'Shared across chats and planning modes. Initial Appearance Memory setup runs once even with Never selected. Manual rescans always run; saved memory is reused between scheduled updates.',
+  'Update Every X Story Responses': 'Refresh Appearance Memory after this many new assistant/story responses since the last full scan (1–1000). User messages, repeated scans, and image slots do not advance the count. Default: every response.',
   'Global Appearance Sidecar Connection': 'Selects the Lumiverse text connection used by the shared Appearance Sidecar. Use Relay Parser Connection to inherit the parser connection instead.',
   'Global Appearance Sidecar Model': 'Selects the model used by the shared Appearance Sidecar. Leave inherited to follow the Relay Parser model or the explicitly selected Sidecar connection default.',
   'Global Appearance Sidecar Parameters': 'Optional JSON parameters sent only with shared Appearance Sidecar requests. An empty object inherits the Relay Parser parameters.',
   'Appearance Sidecar Connection': 'Selects Illustrator’s Sidecar connection when Appearance Sidecar Source is set to Illustrator Override. Leave inherited to use the global Sidecar connection.',
   'Appearance Sidecar Model': 'Selects Illustrator’s Sidecar model when using an override. Leave inherited to use the global Sidecar model or the selected override connection default.',
   'Appearance Sidecar Parameters': 'Optional JSON parameters for Illustrator’s Sidecar override. An empty object inherits the shared global Sidecar parameters.',
-  'Illustration Count': 'Choose an exact number or an inclusive range for Model Planned illustrations.',
+  'Illustration Count': 'Choose an exact number or an inclusive range of inline illustrations per response. Opening Frame adds a separate cover image.',
   'Aspect Policy': 'Reserves and generates each illustration at the selected ratio. Adaptive lets Relay choose from scene composition.',
   'Prompt Profile': 'Selects a curated image-prompt style and framing profile before provider submission.',
   'Image Alignment': 'Positions completed prose illustrations within the message column.',

@@ -1,19 +1,21 @@
 // @ts-nocheck -- Bun smoke harness uses Node assert without Node type declarations.
 import assert from 'node:assert/strict'
+import { JSDOM, VirtualConsole } from 'jsdom'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { completeSurfaceSpecs } from '../src/surfaceXml'
 import { renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { NARRATIVE_UTILITY_PACK, narrativeRegexScripts, renderNarrativeRegex } from '../src/narrativeRegexAssets'
 import { SURFACE_ICON_REGISTRY, decorateSurfaceLauncherMarkup } from '../src/surfaceIcons'
+import { GLASS_BUTTON_LAUNCHER_DECLARATIONS } from '../src/surfaceLauncherStyle'
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
 const coreIds = new Set(definitions.map(definition => definition.baseSurfaceId))
 const narrativeIds = new Set(NARRATIVE_UTILITY_PACK.loomItems.map(item => item.loomName))
-assert.equal(coreIds.size, 47, 'Core Surface inventory drifted')
-assert.equal(narrativeIds.size, 16, 'Narrative Utility inventory drifted')
+assert.equal(coreIds.size, 48, 'Core Surface inventory drifted')
+assert.equal(narrativeIds.size, 17, 'Narrative Utility inventory drifted')
 assert.deepEqual(new Set(completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(spec => spec.id)), coreIds)
-assert.equal(Object.keys(SURFACE_ICON_REGISTRY).length, 63, 'icon registry must contain exactly 63 stable identifiers')
+assert.equal(Object.keys(SURFACE_ICON_REGISTRY).length, 65, 'icon registry must contain exactly 65 stable identifiers')
 for (const id of coreIds) assert(SURFACE_ICON_REGISTRY[`core:${id}`], `Core icon missing: ${id}`)
 for (const id of narrativeIds) assert(SURFACE_ICON_REGISTRY[`narrative:${id}`], `Narrative icon missing: ${id}`)
 for (const [key, icon] of Object.entries(SURFACE_ICON_REGISTRY)) {
@@ -25,6 +27,33 @@ for (const [key, icon] of Object.entries(SURFACE_ICON_REGISTRY)) {
 assert.equal(SURFACE_ICON_REGISTRY['core:relationship-map'].source, 'svgrepo')
 assert(SURFACE_ICON_REGISTRY['core:relationship-map'].svg.includes('viewBox="0 0 272 272"'))
 assert(SURFACE_ICON_REGISTRY['narrative:Relationship Map'].svg.includes('currentColor'), 'Relationship Map Narrative icon must inherit the Narrative Utility accent color')
+
+// Compare the actual production launchers, rather than calling any rounded
+// translucent button "glass". Plot Sparks is the existing visual authority.
+const parityInstagram = definitions.find(definition => definition.baseSurfaceId === 'instagram-profile')!
+for (const mode of ['glass', 'plain-glass'] as const) {
+  const plot = narrativeRegexScripts(mode).find(script => script.script_id === 'ria_plot_sparks_og_sparkle_tabs_bulletproof_v7')!.replace_string
+  assert(plot.includes(`{${GLASS_BUTTON_LAUNCHER_DECLARATIONS}}`), 'Plot Sparks must retain the shared visual authority verbatim')
+  const profile = renderNativeSurfaceMarkup(parityInstagram.sampleXml, { definitions: {}, activePresetIds: {}, rendererMode: 'relay', defaultShellMode: mode, colorMode: 'realistic' } as any).content
+  // JSDOM cannot resolve a custom-property font shorthand. Supply its literal
+  // fallback for this DOM check; the live browser comparison retains variables.
+  const markup = `${plot}${profile}`.replaceAll('var(--lumiverse-font-mono,"Courier New",monospace)', '"Courier New",monospace')
+  const dom = new JSDOM(markup, { virtualConsole: new VirtualConsole() })
+  const profileIcon = dom.window.document.querySelector('[data-rr-surface-icon="core:instagram-profile"]')!
+  const plotIcon = dom.window.document.querySelector('[data-rr-surface-icon="narrative:Plot Sparks"]')!
+  const profileStyle = dom.window.getComputedStyle(profileIcon.closest('summary')!)
+  const plotStyle = dom.window.getComputedStyle(plotIcon.closest('summary')!)
+  assert.equal(plotStyle.borderRadius, '13px', 'Plot Sparks reference CSS must actually be mounted')
+  // color-mix and backdrop-filter require the real browser; do not mistake
+  // JSDOM's unsupported-value fallback for a visual comparison of those rules.
+  for (const property of ['border-radius', 'height', 'padding', 'gap', 'font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'background-image']) {
+    assert.equal(profileStyle.getPropertyValue(property), plotStyle.getPropertyValue(property), `${mode}: Instagram must match Plot Sparks ${property}`)
+  }
+  for (const property of ['width', 'height', 'margin-right']) {
+    assert.equal(parseFloat(dom.window.getComputedStyle(profileIcon).getPropertyValue(property)), parseFloat(dom.window.getComputedStyle(plotIcon).getPropertyValue(property)), `${mode}: Instagram icon must match Plot Sparks ${property}`)
+  }
+  dom.window.close()
+}
 
 for (const mode of ['plain', 'sparkling', 'glass', 'plain-glass'] as const) {
   for (const definition of definitions) {
@@ -40,6 +69,14 @@ for (const mode of ['plain', 'sparkling', 'glass', 'plain-glass'] as const) {
     assert(!/https?:\/\//i.test(summary), `${mode}/${definition.baseSurfaceId}: external icon URL rendered`)
     assert.equal(summary.includes('class="rr-surface-sparks"'), mode === 'sparkling' || mode === 'glass', `${mode}/${definition.baseSurfaceId}: shared ember field mismatch`)
     assert.equal(summary.includes('data-rr-plain-glass="1"'), mode === 'plain-glass', `${mode}/${definition.baseSurfaceId}: Plain Glass marker mismatch`)
+    if (mode === 'glass' || mode === 'plain-glass') {
+      assert(summary.includes('data-rr-glass-launcher="1"'), `${mode}/${definition.baseSurfaceId}: glass styling must belong to the actual launcher, including supplemental Surfaces`)
+      assert(rendered.includes('.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]{'), `${mode}/${definition.baseSurfaceId}: shared glass styling missing`)
+      const node = new JSDOM(summary).window.document.querySelector('summary')!
+      assert.equal(node.style.borderRadius, '13px', `${mode}/${definition.baseSurfaceId}: inline pill overrides the shared glass design`)
+      assert.equal(node.style.height, '40px', `${mode}/${definition.baseSurfaceId}: legacy fixed height overrides the shared glass design`)
+      assert(!node.style.backgroundImage, `${mode}/${definition.baseSurfaceId}: legacy gradient overrides shared glass`)
+    }
     if (mode === 'plain-glass') assert(rendered.includes('.rr-surface-launcher-iconized[data-rr-plain-glass="1"] [class*="spark"]'), `${mode}/${definition.baseSurfaceId}: inherited glass particles were not suppressed`)
     assert(rendered.includes('</summary><style data-rr-surface-icon-style="1">'), `${mode}/${definition.baseSurfaceId}: icon CSS escaped the isolated Surface root`)
     assert(rendered.includes('data-rr-surface-icon^="core:"]{width:12px!important;height:12px!important;margin-right:6px!important}'), `${mode}/${definition.baseSurfaceId}: Core icon size/label gap drifted`)
@@ -49,7 +86,7 @@ for (const mode of ['plain', 'sparkling', 'glass', 'plain-glass'] as const) {
 for (const [variant, animated] of [['plain-button', false], ['sparkle-button', true], ['glass', true], ['plain-glass', false]] as const) {
   const scripts = narrativeRegexScripts(variant)
   const covered = new Set<string>()
-  for (const id of [...narrativeIds].filter(id => !['Relationship Map', 'Cast Sheet', 'Persona Wardrobe'].includes(id))) {
+  for (const id of [...narrativeIds].filter(id => !['Relationship Map', 'Cast Sheet', 'Persona Wardrobe', 'Building Layout'].includes(id))) {
     const marker = `data-rr-surface-icon="narrative:${id}"`
     const matches = scripts.filter(script => script.replace_string.includes(marker))
     assert(matches.length, `${variant}/${id}: icon missing`)
@@ -92,4 +129,16 @@ assert(inlineWhatIf.includes('.r65-card{line-height:1.45!important}'), 'What If 
 const once = decorateSurfaceLauncherMarkup('<details><summary><span>Label</span></summary></details>', 'core', 'relationship-map', 'glass')
 const twice = decorateSurfaceLauncherMarkup(once, 'core', 'relationship-map', 'glass')
 assert.equal(twice, once, 'hydration duplicated an icon or sparkle field')
-console.log('surface icon smoke passed: 46 Core renderers + 16 Narrative utilities, including accent-colored Relationship Map icon')
+const customStyle = decorateSurfaceLauncherMarkup('<details><summary style="background:red!important;border-radius:999px!important;--custom:blue">Label</summary></details>', 'core', 'instagram-profile', 'glass')
+assert(customStyle.includes('--custom:blue'), 'normalizing a glass launcher must retain unrelated custom properties')
+for (const mode of ['plain','sparkling','glass','plain-glass'] as const) {
+  const html = decorateSurfaceLauncherMarkup('<details><summary style="background:red!important;border-radius:999px!important;--custom:blue">Label</summary><p>Keep body</p></details>', 'core', 'instagram-profile', mode)
+  const dom = new JSDOM(html, {virtualConsole:new VirtualConsole()})
+  const summary = dom.window.document.querySelector('summary')!
+  assert(summary.style.font.includes('Courier New'), `${mode}: font quotes must remain inside the HTML style attribute`)
+  assert.deepEqual(summary.getAttributeNames().sort(), ['class','data-rr-launcher-mode','style',...(mode === 'glass' || mode === 'plain-glass' ? ['data-rr-glass-launcher'] : []),...(mode === 'plain-glass' ? ['data-rr-plain-glass'] : [])].sort(), `${mode}: CSS quotes escaped into stray HTML attributes`)
+  assert.equal(dom.window.document.querySelector('p')?.textContent, 'Keep body')
+  assert.equal(decorateSurfaceLauncherMarkup(html,'core','instagram-profile',mode),html, `${mode}: repeat decoration changed the launcher`)
+  dom.window.close()
+}
+console.log('surface icon smoke passed: 48 native Core identities + 17 Narrative identities, including the supplied Building Layout Blocks icon')

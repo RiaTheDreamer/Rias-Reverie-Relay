@@ -56,5 +56,6 @@ docs/*HANDOVER*.md
 docs/private-staging-*.md
 docs/local/
 
-# Keep duplicate development prompt fixtures out of public packages.
-/test-fixtures/
+# Keep ad-hoc development fixtures local; ship exact prompt-authority gate inputs.
+/test-fixtures/*
+!/test-fixtures/prompt-registry-assets-0.2.8/

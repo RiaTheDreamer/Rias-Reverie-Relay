@@ -1,4 +1,15 @@
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI
+import { SCENE_APPEARANCE_GUIDANCE, STORY_SCENE_APPEARANCE_GUIDANCE, stripSceneAppearanceMarkup, sceneAppearanceForHistory, sceneAppearanceFingerprint, recordSceneAppearanceTurn, projectSceneAppearanceVault, sceneAppearanceSubjects, type SceneAppearanceSource } from './sceneAppearance'
+import { canStreamIllustration, OPENING_FRAME_DIRECTOR_GUIDANCE, OPENING_FRAME_STORY_GUIDANCE, QUICKWEAVE_DIRECTOR_GUIDANCE } from './illustratorWeave'
+import { resolvedRelayFraming } from './relayPlannedV2'
+import { createPortraitInsight } from './portraitInsightRuntime'
+import { missingPortraitTraits } from './portraitInsight'
+import { storyFraming, guardSightline, SIGHTLINE_GUIDANCE, SCENE_FLOW_GUIDANCE, DREAMCUT_GUIDANCE } from './sightline'
+import { providerImageDataUrl } from './providerImageDownload'
+import { normalizeOrbSizePx } from './orbAppearance'
+import { appearanceUpdateIsDue, normalizeAppearanceUpdateInterval } from './appearanceUpdateSchedule'
+import { BLOCKING_FIDELITY_DIRECTOR_GUIDANCE, BLOCKING_FIDELITY_BOORU_FORMAT_GUIDANCE, blockingFidelityAspectGuidance, restoreBlockingFidelityParagraphs } from './blockingFidelity'
+import { surfaceLibraryName } from './surfaceLibrary'
 
 type LlmMessage = import('lumiverse-spindle-types').LlmMessageDTO
 
@@ -7,12 +18,15 @@ import { imageContentWithoutSurfaceDestination, portraitReplacedBySurfaceUi } fr
 import { bracketImageControls } from './imageControlMarkup'
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
 import { recentPlotSparksReference } from './plotSparksUtility'
-import { PLOT_SPARKS_SURFACE_ID } from './plotSparksContract'
+import { PLOT_SPARKS_SURFACE_ID, normalizePlotSparksXmlClosingTags } from './plotSparksContract'
 import { normalizePhoneDevice, emptyPhoneDevice, phoneContextForPrompt, type PhoneDeviceState, type PhoneIdentity, type PhoneCommand } from './phoneDevice'
 import {latestPhoneArchive,phoneArchivePath} from './phoneArchive'
 import {applyPhonePreferences,normalizePhonePreferences,type PhonePreferences} from './phonePreferences'
 import {phoneSourceBubbles,phoneAppResponder} from './phoneAppBubbles'
 import { createPhoneService } from './phoneService'
+import {amazonState,mutateAmazon,selectCommerce,commitCommerce,type CommerceClaim} from './amazonCommerce'
+import {parseAmazon} from './amazon-contract.mjs'
+import {commerceScopeKey} from './amazon-phone-state.mjs'
 import {phoneRpContext} from './phoneRpContext'
 import {PHONE_CORE_APPS,phoneCoreRecords,renderPhoneCoreRecord,type PhoneCoreRecord} from './phoneCoreApps'
 import {phoneLocalAppRecord} from './phoneLocalApps'
@@ -24,6 +38,7 @@ import {phoneAppInteractionMode,phoneAppTargets} from './phoneAppInteractions'
 import {PHONE_FRAMING,phoneImagePrompt} from './phoneMedia'
 
 import {
+  DEFAULT_NSFW_PLANNER_TEXT,
   parseImageRequests,
   containsImageRequestMarkup,
   inspectProseIllustrationSchemas,
@@ -178,16 +193,26 @@ import { c5aCastRequirements, c5aIdentityBindingId, enforceC5AKnownIdentity, res
 import { buildAppearanceSidecarPayload, ingestAppearanceSidecarObservations, normalizeAppearanceFieldRefreshOutput, normalizeAppearanceSidecarOutput, preserveCompleteSidecarContext, type AppearanceFieldRefreshResult, type AppearanceMemoryRefreshField } from './appearanceSidecar'
 import {
   RELAY_PLANNED_V2,
+  EmptyDirectorResponseError,
   compileRelayPlannedPrompt,
+  relayPlannedAppearanceDescriptors,
   previousSequenceShotContext,
   sceneOnlyRepairPreservesPlan,
   relayPlannedAuthoritativeParagraph,
   validateRelayPlannedDirectorResult,
+  relayPlannedFrequencyDirective,
+  relayPlannedFrequencyRequiresIllustration,
+  relayPlannedCountDirective,
+  relayPlannedIllustrationCountBounds,
+  selectRelayPlannedDispatchOpportunities,
+  RELAY_PLANNED_BOORU_SUBJECT_SCHEMA,
+  runRelayPlannedDirectorWithFrequency,
   type RelayPlannedContext,
   type RelayPlannedIllustration,
+  type RelayPlannedValidationResult,
   type RelayPlannedSubjectState,
 } from './relayPlannedV2'
-import { buildIllustrationSceneContract, enforceIllustrationSceneContract } from './illustrationSceneContract'
+import { buildIllustrationSceneContract, enforceIllustrationSceneContract, visualDescriptionEvidence } from './illustrationSceneContract'
 import { normalizeIllustrationViewWording } from './illustrationViewWording'
 import { assertModelContextBudget, invalidateContextSnapshots, measureModelMessages, selectExcerpts, selectLorebookContext, visualSourceSnapshot, type ContextMetrics } from './contextBudget'
 import { BUILD_ID, EXTENSION_VERSION } from './build'
@@ -196,9 +221,8 @@ import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { hasR45UtilityContract, r45UtilityContract } from './r45UtilityContracts'
 import { assertProviderRequestSafe } from './providerPromptSafety'
 import { imageProviderSupportsStreaming, isSwarmUiProvider, providerRequiresAbortableStream, relayStreamingAllowedForProvider } from './imageStreaming'
-import { imageProviderParameters } from './imageProviderParameters'
 import { completeSurfaceSpecs, normalizeSurfaceDocument } from './surfaceXml'
-import { declaredBooruPeopleCount, normalizeBooruTagPrompt } from './booruTags'
+import { booruSubjectOwnershipChanged, declaredBooruPeopleCount, isBooruSubjectMarker, normalizeBooruTagPrompt } from './booruTags'
 import { assistedSurfaceRepairSpec, MAX_ASSISTED_SURFACE_REPAIR_CHARS, validateAssistedSurfaceRepair } from './assistedSurfaceRepair'
 import { bracketExampleFromXml, xmlSurfacePromptModule } from './bracketSurfaceAuthoring'
 import { r45RendererScripts, r45ScriptOverrideKey, r45SurfaceAuthorityPack, r45SurfaceAuthorityScripts, type R45PresentationMode, type R45ScriptSource } from './r45SurfaceAuthority'
@@ -209,7 +233,11 @@ import { normalizeCharacterPhoneDefaultApps, type CharacterPhoneAppId } from './
 import { maskRetiredPhoneSurfaces, retirePhoneSurfaceDisplay } from './retiredPhoneSurface'
 import { renderPhoneContextDraft } from './phoneComposerDraft'
 import { createStreamingAssistantSnapshot } from './instantIllustrationStream'
-import { BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
+import { RelayStoryStream } from './relayStoryStream'
+import { closedRelayDirectorBatch } from './relayPlannedStream'
+import { STORYBOARD_SPATIAL_FIDELITY_GUIDANCE, MULTI_SUBJECT_BLOCKING_GUIDANCE, STORY_MODEL_BOORU_BLOCKING_GUIDANCE, RELAY_PLANNED_BLOCKING_GUIDANCE, STORY_ACTION_OWNERSHIP_GUIDANCE, storyboardFigureIntegrityClause, storyModelFigureIntegrityNegatives } from './storyboardVisualIntegrity'
+import { forkCompletedMedia } from './forkMedia'
+import { BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, DEFAULT_EXPLICIT_SCENE_NEGATIVE_GUIDANCE, DEFAULT_EXPLICIT_SCENE_POSITIVE_GUIDANCE, DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS, DEFAULT_PROMPT_REGISTRY, DEFAULT_PROMPT_REGISTRY_VERSIONS, DEFAULT_SURFACE_PROMPT_MODULES, ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE, RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, STORYBOARD_BOORU_PARSER_GUIDANCE, STORYBOARD_DIRECTOR_GUIDANCE, STORYBOARD_PARSER_GUIDANCE, ILLUSTRATOR_FRAMING_REGISTRY_ALIASES, PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES, PROMPT_REGISTRY_DEFINITIONS, REVERIE_ARTIFACT_MEDIA_PROTOCOL, REVERIE_SURFACE_APP_SCHEMA_FIREBREAK, REVERIE_SURFACE_ROOT_SCOPE, scopeSurfaceRootRegistry, REVERIE_SURFACE_UTILITY_TEMPLATE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL, REVERIE_SURFACE_PROTOCOL } from './protocols'
 import { characterProfilePortraitHasExactRelayImage, NATIVE_SURFACE_CANDIDATE_ROOT_TAGS, NATIVE_SURFACE_ROOT_TAGS, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from './nativeSurfaces'
 import { narrativeVariantForSurfaceShellMode } from './surfacePresentation'
 import {
@@ -228,18 +256,9 @@ import { exportNarrativeLorebookRecord, extractNarrativeLorebookRecord } from '.
 import { BUILDING_LAYOUT_CONTRACT } from './buildingLayoutContract'
 import { buildingLayoutBlocks, parseBuildingLayout } from './buildingLayout'
 import { exportBuildingRoomToLorebook } from './buildingLayoutLorebook'
-import { completeEventSidecarCandidates, normalizeEventSidecarOutput, prepareStoryAnalysisText, shouldAnalyzeStoryText } from './eventConstellationSidecar'
-import { emptyStoryBackfillStats, recordStoryBackfillOutcome, storyBackfillSummary, type StoryAnalysisOutcome, type StoryBackfillStats } from './storyBackfill'
-import { buildOptionalStoryPromptContext } from './eventConstellationContext'
 import { extractCharacterPhoneEntries, ingestCharacterPhoneSnapshot } from './livingCharacterPhone'
-import { projectStoryReel } from './storyReel'
 import {
-  activeStoryEvents,
-  applyStoryKnowledge,
-  confirmStoryProposal,
-  confirmStoryEchoProposal,
   ensureStoryActor,
-  mergeStoryActors,
   createStorySourceRef,
   emptyStoryConstellationState,
   markStorySourceDeleted,
@@ -247,14 +266,8 @@ import {
   markStorySwipe,
   markStorySwipeDeleted,
   normalizeStoryConstellationState,
-  proposeStoryEvents,
-  rememberProcessedStoryMessage,
-  resolveStoryKnowledgeConflict,
   storyFingerprint,
-  updateStoryReelOverride,
-  type StoryBeliefState,
   type StoryConstellationState,
-  type StoryKnowledgeConflict,
 } from './storyState'
 import {
   acceptSuggestion,
@@ -274,6 +287,7 @@ import {
   mergeAppearancePromptFacts,
   appearanceFactDescriptor,
   isValidCanonicalCharacterName,
+  isValidHostIdentityName,
   mergeAppearanceFacts,
   mergeCharacters,
   moveAppearanceFact,
@@ -303,6 +317,7 @@ type ChatMessage = {
   metadata?: Record<string, unknown>
   extra?: Record<string, unknown>
   is_user?: boolean
+  created_at?: number
 }
 
 type ParserConnection = {
@@ -351,6 +366,7 @@ type NativeSettingsSnapshot = {
 }
 
 const ORB_DESIGNS = [
+  'star',
   'classic',
   'minimal',
   'glow',
@@ -393,7 +409,6 @@ export type RouterConfig = {
   followNativeParser: boolean
   followNativeImageGen: boolean
   generationSettingsSource: 'native' | 'relay'
-  imageAspectPolicy: 'native' | 'request' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9'
   loraSource: 'native' | 'relay' | 'none'
   vaultStrength: ContinuityStrength
   parserConnectionId: string | null
@@ -403,6 +418,7 @@ export type RouterConfig = {
   appearanceSidecarConnectionId: string | null
   appearanceSidecarModel: string
   appearanceSidecarParameters: Record<string, unknown>
+  appearanceUpdateIntervalMessages: number
   parserRetries: number
   includeRecentMessages: number
   includeCharacterInfo: boolean
@@ -431,6 +447,7 @@ export type RouterConfig = {
   orbPositionDesktop: { x: number; y: number }
   orbPositionMobile: { x: number; y: number }
   orbSize: 'small' | 'medium' | 'large'
+  orbSizePx: number
   orbDesign: OrbDesign
   orbCustomIconDataUrl: string
   lastActiveDrawerTab: string
@@ -545,8 +562,12 @@ function sanitizeRelayPromptMessageWithMetrics(message: LlmMessage): { message: 
   const before = textParts.join('\n')
   const reports = assistantHistory ? textParts.map(sanitizeRelayPromptHistoryTextWithReport) : []
   let reportIndex = 0
+  // Display recovery does not rewrite saved messages. Apply the same bounded
+  // closer repair to outgoing assistant history after removing old image
+  // controls, so an omitted Media closer is not fed back as an authoring example.
+  // Current system contracts and user text remain untouched by this projection.
   const sanitizeText = (text: string): string => assistantHistory
-    ? reports[reportIndex++]?.text || ''
+    ? normalizePlotSparksXmlClosingTags(reports[reportIndex++]?.text || '')
     : sanitizeRelayRuntimePromptText(text)
   const sanitized = typeof message.content === 'string'
     ? { ...message, content: sanitizeText(message.content) } as LlmMessage
@@ -688,6 +709,7 @@ type RescanMalformed = {
 }
 
 type StateFile = {
+  inheritedMediaFrom?: string
   schemaVersion: number
   revision: number
   clearedAt?: number
@@ -727,8 +749,10 @@ type StateFile = {
 
 type BackendStateMessage = {
   type: 'state'
+  bootstrap?: boolean
   chatId: string | null
   records: SlotRecord[]
+  renderCatalogFingerprint?: string
   stats: RelayChatStats
   recentCompleted: CompactCompletedRecord[]
   queueSafety: StateFile['queueSafety']
@@ -772,10 +796,13 @@ export type RelaySettingsPatch =
   | { kind: 'narrative-override'; utilityName: string; content: string | null }
   | { kind: 'prompt-registry-override'; promptId: string; content: string | null; version: number }
 
+const portraitInsight = createPortraitInsight(spindle)
 type FrontendMessage =
+  | { type: 'portrait_insight_reply'; ticket: string; chatId: string; imageId: string; image?: unknown }
   | { type: 'phone_tools_render_refresh'; receipt: string }
   | PhoneCommand
-  | { type: 'list_state'; chatId?: string | null }
+  | { type: 'list_state'; chatId?: string | null; knownRevision?: number; bootstrap?: boolean }
+  | { type: 'list_render_records'; chatId: string; cursor?: number }
   | {
     type: 'scan_message'
     chatId: string
@@ -794,7 +821,7 @@ type FrontendMessage =
   | { type: 'set_config'; chatId?: string | null; patch: Partial<RouterConfig> }
   | { type: 'relay_settings_patch'; chatId?: string | null; operationId: string; expectedRevision: number; patch: RelaySettingsPatch }
   | { type: 'narrative_utility_registry'; requestId: string }
-  | { type: 'story_action'; chatId: string; action: 'confirm-proposal' | 'reject-proposal' | 'mark-non-canon' | 'resolve-conflict' | 'link-echo' | 'reject-echo' | 'set-knowledge' | 'set-actor-kind' | 'merge-actors' | 'set-reel-override' | 'link-asset' | 'unlink-asset' | 'link-echo-asset' | 'unlink-echo-asset' | 'link-phone-asset' | 'unlink-phone-asset' | 'remove-phone-entry' | 'edit-proposal' | 'merge-events' | 'supersede-event' | 'resolve-source-warning' | 'backfill' | 'cancel-backfill' | 'retry-analysis'; messageId?: string; swipeId?: number; proposalId?: string; eventId?: string; duplicateEventId?: string; echoId?: string; conflictId?: string; phoneEntryId?: string; actorId?: string; mergeIntoActorId?: string; actorKind?: 'character' | 'persona' | 'npc' | 'audience' | 'temporary'; canonicalIdentityId?: string; actorName?: string; beliefState?: StoryBeliefState; acquisitionMode?: 'involved' | 'witnessed' | 'told' | 'evidence' | 'inferred' | 'public-broadcast' | 'manual'; resolution?: StoryKnowledgeConflict['resolution']; includeInactiveSwipes?: boolean; pinned?: boolean; hidden?: boolean; captionOverride?: string; chapterLabelOverride?: string; preferredHeroAssetId?: string; assetId?: string; title?: string; summary?: string }
+  | { type: 'phone_record_action'; chatId: string; action: 'link-phone-asset' | 'unlink-phone-asset' | 'remove-phone-entry'; phoneEntryId?: string; assetId?: string }
   | { type: 'narrative_dlc_action'; chatId?: string | null; action: 'install' | 'repair' | 'inspect' | 'remove'; variant?: NarrativeRegexVariant }
   | { type: 'export_narrative_lorebook'; requestId: string; chatId: string; messageId: string; swipeId?: number; kind: NarrativeLorebookKind; occurrence?: number }
   | { type: 'export_building_lorebook'; requestId: string; chatId: string; messageId: string; swipeId?: number; layoutId: string; roomId: string }
@@ -830,7 +857,7 @@ type FrontendMessage =
   | { type: 'asset_library_action'; chatId: string; action: 'favorite' | 'unfavorite' | 'mark_reference' | 'clear_reference' | 'tag' | 'untag' | 'compare' | 'clear_compare'; assetId?: string; otherAssetId?: string; tag?: string }
   | { type: 'reuse_asset_in_slot'; chatId: string; key: string; assetId: string }
   | { type: 'discover_lora_catalog'; requestId: string; connectionId?: string | null }
-  | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'rerun_appearance_field' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; operationId?: string; expectedRevision?: number; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; appearanceField?: AppearanceMemoryRefreshField; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
+  | { type: 'continuity_action'; chatId: string; action: 'set_strength' | 'create_character' | 'merge_characters' | 'merge_facts' | 'pin' | 'unpin' | 'exclude' | 'include' | 'remove' | 'edit_fact' | 'move_fact' | 'quarantine_fact' | 'ignore_slot' | 'clear_ignore_slot' | 'add_fact' | 'mark_break' | 'clear_current' | 'accept_suggestion' | 'reject_suggestion' | 'move_suggestion_current' | 'move_suggestion_wardrobe' | 'update_migration_item' | 'apply_migration' | 'save_character_sheet' | 'rerun_appearance_field' | 'rescan_appearance' | 'delete_character_sheet' | 'update_character_aliases' | 'delete_character' | 'add_alternate_look' | 'remove_alternate_look' | 'activate_alternate_look' | 'return_to_base'; operationId?: string; expectedRevision?: number; factId?: string; factIds?: string[]; suggestionId?: string; migrationItemId?: string; selectedMigrationItemIds?: string[]; disposition?: VaultMigrationDisposition; key?: string; strength?: ContinuityStrength; characterId?: string; targetCharacterId?: string; characterName?: string; aliases?: string[]; layer?: AppearanceVaultLayer; category?: AppearanceFactCategory; appearanceField?: AppearanceMemoryRefreshField; sourceType?: AppearanceSourceType; value?: string; booruTags?: string; currentOutfitTags?: string; negativeIdentityTags?: string; referenceAssetIds?: string[]; lookId?: string; lookName?: string; assetId?: string; reason?: string; note?: string; permanence?: 'permanent' | 'temporary'; defaultWardrobe?: boolean; currentWardrobe?: boolean }
   | { type: 'prose_illustrator_action'; chatId: string; action: 'set_settings' | 'preview_prompt' | 'plan_latest' | 'plan_message' | 'relay_plan_once' | 'generate_plan' | 'cancel_active' | 'remove_illustration' | 'pause_auto' | 'resume_auto'; requestId?: string; messageId?: string; swipeId?: number; planId?: string; illustrationId?: string; settings?: Partial<ProseIllustratorSettings>; nativeImageSettings?: NativeImageSettings; nativeSettingsCapturedAt?: number }
   | { type: 'custom_surface_action'; chatId?: string; requestId?: string; action: 'create' | 'duplicate' | 'edit' | 'enable' | 'disable' | 'delete' | 'import' | 'activate' | 'set_renderer_mode' | 'set_default_shell_mode' | 'set_color_mode' | 'set_prompt_enabled' | 'set_category_prompt_enabled' | 'set_prompt_module' | 'set_utility_settings' | 'reset_utility_template' | 'save_collection' | 'set_default_collection' | 'delete_collection' | 'bind_collection' | 'unbind_collection'; surfaceId?: string; definition?: Partial<CustomSurfaceDefinition>; rendererMode?: CustomSurfaceStudioState['rendererMode']; shellMode?: SurfaceShellMode; colorMode?: SurfaceColorMode; promptEnabled?: boolean; promptCategory?: SurfacePromptCategory; promptModule?: string; utilityInjectionEnabled?: boolean; utilityInjectionPosition?: SurfaceUtilityInjectionPosition; utilityTemplate?: string; presetId?: string; presetName?: string; surfaceIds?: string[] }
   | { type: 'surface_renderer_script_action'; chatId?: string; action: 'save' | 'reset'; source: R45ScriptSource; presentation: R45PresentationMode; colorMode: SurfaceColorMode; scriptId: string; override?: Partial<SurfaceRendererScriptOverride> }
@@ -850,6 +877,7 @@ type FrontendMessage =
 
 type PreparedPrompt = {
   prompt: string
+  preserveOwnerParagraphs?: boolean
   negativePrompt: string
   promptMode: string
   promptPresetId: string | null
@@ -1189,6 +1217,8 @@ const PROSE_OPPORTUNITY_PLANNER_VERSION = 'prose-opportunity-sidecar-v1'
 const PROSE_PROMPT_COMPOSER_VERSION = 'prose-prompt-composer-v1'
 const BACKEND_LOADED_AT = Date.now()
 const RELAY_RUNTIME_SESSION_ID = `${BACKEND_LOADED_AT}:${Math.random().toString(36).slice(2, 10)}`
+const activeRelayAnalyses = new Map<string, { workerId: string; operationSerial: number }>()
+let relayAnalysisWorkerSequence = 0
 let lastBackendResponseAt = BACKEND_LOADED_AT
 const messageLocks = new Set<string>()
 const slotLocks = new Set<string>()
@@ -1805,6 +1835,7 @@ function isAbortError(error: unknown): boolean {
   return error.name === 'AbortError' || error.name === 'OperationCancelledError' || /abort|cancel/i.test(error.message)
 }
 const rescanLocks = new Set<string>()
+const appearanceRescanLocks = new Set<string>()
 const relayBatchLocks = new Set<string>()
 const relayProcessingKeys = new Set<string>()
 const BACKEND_STARTED_AT = Date.now()
@@ -1814,6 +1845,7 @@ const pendingPlacementBatches = new Map<string, InitialPlacementBatch>()
 const narrativeStartupReconciledUsers = new Set<string>()
 const configMutationQueues = new Map<string, Promise<void>>()
 const pendingPhoneContextClaims = new Set<string>()
+const pendingCommerceClaims=new Map<string,{chatId:string;epoch:number;createdAt:number;claims:CommerceClaim[];requestId?:string}>()
 const pendingGenerationContent = new Map<string, { content: string; receivedAt: number }>()
 export const ILLUSTRATOR_RUNTIME_CACHE_POLICY = { maxEntries: 128, ttlMs: 15 * 60_000 } as const
 const latestIllustratorRuntimeByChat = new BoundedLruCache<{ directive: string; createdAt: number }>(ILLUSTRATOR_RUNTIME_CACHE_POLICY)
@@ -1821,9 +1853,6 @@ const extensionMessageMutations = new Set<string>()
 const latestMessageSnapshots = new Map<string, ChatMessage>()
 const latestObservedMessageIdByChat = new Map<string, string>()
 const deferredScans = new Map<string, Parameters<typeof scanAndGenerate>>()
-const scheduledStoryAnalysis = new Set<string>()
-type StoryBackfillRun = { chatId: string; userId?: string; cancelled: boolean; stats: StoryBackfillStats }
-const storyBackfills = new Map<string, StoryBackfillRun>()
 type AppearanceSidecarMode = 'normal' | 'reconcile' | 'enrichment'
 type AppearanceReadyInput = {
   chatId: string
@@ -1855,6 +1884,32 @@ const scheduledAssistantScans = new Map<string, {
   attempt: number
   timer?: ReturnType<typeof setTimeout>
 }>()
+type ProseImagePriority = { promise: Promise<void>; release: () => void }
+const proseImagePriorities = new Map<string, { promise: Promise<void>; resolve: () => void; users: number }>()
+function proseImagePriorityKey(chatId: string, messageId: string, userId?: string): string {
+  return JSON.stringify([userId || 'default', chatId, messageId])
+}
+function retainProseImagePriority(chatId: string, messageId: string, userId?: string): ProseImagePriority {
+  const key = proseImagePriorityKey(chatId, messageId, userId)
+  let entry = proseImagePriorities.get(key)
+  if (!entry) {
+    let resolve!: () => void
+    const promise = new Promise<void>(done => { resolve = done })
+    entry = { promise, resolve, users: 0 }
+    proseImagePriorities.set(key, entry)
+  }
+  const held = entry
+  held.users++
+  let released = false
+  return { promise: held.promise, release() {
+    if (released) return
+    released = true
+    if (--held.users === 0) {
+      if (proseImagePriorities.get(key) === held) proseImagePriorities.delete(key)
+      held.resolve()
+    }
+  } }
+}
 const scheduledProseOpportunityScans = new Map<string, {
   chatId: string
   messageId: string
@@ -1863,6 +1918,7 @@ const scheduledProseOpportunityScans = new Map<string, {
   sourceContent?: string
   sources: Set<string>
   generationType?: string
+  imagePriority?: ProseImagePriority
   attempt: number
   timer?: ReturnType<typeof setTimeout>
 }>()
@@ -1871,6 +1927,8 @@ const deferredRegenerateRequests = new Map<string, { key: string; nativeSnapshot
 const abortableOperationSerials = new Map<string, number>()
 
 type RunJobOptions = {
+  /** Batch admission order applies only after prompt preparation releases its worker. */
+  imageDispatchAfter?: Promise<void>
   replaceExisting: boolean
   reparse: boolean
   triggerType: JobTrigger
@@ -1941,6 +1999,8 @@ function releasePromptPreparationWorker(scope: string): void {
   const lane = promptPreparationLanes.get(scope)
   if (!lane) return
   lane.active = Math.max(0, lane.active - 1)
+  // A reduced limit drains admitted workers before granting another lease.
+  if (lane.active >= lane.limit) return
   while (lane.waiters.length) {
     const waiter = lane.waiters.shift()!
     if (waiter.onAbort) waiter.signal?.removeEventListener('abort', waiter.onAbort)
@@ -2158,6 +2218,7 @@ export function cleanupStaleChatWork(chatId: string, userId?: string, reason = '
   for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
     if (scheduled.chatId !== chatId) continue
     if (scheduled.timer) clearTimeout(scheduled.timer)
+    scheduled.imagePriority?.release()
     scheduledProseOpportunityScans.delete(key)
     summary.scheduledScans += 1
   }
@@ -2335,6 +2396,7 @@ export function renderSnapshotRecords(state: Pick<StateFile, 'slots' | 'complete
     if (!archived.imageUrl || current && (current.status !== 'recovered-pending' || current.imageUrl || current.pendingPlacement?.imageUrl)) continue
     const target = archived.target as SlotRecord['target']
     records.set(archived.key, {
+      ...archived,
       key: archived.key,
       chatId: archived.chatId,
       messageId: archived.messageId,
@@ -2348,10 +2410,10 @@ export function renderSnapshotRecords(state: Pick<StateFile, 'slots' | 'complete
       originalSceneBrief: '',
       originalNegativePrompt: '',
       originalRequestXml: '',
-      alt: '',
-      caption: '',
-      count: 1,
-      requestAspect: '',
+      alt: archived.alt || '',
+      caption: archived.caption || '',
+      count: archived.count || 1,
+      requestAspect: archived.requestAspect || '',
       createdAt: archived.completedAt,
       discoveredAt: archived.completedAt,
       registeredAt: archived.completedAt,
@@ -2425,7 +2487,11 @@ function cancelAbortableOperation(key: string): number {
 }
 
 function captureAbortableOperation(key: string): number {
-  return abortableOperationSerials.get(key) || 0
+  const serial = abortableOperationSerials.get(key) || 0
+  // Automatic first-run work has no beginAbortableOperation call. Register
+  // even serial zero so Abort All can invalidate it while a model is pending.
+  rememberBoundedMap(abortableOperationSerials, key, serial, C5B_CACHE_LIMITS.abortableOperations)
+  return serial
 }
 
 function assertAbortableOperationCurrent(key: string, serial: number): void {
@@ -2471,13 +2537,12 @@ const DEFAULT_CONFIG: RouterConfig = {
   includeInactiveSwipesInRescan: false,
   storyConstellationsEnabled: false,
   autoConfirmStoryEvents: false,
-  storyKnowledgeConflictAlerts: true,
-  analyzeEditedStoryMessages: true,
+  storyKnowledgeConflictAlerts: false,
+  analyzeEditedStoryMessages: false,
   injectStoryEventContext: false,
   followNativeParser: true,
   followNativeImageGen: true,
   generationSettingsSource: 'native',
-  imageAspectPolicy: 'native',
   loraSource: 'native',
   vaultStrength: 'medium',
   parserConnectionId: null,
@@ -2487,6 +2552,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   appearanceSidecarConnectionId: null,
   appearanceSidecarModel: '',
   appearanceSidecarParameters: {},
+  appearanceUpdateIntervalMessages: 1,
   parserRetries: 1,
   includeRecentMessages: 8,
   includeCharacterInfo: true,
@@ -2515,6 +2581,7 @@ const DEFAULT_CONFIG: RouterConfig = {
   orbPositionDesktop: { x: 0.86, y: 0.78 },
   orbPositionMobile: { x: 0.86, y: 0.78 },
   orbSize: 'medium',
+  orbSizePx: 52,
   orbDesign: 'prism-flower',
   orbCustomIconDataUrl: '',
   lastActiveDrawerTab: 'slots',
@@ -2608,7 +2675,7 @@ const registryContextMetrics = new WeakMap<object, Partial<ContextMetrics>>()
 function sidecarRegistryMessages(settings: ProseIllustratorSettings, workflow: 'opportunity' | 'composer' | 'planner', runtimePayload: unknown): Array<{ role: 'system' | 'user'; content: string }> {
   const runtime = JSON.stringify(runtimePayload, null, 2)
   const messages: Array<{ role: 'system' | 'user'; content: string }> = [
-    { role: 'system', content: registryPrompt(settings, `sidecar.${workflow}.system`) },
+    { role: 'system', content: [registryPrompt(settings, `sidecar.${workflow}.system`), workflow === 'composer' ? '' : illustrationNsfwPlannerGuidance(settings)].filter(Boolean).join('\n\n') },
     { role: 'user', content: registryPrompt(settings, `sidecar.${workflow}.request`).replace(/\{\{\s*runtime_payload\s*\}\}/gi, runtime) },
   ]
   const payload = runtimePayload as { recentContext?: unknown[]; appearanceMemory?: string }
@@ -2700,7 +2767,7 @@ function canonicalSurfacePromptModule(definition: CustomSurfaceDefinition): stri
 function selectedSurfaceDefinitions(studio: CustomSurfaceStudioState): CustomSurfaceDefinition[] {
   // Persisted collections can point at a deleted custom preset; activeSurfaceDefinitions restores the built-in fallback.
   return activeSurfaceDefinitions(studio).filter(definition => definition.promptEnabled === true
-    && definition.baseSurfaceId !== 'relationship-map' && definition.baseSurfaceId !== 'character-profile')
+    && definition.baseSurfaceId !== 'relationship-map' && definition.baseSurfaceId !== 'character-profile' && definition.baseSurfaceId !== 'building-layout')
 }
 
 export function applySurfaceCategoryPromptEnabled(
@@ -2813,12 +2880,13 @@ export function buildEnabledSurfaceUtility(
     ].join('\n\n')
     : ''
   const template = xmlAuthoringInstructions(canonicalSurfaceUtilityTemplate(studio.utilityTemplate))
-  const expandedTemplate = template
+  const expandedTemplate = scopeSurfaceRootRegistry(template)
     .replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || 'Enabled surface-authoring modules: none.')
     .replace(/\{\{\s*reverie_enabled_surface_roots\s*\}\}/gi, rootRegistry || 'none')
     .replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, 'shared')
-  const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nOnly these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
+  const rootBoundary = `STRICT ENABLED ROOT REGISTRY\nFor the App/UI modules in this wrapper, only the listed exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.\n${rootRegistry || 'none'}`
   const expanded = [
+    REVERIE_SURFACE_ROOT_SCOPE,
     expandedTemplate,
     inheritedProfileGuidance,
     /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? '' : rootBoundary,
@@ -3031,7 +3099,7 @@ export async function resolveSidecarPromptMessages(
   return { messages: resolved, resolvedMacros: [...resolvedMacros], unresolvedRequiredMacros: [...unresolvedRequiredMacros] }
 }
 
-async function generateRawSidecar(request: Record<string, unknown> & { messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> }, chatId?: string, userId?: string): Promise<unknown> {
+async function generateRawSidecar(request: Record<string, unknown> & { messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> }, chatId?: string, userId?: string, onText?: (text: string) => Promise<void>): Promise<unknown> {
   const config = await getConfig(userId)
   const resolution = await resolveSidecarPromptMessages(request.messages, chatId, userId, {
     characterPrompt: config.nativeCharacterPrompt,
@@ -3045,7 +3113,31 @@ async function generateRawSidecar(request: Record<string, unknown> & { messages:
   assertModelContextBudget(measurement)
   logStage(config, 'model_context_budget', measurement)
   if (chatId && config.debugLogging) await mutateState(chatId, userId, state => appendStateLog(state, { severity: 'debug', stage: 'model-context', eventType: 'model_context_budget', chatId, message: `${workflow}: ${measurement.estimatedInputTokens} estimated input tokens (${measurement.tier}).`, details: measurement }))
-  return spindle.generate.raw({ ...providerRequest, messages: resolution.messages, userId } as any)
+  const input = { ...providerRequest, messages: resolution.messages, userId } as any
+  if (onText && typeof spindle.generate.rawStream === 'function') {
+    let text = ''
+    for await (const chunk of spindle.generate.rawStream(input)) {
+      if (chunk.type === 'token') { text += chunk.token; await onText(text) }
+      // Reasoning is never an authoring channel. Only the terminal aggregate
+      // may reach final validation/dispatch; a failed stream is not retried raw.
+      if (chunk.type === 'done') return { content: chunk.content }
+    }
+    throw new Error('Illustration Director stream ended without a completed response. No image was dispatched.')
+  }
+  return spindle.generate.raw(input)
+}
+
+export const RELAY_PLANNED_SURFACE_MEDIA_SCOPE = `STORY/PROVIDER CHANNEL SEPARATION — ILLUSTRATOR SCOPE
+
+In Relay-Planned mode, write the narrative as ordinary prose. Do not emit standalone Illustrator-owned prose illustration requests, their image prompts, camera/framing instructions, or commentary about how Relay should place a narrative image. Relay's separate planner and composer build an image-only prompt from the selected story beat.
+
+This restriction applies ONLY to Illustrator-owned narrative images. Enabled Surface and Narrative Utility media remain Story Model-authored: when invoking an image-enabled Surface or Utility, include its required complete <image_request> or nested <reverie-illustration> and its image-only <scene_brief> or <visual_prompt>, exactly as that module specifies. A zero Illustrator request count does not disable Surface or Utility media. Those requests are outside the Illustrator's frequency and image-count budget. Do not invent disabled modules, additional media fields, or substitute schemas. Never turn narrative dialogue or prose into rendered captions or speech bubbles.`
+
+function scopeRelayPlannedStoryMediaPrompt(prompt: string): string {
+  // Scope only shipped channel guidance at runtime. Stored registry overrides
+  // and manually edited protocol source are not rewritten or migrated.
+  return prompt.replaceAll(RELAY_PLANNED_STORY_CHANNEL_GUIDANCE, RELAY_PLANNED_SURFACE_MEDIA_SCOPE)
+    .replace('The Story Model still writes ordinary narrative prose with no illustration markup.', 'The Story Model writes narrative prose without standalone Illustrator-owned illustration markup; enabled Surface and Narrative Utility media still follow their own authoring contracts.')
 }
 
 function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
@@ -3055,10 +3147,13 @@ function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
     : settings.mode === 'inline-protocol' && settings.promptFormat === 'danbooru-tags'
       ? 'story.inline-protocol.booru-tags'
       : settings.mode === 'inline-protocol' ? 'story.inline-protocol' : 'story.model-placed'
-  const base = registryPrompt(settings, promptId)
-  const framing = effectiveFramingPrompt(settings)
+  const registeredBase = registryPrompt(settings, promptId)
+  const base = settings.mode === 'relay-planned' ? scopeRelayPlannedStoryMediaPrompt(registeredBase) : registeredBase
+  // Relay's story writer owns narrative actions, not image-layout paragraphs.
+  // The experimental framing is supplied to the Director/Composer instead.
+  const framing = settings.mode === 'relay-planned' && settings.perspectiveMode === 'blocking-fidelity' ? '' : effectiveFramingPrompt(settings)
   const adult = registryPrompt(settings, 'story.adult-content-fidelity')
-  const channelGuidance = settings.mode === 'relay-planned' ? RELAY_PLANNED_STORY_CHANNEL_GUIDANCE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
+  const channelGuidance = settings.mode === 'relay-planned' ? RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ILLUSTRATION_VISUAL_PROMPT_CHANNEL_GUIDANCE
   // A customized prompt that kept only the heading is not channel separation.
   // Require the complete stock block so Relay controls cannot be mistaken for
   // image-model prose when parser fallback is active.
@@ -3070,9 +3165,22 @@ function activeIllustratorPrompt(settings: ProseIllustratorSettings): string {
     ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE
     : ''
   const relayTagMode = settings.mode === 'relay-planned' && settings.promptFormat === 'danbooru-tags'
-    ? RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE
+    ? scopeRelayPlannedStoryMediaPrompt(RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE)
     : ''
-  return [base, framing, adult, enforcedChannelGuidance, relayTagMode, tagOwnershipGuidance].filter(Boolean).join('\n\n')
+  const blockingGuidance = settings.mode === 'relay-planned' ? STORY_ACTION_OWNERSHIP_GUIDANCE : MULTI_SUBJECT_BLOCKING_GUIDANCE
+  const storyTagRelations = settings.mode !== 'relay-planned' && settings.promptFormat === 'danbooru-tags' ? STORY_MODEL_BOORU_BLOCKING_GUIDANCE : ''
+  const sceneAppearanceGuidance = settings.mode !== 'relay-planned' && settings.appearanceMemoryEnabled ? STORY_SCENE_APPEARANCE_GUIDANCE : ''
+  const features = [settings.sightlineGuard !== false ? SIGHTLINE_GUIDANCE : "", settings.perspectiveMode === "scene-flow" ? SCENE_FLOW_GUIDANCE : "", settings.perspectiveMode === "dreamcut" || settings.perspectiveMode === "scene-flow" ? DREAMCUT_GUIDANCE : "", settings.openingFrame && settings.mode !== 'relay-planned' ? OPENING_FRAME_STORY_GUIDANCE : ""].filter(Boolean).join("\n\n")
+  const prompt = [features, base, framing, adult, enforcedChannelGuidance, relayTagMode, tagOwnershipGuidance, blockingGuidance, storyTagRelations, sceneAppearanceGuidance].filter(Boolean).join('\n\n')
+  if (!storyTagRelations) return prompt
+  // Adapt complete known stock blocks at runtime, not the saved registry.
+  // Appending a relation exception while retaining a clause/nuance ban gave
+  // the author contradictory instructions in every Story Model framing.
+  const storyTagChannel = BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE
+    .replace('Do not write sentences, natural-language clauses, headings, labels, explanations, or instructions.', 'Do not copy narrative sentences or dialogue, headings, labels, explanations, or instructions. Compact literal visual relation phrases are allowed inside the owner groups.')
+    .replace('If the exact relation has no known tag, retain its supported components as separate tags (subject/action, hand or body position, object, setting) and omit only the unexpressible nuance.', 'If the exact relation has no known tag, retain its supported action/object tags and add a compact literal visual relation with ordinary spaces inside that owner group; preserve the side, hand surface, target and prop owner.')
+  return prompt.replaceAll(BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, storyTagChannel)
+    .replaceAll('Keep every tag inside the Danbooru-style comma-separated list; do not use natural-language descriptions.', 'Keep familiar tags and compact literal visual relation phrases inside the comma-separated list; do not copy narrative prose.')
 }
 
 function personaPovRuntimeGuidance(settings: ProseIllustratorSettings, context?: PersonaPovContext): string {
@@ -3096,7 +3204,13 @@ export function resolveIllustratorStoryPrompt(
     activeIllustratorPrompt(settings),
     buildIllustratorRuntimeDirective(settings, messages, personaPovContext, profileCatalog, inheritedProfileId),
     personaPovRuntimeGuidance(settings, personaPovContext),
+    settings.mode === 'relay-planned' ? '' : illustrationNsfwPlannerGuidance(settings),
   ].filter(Boolean).join('\n\n')
+}
+
+export function illustrationNsfwPlannerGuidance(settings: ProseIllustratorSettings): string {
+  if (!settings.enabled || settings.mode === 'off' || !settings.nsfwPlannerEnabled || !settings.nsfwPlannerText?.trim()) return ''
+  return `ILLUSTRATION PLANNER — NSFW GUIDANCE\n${settings.nsfwPlannerText.trim()}\nApply this guidance only when authoring illustration requests. Never copy planner instructions into visual_prompt, promptCore, booruTags, or provider prompts.`
 }
 
 function maybeWarnUtilityNotInjected(chatId: string, userId?: string): void {
@@ -3170,8 +3284,11 @@ const registerMessageContentProcessor = (spindle as unknown as {
 if (typeof registerMessageContentProcessor === 'function') {
   registerMessageContentProcessor.call(spindle, async context => {
     if (context.origin !== 'render') return
-    const source = typeof context.content === 'string' ? context.content : ''
-    if (!source) return
+    const originalSource = typeof context.content === 'string' ? context.content : ''
+    const source = stripSceneAppearanceMarkup(originalSource)
+    const hiddenSceneState = source !== originalSource
+    const hiddenOnly = () => hiddenSceneState ? { content: source } : undefined
+    if (!source) return hiddenOnly()
     if (context.extra?.is_user === true || cleanString(context.extra?.role).toLocaleLowerCase() === 'user') {
       const draft = renderPhoneContextDraft(source)
       return draft.count ? { content: draft.content } : undefined
@@ -3197,7 +3314,7 @@ if (typeof registerMessageContentProcessor === 'function') {
         .filter(record => renderSwipeId === undefined || record.swipeId === renderSwipeId)
       const narrativeCandidate = containsNarrativeRegexMarkup(source)
       const phoneCandidate = /<reverie-phone\b/i.test(source)
-      if (!NATIVE_RENDER_TAG_RE.test(source) && !containsEnabledCustomSurfaceRoot(source, snapshot.studio) && !narrativeCandidate && !phoneCandidate) return
+      if (!NATIVE_RENDER_TAG_RE.test(source) && !containsEnabledCustomSurfaceRoot(source, snapshot.studio) && !narrativeCandidate && !phoneCandidate) return hiddenOnly()
       // Slot lifecycle changes are patched into the existing media island by the
       // frontend. A state fingerprint prevents a later host render from reusing
       // stale pending markup, while the host message itself remains untouched.
@@ -3254,7 +3371,7 @@ if (typeof registerMessageContentProcessor === 'function') {
         renderedCount += rendered.renderedCount
       }
       if(phoneCandidate){const notification=renderPhoneActivities(renderedContent);renderedContent=notification.content;renderedCount+=notification.count}
-      if (renderedCount < 1 || renderedContent === source) return
+      if (renderedCount < 1 || renderedContent === source) return hiddenOnly()
       const messageScope = String(context.messageId || '__new__')
       const swipeScope = String(renderSwipeId ?? '__active__')
       renderOutputCache.deleteWhere((key, value) => key !== outputKey && value.scope === scope && value.messageId === messageScope && value.swipeId === swipeScope)
@@ -3262,7 +3379,7 @@ if (typeof registerMessageContentProcessor === 'function') {
       return { content: renderedContent }
     } catch (error) {
       spindle.log.warn(`[Reverie Relay] Render-time surface processing failed: ${error instanceof Error ? error.message : String(error)}`)
-      return
+      return hiddenOnly()
     }
   }, 35)
 }
@@ -3431,16 +3548,17 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const personaPovContext = settings.perspectiveMode === 'persona-pov' ? await resolvePersonaPovContext(chatId, context?.userId) : undefined
       const inheritedProfileId = effectiveGenerationProfile(routerConfig, chatId).defaultPromptProfileId
       const runtimeDirective = buildIllustratorRuntimeDirective(settings, cleaned, personaPovContext, routerConfig.promptProfiles, inheritedProfileId)
-      const illustratorPrompt = resolveIllustratorStoryPrompt(settings, cleaned, personaPovContext, routerConfig.promptProfiles, inheritedProfileId)
+      let illustratorPrompt = resolveIllustratorStoryPrompt(settings, cleaned, personaPovContext, routerConfig.promptProfiles, inheritedProfileId)
+      if (settings.mode !== 'relay-planned' && effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength) !== 'off') {
+        const sources = sceneAppearanceSources(await spindle.chat.getMessages(chatId) as ChatMessage[])
+        const latest = sources.at(-1)
+        const scene = latest ? sceneAppearanceForHistory(state.continuityVault, sources, latest.messageId) : []
+        if (scene.length) illustratorPrompt += '\n\nCurrent source-grounded scene appearance before this response (update only when the new story explicitly changes it; keep ownership):\n' + JSON.stringify(scene).slice(0, 12000)
+      }
       latestIllustratorRuntimeByChat.set(chatId, { directive: runtimeDirective, createdAt: Date.now() })
       const studio = state.customSurfaces
       const macroUtility = buildEnabledSurfaceUtility(studio, 'macro', routerConfig.promptProfiles, inheritedProfileId)
       const narrativeUtility = buildResolvedNarrativeUtilityPrompt(routerConfig)
-      const { eventKnowledgeContext, phoneMemoryContext } = buildOptionalStoryPromptContext(state.storyConstellations, {
-        featureEnabled: routerConfig.storyConstellationsEnabled,
-        injectEventKnowledge: routerConfig.injectStoryEventContext,
-        characterPhoneRequested: narrativeUtility.utilityNames.includes('Character Phone'),
-      })
       const plotSparksRecentContext = narrativeUtility.utilityNames.includes('Plot Sparks') ? recentPlotSparksReference(cleaned) : ''
       let phoneContinuity = ''
       let phoneProtocol = ''
@@ -3452,11 +3570,19 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
           const device=await readReconciledPhoneDevice(chatId,context?.userId,identities,false)
           const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
           const completedReplies=history.filter(message => isAssistantMessage(message) && !isOwnMessage(message)
+            && getSwipeContent(message,activeSwipeId(message)).trim().length > 0
             && String(message.id) !== String(context?.messageId || context?.message_id || '') && phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).length
           phoneProtocol = toolSession ? phoneToolProtocol(toolSession) : phoneStoryProtocol(identities,device.incoming,completedReplies)
           const selection=phoneContextForPrompt(device,identities)
+          const shopping=selectCommerce(device,identities,context?.userId,chatId)
+          const shoppingClaimKey=`${context?.userId||'default'}:${context?.generationId||''}`
+          if(context?.generationId&&!context?.isDryRun&&!context?.dryRun){
+            for(const [key,claim]of pendingCommerceClaims)if(Date.now()-claim.createdAt>30*60*1000)pendingCommerceClaims.delete(key)
+            if(pendingCommerceClaims.size<128||pendingCommerceClaims.has(shoppingClaimKey))pendingCommerceClaims.set(shoppingClaimKey,{chatId,epoch:currentUserAbortEpoch(context?.userId),createdAt:Date.now(),claims:shopping.claims,requestId:shopping.requestId})
+          }
           const claim=selection.requestId?`${context?.userId||'__default__'}:${chatId}:${selection.requestId}`:''
           phoneContinuity=device.contextMode==='manual'&&claim&&pendingPhoneContextClaims.has(claim)?'':selection.content
+          phoneContinuity=[phoneContinuity,shopping.content].filter(Boolean).join('\n\n')
           if(claim&&!context?.isDryRun&&!context?.dryRun&&!pendingPhoneContextClaims.has(claim)){
             pendingPhoneContextClaims.add(claim)
             void mutateState(chatId,context?.userId,async state=>{
@@ -3467,7 +3593,7 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         }
         catch (error) { spindle.log.warn(`[Reverie Phone] Continuity unavailable; phone storage was preserved: ${error instanceof Error ? error.message : String(error)}`) }
       }
-      const storyAwareNarrativeContent = [narrativeUtility.content, phoneMemoryContext, eventKnowledgeContext, plotSparksRecentContext, phoneContinuity].filter(Boolean).join('\n\n')
+      const storyAwareNarrativeContent = [narrativeUtility.content, plotSparksRecentContext, phoneContinuity].filter(Boolean).join('\n\n')
       let surfaceMacroExpanded = false
       let illustratorMacroExpanded = false
       let narrativeMacroExpanded = false
@@ -3476,6 +3602,9 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const macroResolvedMessages = cleaned.map(message => {
         let content = cleanString((message as any)?.content)
         if (!content) return message
+        // Hosts can pre-expand a preset macro before interception. Reconcile
+        // the stock Relay guidance there too, without touching saved prompts.
+        if (settings.mode === 'relay-planned' && message.role === 'system') content = scopeRelayPlannedStoryMediaPrompt(content)
         content = content.replace(/<reverie_phone_macro\s*\/>|\{\{\s*reverie_phone\s*\}\}|<reverie_phone_protocol>[\s\S]*?<\/reverie_phone_protocol>/g, () => {
           const value = phoneMacroExpanded ? '' : phoneProtocol
           phoneMacroExpanded = true
@@ -3564,12 +3693,11 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
       const automaticIllustrator = (settings.mode === 'model-placed' || settings.mode === 'inline-protocol') && settings.automaticProtocolInjection && !illustratorMacroExpanded ? illustratorPrompt : ''
       const automaticNarrative = routerConfig.narrativeDlcEnabled && !narrativeMacroExpanded ? narrativeUtility.content : ''
       const promptAlreadyHasStoryBlock = (block: string) => Boolean(block) && dedupedMacroMessages.some(message => cleanString((message as any)?.content).includes(block))
-      const automaticPhoneMemory = phoneMemoryContext && !promptAlreadyHasStoryBlock(phoneMemoryContext) ? phoneMemoryContext : ''
-      const automaticEventKnowledge = eventKnowledgeContext && !promptAlreadyHasStoryBlock(eventKnowledgeContext) ? eventKnowledgeContext : ''
+      const automaticIllustratorScope = settings.enabled && !settings.paused && settings.mode === 'relay-planned' && !promptAlreadyHasStoryBlock(RELAY_PLANNED_SURFACE_MEDIA_SCOPE) ? RELAY_PLANNED_SURFACE_MEDIA_SCOPE : ''
       const automaticPlotSparksRecent = plotSparksRecentContext && !promptAlreadyHasStoryBlock(plotSparksRecentContext) ? plotSparksRecentContext : ''
       const automaticPhoneContinuity = phoneContinuity && !promptAlreadyHasStoryBlock(phoneContinuity) ? phoneContinuity : ''
       const automaticRuntime = ''
-      const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticPhoneMemory, automaticEventKnowledge, automaticPlotSparksRecent, automaticPhoneContinuity, phoneMacroExpanded ? '' : phoneProtocol, automaticIllustrator, automaticRuntime].filter(Boolean).join('\n\n')
+      const combined = [automaticSurfaceProtocol, automaticUtility?.content || '', automaticNarrative, automaticPlotSparksRecent, automaticPhoneContinuity, phoneMacroExpanded ? '' : phoneProtocol, automaticIllustrator, automaticIllustratorScope, automaticRuntime].filter(Boolean).join('\n\n')
       if (!combined) {
         if (surfaceMacroExpanded) schedulePromptInjectionRecord(chatId, 'macro', 'macro-placement', macroUtility.moduleIds, `Expanded ${macroUtility.moduleIds.length} enabled surface module${macroUtility.moduleIds.length === 1 ? '' : 's'} at the placed macro.`, context?.userId)
         return finish(dedupedMacroMessages)
@@ -3579,9 +3707,8 @@ const relayPromptInterceptor = async (messages: LlmMessage[], context: any) => {
         automaticSurfaceProtocol ? 'surface protocol' : '',
         automaticUtility ? `surfaces (${automaticUtility.moduleIds.join(', ') || 'none'})` : '',
         automaticNarrative ? `Narrative Utilities (${narrativeUtility.utilityNames.length})` : '',
-        automaticPhoneMemory ? 'Character Phone memory' : '',
-        automaticEventKnowledge ? 'character knowledge context' : '',
         automaticIllustrator ? `illustrator (${settings.mode})` : '',
+        automaticIllustratorScope ? 'Relay-Planned Surface media scope' : '',
         automaticRuntime ? 'live runtime' : '',
       ].filter(Boolean).join(' + ')
       if (automaticUtility) {
@@ -3737,6 +3864,7 @@ for (const macro of [
 
 spindle.on('GENERATION_STARTED', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
+  startInstantRelayStory(payload, userId)
   phoneToolBridge.start(payload, userId)
   if (chatId && interceptorDisposer && spindle.permissions.has('interceptor')) {
     const latest = latestPromptInterceptionByChat.get(chatId)
@@ -3777,7 +3905,17 @@ spindle.on('GENERATION_ENDED', (payload: any, userId?: string) => {
   })
 })
 
+spindle.on('STREAM_TOKEN_RECEIVED', (payload: any, userId?: string) => {
+  receiveInstantRelayStoryToken(payload, userId)
+})
+
+spindle.on('GENERATION_IN_PROGRESS', (payload: any, userId?: string) => {
+  bindInstantRelayStoryTarget(payload, userId)
+})
+
 spindle.on('GENERATION_STOPPED', (payload: any, userId?: string) => {
+  stopInstantRelayStory(payload, userId)
+  pendingCommerceClaims.delete(`${userId||'default'}:${cleanString(payload?.generationId)}`)
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
   phoneToolBridge.cancel(payload, userId)
   void recordLifecycleEvent('generation-stopped', payload, userId)
@@ -3859,198 +3997,6 @@ for (const eventName of ['MESSAGE_DELETED', 'MESSAGE_REMOVED', 'CHAT_MESSAGE_DEL
   })
 }
 
-function storyBackfillKey(chatId: string, userId?: string): string {
-  return `${userId || '__default__'}:${chatId}`
-}
-
-function sendStoryBackfillStatus(run: StoryBackfillRun, status: 'running' | 'completed' | 'cancelled' | 'failed', message?: string): void {
-  spindle.sendToFrontend({ type: 'story_backfill_status', chatId: run.chatId, status, completed: run.stats.completed, total: run.stats.eligible, stats: { ...run.stats, reasons: { ...run.stats.reasons } }, message }, run.userId)
-}
-
-async function storySourceStillCurrent(chatId: string, messageId: string, swipeId: number, content: string, userId?: string): Promise<boolean> {
-  const messages = await spindle.chat.getMessages(chatId).catch(() => []) as ChatMessage[]
-  const message = messages.find(row => row.id === messageId)
-  return Boolean(message && storyFingerprint(getSwipeContent(message, swipeId)) === storyFingerprint(content))
-}
-
-async function analyzeStoryMessage(input: {
-  chatId: string; message: ChatMessage; swipeId: number; content: string; userId?: string;
-  sourceState?: 'active' | 'inactive-swipe'; sourceKind?: 'chat-prose' | 'backfill'; backfill?: boolean; retry?: boolean
-}): Promise<StoryAnalysisOutcome> {
-  const { chatId, message, swipeId, content, userId } = input
-  const config = await getConfig(userId)
-  const finish = async (outcome: StoryAnalysisOutcome): Promise<StoryAnalysisOutcome> => {
-    if (config.debugLogging) spindle.log.info(`[Reverie Relay:event_constellations_trace] ${JSON.stringify({ chatId, messageId: message.id, swipeId, fingerprint: storyFingerprint(content), connectionId: config.parserConnectionId, model: config.parserModel, ...outcome })}`)
-    // A valid zero-candidate result is not an analyzer failure. Keep a compact,
-    // inspectable outcome instead of leaving an empty Story view unexplained.
-    if (outcome.reason !== 'already-processed' && outcome.reason !== 'feature-off') {
-      await mutateState(chatId, userId, state => appendStateLog(state, {
-        severity: outcome.status === 'failed' ? 'warning' : 'debug', stage: 'story-analysis', eventType: 'story_analysis_outcome',
-        chatId, messageId: message.id, swipeId,
-        message: `Story analysis ${outcome.status}${outcome.reason ? `: ${outcome.reason}` : `: ${outcome.proposals || 0} proposals`}.`,
-        details: { ...outcome, sourceFingerprint: storyFingerprint(content) },
-      }))
-      if (!input.backfill) await sendState(userId, chatId)
-    }
-    return outcome
-  }
-  if (!config.storyConstellationsEnabled) return finish({ status: 'skipped', reason: 'feature-off' })
-  const cleaned = prepareStoryAnalysisText(content)
-  const processedKey = `${message.id}:${swipeId}`
-  const contentHash = storyFingerprint(content)
-  const initial = await getState(chatId, userId)
-  if (!input.retry && initial.storyConstellations.processedMessageFingerprints[processedKey] === Number.parseInt(contentHash, 36)) return finish({ status: 'skipped', reason: 'already-processed' })
-  // A queued generation/backfill task may lose a race to an edit, swipe change,
-  // or deletion. Validate before the deterministic Phone parser mutates state,
-  // not only later before model-derived Event proposals are committed.
-  if (!(await storySourceStillCurrent(chatId, message.id, swipeId, content, userId))) return finish({ status: 'skipped', reason: 'stale-source' })
-  const sourceRef = createStorySourceRef({
-    chatId, messageId: message.id, swipeId, role: isAssistantMessage(message) ? 'assistant' : message.role,
-    content, excerpt: cleaned.slice(0, 420), sourceKind: input.sourceKind || 'chat-prose',
-    sourceState: input.sourceState || 'active',
-  })
-  // Phone parsing is a pure transformation of authored bracket data and makes
-  // no provider call. It runs independently so missing parser configuration
-  // cannot throw away an already-authored phone snapshot.
-  const phoneCount = await mutateState(chatId, userId, state => {
-    return ingestCharacterPhoneSnapshot(state.storyConstellations, content, sourceRef, Date.now(), Object.values(state.assetLibrary.assets))
-  })
-  if (!shouldAnalyzeStoryText(cleaned)) {
-    await mutateState(chatId, userId, state => { rememberProcessedStoryMessage(state.storyConstellations, processedKey, Number.parseInt(contentHash, 36)) })
-    await sendState(userId, chatId)
-    return finish({ status: 'skipped', reason: 'non-story-content', phoneEntries: phoneCount })
-  }
-  if (!config.parserConnectionId) {
-    if (phoneCount) await sendState(userId, chatId)
-    return finish({ status: 'failed', reason: 'no-parser-connection', phoneEntries: phoneCount })
-  }
-  try {
-    const state = await getState(chatId, userId)
-    const settings = proseSettingsForChat(state, chatId)
-    const knownEvents = activeStoryEvents(state.storyConstellations).filter(event => event.sourceState === 'active').slice(-12).map(event => ({
-      id: event.eventId, title: event.title, summary: event.summary,
-      eventType: event.eventType, importance: event.importance,
-      participants: event.participants.map(participant => state.storyConstellations.actors[participant.actorId]?.displayName || 'unresolved'),
-    }))
-    const events = knownEvents.map(({ id, title, summary, participants }) => ({ id, title, summary, participants }))
-    const runtimePayload = {
-      sourceText: cleaned,
-      source: { chatId, messageId: message.id, swipeId, role: sourceRef.role },
-      knownConfirmedEvents: events,
-      instructions: 'Return only completed, source-grounded canon changes or Echoes. Compare the current source (including explicit Character Phone content) against knownConfirmedEvents; when it manifests a known event, return a candidate with that exact event id in likelyDuplicateEventId, describe only the new manifestation, and include a source-grounded Echo. Do not create a duplicate Event Node. The current source is the only evidence for candidate anchors, Echo summaries, participants, and knowledge transfers.',
-    }
-    const connection = await resolveParserConnection(config, userId)
-    const raw = await generateParserText(connection, config, [
-      { role: 'system', content: registryPrompt(settings, 'sidecar.events.system') },
-      { role: 'user', content: registryPrompt(settings, 'sidecar.events.request').replace(/\{\{\s*runtime_payload\s*\}\}/gi, JSON.stringify(runtimePayload)) },
-    ], userId, chatId, undefined, 'event-constellations')
-    const normalized = normalizeEventSidecarOutput(raw)
-    const knownConfirmedEvents = knownEvents.map(event => ({
-      ...event,
-      participants: event.participants.map(name => ({ name })),
-    }))
-    if (!(await storySourceStillCurrent(chatId, message.id, swipeId, content, userId))) return finish({ status: 'skipped', reason: 'stale-after-analysis', phoneEntries: phoneCount })
-    let completion = { events: normalized.events, fallbackEchoes: 0 }
-    const result = await mutateState(chatId, userId, next => {
-      const proposalOptions = {
-        autoConfirmHighConfidence: config.autoConfirmStoryEvents,
-        sourceText: cleaned,
-      }
-      const knownTargetIds = new Set(knownConfirmedEvents.map(event => event.id))
-      const hasModelEchoCandidate = normalized.events.some(candidate => Boolean(candidate.likelyDuplicateEventId && candidate.echoes?.length))
-      let validatedModelEcho = false
-      if (hasModelEchoCandidate) {
-        const sameSource = (ref: { chatId: string; messageId: string; swipeId: number; contentFingerprint: string }) =>
-          ref.chatId === sourceRef.chatId && ref.messageId === sourceRef.messageId
-          && ref.swipeId === sourceRef.swipeId && ref.contentFingerprint === sourceRef.contentFingerprint
-        const alreadyRecordedEcho = Object.values(next.storyConstellations.proposals).some(proposal =>
-          proposal.proposalKind === 'event-echo' && proposal.likelyDuplicateEventId
-          && knownTargetIds.has(proposal.likelyDuplicateEventId) && sameSource(proposal.sourceRef)
-          && (proposal.status === 'proposed' || proposal.status === 'accepted'))
-          || Object.values(next.storyConstellations.echoes).some(echo => typeof echo.eventId === 'string' && knownTargetIds.has(echo.eventId) && sameSource(echo.sourceRef))
-        if (alreadyRecordedEcho) validatedModelEcho = true
-        else {
-          // Reuse the real proposal validator on an isolated state copy. A
-          // shaped-but-rejected model Echo must not suppress the safe fallback.
-          const preview = proposeStoryEvents(structuredClone(next.storyConstellations), normalized.events, sourceRef, proposalOptions)
-          validatedModelEcho = preview.proposalIds.some(proposalId => {
-            const proposal = preview.state.proposals[proposalId]
-            const targetId = proposal?.likelyDuplicateEventId
-            return proposal?.proposalKind === 'event-echo'
-              && typeof targetId === 'string' && knownTargetIds.has(targetId)
-              && sameSource(proposal.sourceRef)
-          })
-        }
-      }
-      completion = completeEventSidecarCandidates(normalized, cleaned, knownConfirmedEvents, validatedModelEcho)
-      const result = proposeStoryEvents(next.storyConstellations, completion.events, sourceRef, proposalOptions)
-      next.storyConstellations = result.state
-      rememberProcessedStoryMessage(next.storyConstellations, processedKey, Number.parseInt(contentHash, 36))
-      return { proposals: result.proposalIds.length, reconciled: result.reconciled, rejected: result.rejected, rejectionReasons: result.rejectionReasons, rejectionExamples: result.rejectionExamples }
-    })
-    if (result.proposals || result.reconciled || phoneCount) await sendState(userId, chatId)
-    return finish({ status: 'analyzed', rawCandidates: normalized.rawCandidates, normalizedCandidates: completion.events.length, fallbackEchoes: completion.fallbackEchoes, rejectedCandidates: normalized.rejectedCandidates + result.rejected, proposals: result.proposals, reconciled: result.reconciled, phoneEntries: phoneCount, rejectionReasons: { ...result.rejectionReasons, ...(normalized.rejectedCandidates ? { 'missing-required-fields': normalized.rejectedCandidates } : {}) }, rejectionExamples: result.rejectionExamples })
-  } catch (error) {
-    spindle.log.warn(`[Reverie Relay:event_constellations] ${error instanceof Error ? error.message : String(error)}`)
-    if (phoneCount) await sendState(userId, chatId)
-    return finish({ status: 'failed', reason: error instanceof Error && /Event Sidecar|events array|invalid JSON|empty response/i.test(error.message) ? 'invalid-sidecar-response' : 'analyzer-error', phoneEntries: phoneCount })
-  }
-}
-
-function scheduleStoryAnalysis(input: { chatId: string; message: ChatMessage; swipeId: number; content: string; userId?: string; delayMs?: number }): void {
-  if (!input.chatId || !input.message?.id || !input.content) return
-  const key = `${input.userId || '__default__'}:${input.chatId}:${input.message.id}:${input.swipeId}:${storyFingerprint(input.content)}`
-  if (scheduledStoryAnalysis.has(key)) return
-  scheduledStoryAnalysis.add(key)
-  setTimeout(() => {
-    void analyzeStoryMessage(input).catch(error => spindle.log.warn(`[Reverie Relay:event_constellations_schedule] ${error instanceof Error ? error.message : String(error)}`)).finally(() => scheduledStoryAnalysis.delete(key))
-  }, Math.max(0, Math.min(2000, input.delayMs ?? 80)))
-}
-
-async function runStoryBackfill(chatId: string, userId: string | undefined, includeInactiveSwipes: boolean): Promise<void> {
-  const key = storyBackfillKey(chatId, userId)
-  if (storyBackfills.has(key)) return
-  const run: StoryBackfillRun = { chatId, userId, cancelled: false, stats: emptyStoryBackfillStats() }
-  storyBackfills.set(key, run)
-  sendStoryBackfillStatus(run, 'running', 'Reading the chat and preparing active-swipe analysis…')
-  try {
-    const config = await getConfig(userId)
-    if (!config.storyConstellationsEnabled) throw new Error('Enable Event Constellations before starting a backfill.')
-    const messages = await spindle.chat.getMessages(chatId) as ChatMessage[]
-    run.stats.scanned = messages.length
-    const tasks: Array<{ message: ChatMessage; swipeId: number; content: string; active: boolean }> = []
-    for (const message of messages) {
-      if (!(isAssistantMessage(message) || message.role === 'user') || isOwnMessage(message)) continue
-      const active = activeSwipeId(message)
-      const swipeIds = includeInactiveSwipes && Array.isArray(message.swipes) && message.swipes.length
-        ? message.swipes.map((_content, index) => index)
-        : [active]
-      for (const swipeId of swipeIds) {
-        const content = getSwipeContent(message, swipeId)
-        if (shouldAnalyzeStoryText(content) || /\[character_phone\]/i.test(content)) tasks.push({ message, swipeId, content, active: swipeId === active })
-      }
-    }
-    run.stats.eligible = tasks.length
-    sendStoryBackfillStatus(run, 'running', `${tasks.length} eligible message${tasks.length === 1 ? '' : 's'}; proposals only.`)
-    for (const task of tasks) {
-      if (run.cancelled) break
-      const outcome = await analyzeStoryMessage({
-        chatId, userId, message: task.message, swipeId: task.swipeId, content: task.content,
-        sourceState: task.active ? 'active' : 'inactive-swipe', sourceKind: 'backfill', backfill: true,
-      })
-      recordStoryBackfillOutcome(run.stats, outcome)
-      sendStoryBackfillStatus(run, 'running', storyBackfillSummary(run.stats))
-    }
-    const finalStatus = run.cancelled ? 'cancelled' : run.stats.failed ? 'failed' : 'completed'
-    sendStoryBackfillStatus(run, finalStatus, `${run.cancelled ? 'Cancelled safely. ' : run.stats.failed ? 'Some Event analysis failed. ' : 'Backfill complete. '}${storyBackfillSummary(run.stats)}`)
-    await sendState(userId, chatId)
-  } catch (error) {
-    sendStoryBackfillStatus(run, 'failed', error instanceof Error ? error.message : String(error))
-  } finally {
-    storyBackfills.delete(key)
-  }
-}
-
 spindle.on('MESSAGE_SWIPED', (payload: any, userId?: string) => {
   const chatId = cleanString(payload?.chatId || payload?.chat_id)
   const message = payload?.message as ChatMessage | undefined
@@ -4091,7 +4037,6 @@ spindle.on('MESSAGE_EDITED', (payload: any, userId?: string) => {
         const content = getSwipeContent(message, swipeId)
         const settings = await getConfig(userId)
         await mutateState(chatId, userId, state => markStorySourceEdited(state.storyConstellations, chatId, messageId, swipeId, content))
-        if (settings.storyConstellationsEnabled && settings.analyzeEditedStoryMessages) scheduleStoryAnalysis({ chatId, message, swipeId, userId, content, delayMs: 140 })
         await sendState(userId, chatId)
       })().catch(error => spindle.log.warn(`[Reverie Relay:story_message_edited] ${error instanceof Error ? error.message : String(error)}`))
     }
@@ -4140,12 +4085,21 @@ async function acknowledgeSlotSubmission(payload: SlotSubmissionMessage, userId?
 
 spindle.onFrontendMessage((raw: unknown, userId?: string) => {
   const payload = raw as FrontendMessage
+  const planningRequest = payload?.type === 'prose_illustrator_action' && payload.requestId
+    && ['relay_plan_once', 'plan_latest', 'plan_message'].includes(payload.action) ? payload : null
+  const planningFeedback = (status: 'accepted' | 'completed' | 'failed', message?: string) => {
+    if (planningRequest) spindle.sendToFrontend({ type: 'prose_action_feedback', chatId: planningRequest.chatId,
+      requestId: planningRequest.requestId, status, message }, userId)
+  }
+  planningFeedback('accepted')
   void handleFrontendMessage(payload, userId).then(() => {
+    planningFeedback('completed')
     const submission = slotSubmissionDetails(payload)
     if (submission && acceptedSlotSubmissions.delete(submission.submissionId)) {
       spindle.sendToFrontend({ type: 'slot_action_feedback', ...submission, status: 'completed' }, userId)
     }
   }).catch(error => {
+    planningFeedback('failed', error instanceof Error ? error.message : String(error))
     const type = payload && typeof payload === 'object' && 'type' in payload ? payload.type : 'unknown'
     const message = error instanceof Error ? error.message : String(error)
     const chatId = payload && typeof payload === 'object' && 'chatId' in payload ? cleanString(payload.chatId) : ''
@@ -4177,6 +4131,10 @@ spindle.onFrontendMessage((raw: unknown, userId?: string) => {
 })
 
 async function handleGenerationEnded(payload: any, userId?: string): Promise<void> {
+  if (completeInstantRelayStory(payload, userId)) return
+  const prefixKey = `${userId || 'default'}:${cleanString(payload?.generationId)}`
+  const shoppingClaim=pendingCommerceClaims.get(prefixKey)
+  pendingCommerceClaims.delete(prefixKey)
   const config = await getConfig(userId)
   const payloadContent = typeof payload?.content === 'string' ? payload.content : ''
   const payloadHasImageRequest = containsRelayRequestMarkup(payloadContent)
@@ -4191,6 +4149,28 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
   })
 
   if (payload?.error || !payload?.chatId || !payload?.messageId || !payload?.content) return
+  // Instant images can finish before this response exists in host storage.
+  // Revalidate their exact owners now, using the saved body rather than a
+  // partial streaming snapshot, without generating those assets again.
+  await reconsiderPendingPlacementBatches(userId, cleanString(payload.chatId), cleanString(payload.messageId), true)
+  // Register fresh Relay work before Appearance/output bookkeeping can wait on
+  // a model or storage. The analysis worker still awaits the shared current-
+  // turn Appearance result before its Director reads the scene.
+  scheduleProseOpportunityScan({
+    chatId: cleanString(payload.chatId), messageId: cleanString(payload.messageId), userId,
+    sourceContent: payloadContent, source: 'generation-ended',
+    generationType: cleanString(payload.generationType), delayMs: 20,
+  })
+  if(shoppingClaim&&shoppingClaim.chatId===payload.chatId&&shoppingClaim.epoch===currentUserAbortEpoch(userId)&&!payload.isDryRun&&!payload.dryRun&&payload.generationType!=='impersonate'){
+    try{
+      const saved=(await spindle.chat.getMessages(payload.chatId) as ChatMessage[]).find(message=>message.id===payload.messageId)
+      const text=saved?getAuthoritativeSwipeContent(saved,activeSwipeId(saved)).trim():''
+      if(saved&&isAssistantMessage(saved)&&!isOwnMessage(saved)&&phoneStorySourceCommitted((saved as any).extra,activeSwipeId(saved))&&(text===payloadContent.trim()||payload.generationType==='continue'&&text.endsWith(payloadContent.trim())))await mutateState(payload.chatId,userId,async state=>{
+        const device=normalizePhoneDevice(await readPhoneArchive(payload.chatId,userId,state.phoneDevice))
+        if(commitCommerce(device,shoppingClaim.claims,cleanString(payload.generationId),shoppingClaim.requestId)){await checkpointPhoneArchive(payload.chatId,device,userId);state.phoneDevice=device}
+      })
+    }catch(error){spindle.log.warn(`Amazon receipts remain queued: ${error instanceof Error?error.message:String(error)}`)}
+  }
   const runtime = latestIllustratorRuntimeByChat.get(cleanString(payload.chatId))
   const runtimeCountMode = cleanString(runtime?.directive.match(/<count_mode>([^<]+)<\/count_mode>/i)?.[1]).toLocaleLowerCase()
   const inlineCountMode = runtimeCountMode === 'fixed' ? 'fixed' : runtimeCountMode === 'minimum' ? 'minimum' : 'unknown'
@@ -4259,33 +4239,6 @@ async function handleGenerationEnded(payload: any, userId?: string): Promise<voi
       appendStateLog(state, { severity: 'warning', stage: 'appearance-sidecar', eventType: 'appearance_sidecar_failed', chatId: cleanString(payload.chatId), messageId: cleanString(payload.messageId), message: `Appearance Sidecar fallback: ${message}` })
     })
   }
-  // MESSAGE_SENT is replayed for historical messages during chat open, so Story
-  // Sidecar only starts from this fresh completed-generation boundary. Include
-  // the explicit parent user message when available; never infer a parent from
-  // nearby chat order, which could attach unrelated history.
-  if (config.storyConstellationsEnabled && completed && isAssistantMessage(completed) && !isOwnMessage(completed)) {
-    const swipeId = Number.isFinite(Number(payload?.swipeId ?? payload?.swipe_id)) ? Number(payload?.swipeId ?? payload?.swipe_id) : activeSwipeId(completed)
-    scheduleStoryAnalysis({ chatId: cleanString(payload.chatId), message: completed, swipeId, userId, content: payloadContent, delayMs: 90 })
-    const parentId = cleanString(completed.parent_message_id)
-    if (parentId) {
-      void spindle.chat.getMessages(cleanString(payload.chatId)).then((messages: ChatMessage[]) => {
-        const parent = messages.find(message => message.id === parentId)
-        if (parent?.role === 'user' && !isOwnMessage(parent)) {
-          const parentSwipeId = activeSwipeId(parent)
-          scheduleStoryAnalysis({ chatId: cleanString(payload.chatId), message: parent, swipeId: parentSwipeId, userId, content: getSwipeContent(parent, parentSwipeId), delayMs: 120 })
-        }
-      }).catch(error => spindle.log.warn(`[Reverie Relay:story_parent_message] ${error instanceof Error ? error.message : String(error)}`))
-    }
-  }
-  scheduleProseOpportunityScan({
-    chatId: cleanString(payload.chatId),
-    messageId: cleanString(payload.messageId),
-    userId,
-    sourceContent: payloadContent,
-    source: 'generation-ended',
-    generationType: cleanString(payload.generationType),
-    delayMs: 20,
-  })
   if (!shouldScanCompletedGeneration(payload.generationType)) return
 
   const latest = await getConfig(userId)
@@ -4337,6 +4290,116 @@ type RelayPlannedAnalysis = {
   validationIssues: string[]
 }
 
+type InstantRelayStory = {
+  generationId: string; chatId: string; messageId: string; swipeId: number; userId?: string
+  epoch: number; stream: RelayStoryStream; checking: boolean; ended: boolean; invalid: boolean
+  prefix?: string; settingsFingerprint?: string; analysis?: Promise<RelayPlannedAnalysis | null>
+}
+const instantRelayStories = new Map<string, InstantRelayStory>()
+const instantRelayStoryScope = (chatId: string, userId?: string) => JSON.stringify([userId || '', chatId])
+
+function startInstantRelayStory(payload: any, userId?: string): void {
+  if (!payload?.generationId || !payload?.chatId
+    || !['normal', 'swipe', 'regenerate'].includes(payload.generationType || 'normal') || payload.isDryRun || payload.dryRun) return
+  const scope = instantRelayStoryScope(payload.chatId, userId)
+  if (instantRelayStories.get(scope)?.analysis) cancelAbortableOperation(`prose:${payload.chatId}`)
+  rememberBoundedMap(instantRelayStories, scope, {
+    generationId: payload.generationId, chatId: payload.chatId, messageId: cleanString(payload.targetMessageId),
+    swipeId: Number.isInteger(payload.targetSwipeId) && payload.targetSwipeId >= 0 ? payload.targetSwipeId : 0,
+    userId, epoch: currentUserAbortEpoch(userId), stream: new RelayStoryStream(), checking: false, ended: false, invalid: false,
+  }, 32)
+}
+
+function bindInstantRelayStoryTarget(payload: any, userId?: string): void {
+  const story = instantRelayStories.get(instantRelayStoryScope(cleanString(payload?.chatId), userId))
+  if (!story || story.ended || story.invalid || story.generationId !== payload?.generationId || !payload?.targetMessageId) return
+  // Normal generations are announced before prompt assembly creates the
+  // staged response. Bind its ID without resetting the buffer or abort epoch.
+  if (story.messageId && story.messageId !== payload.targetMessageId) { story.invalid = true; return }
+  story.messageId = payload.targetMessageId
+  if (Number.isInteger(payload.targetSwipeId) && payload.targetSwipeId >= 0) story.swipeId = payload.targetSwipeId
+}
+
+function assertInstantRelayStoryCurrent(story: InstantRelayStory): void {
+  if (story.invalid || !story.stream.valid || story.epoch !== currentUserAbortEpoch(story.userId)
+    || instantRelayStories.get(instantRelayStoryScope(story.chatId, story.userId)) !== story) {
+    const error = new Error('Streaming illustration analysis cancelled or replaced.')
+    error.name = 'OperationCancelledError'
+    throw error
+  }
+}
+
+function receiveInstantRelayStoryToken(payload: any, userId?: string): void {
+  const story = instantRelayStories.get(instantRelayStoryScope(cleanString(payload?.chatId), userId))
+  if (!story || story.ended || story.generationId !== payload?.generationId || !story.stream.push(payload)) return
+  if (!story.messageId || story.analysis || story.checking) return
+  story.checking = true
+  void (async () => {
+    const config = await getConfig(userId)
+    const state = await getState(story.chatId, userId)
+    assertInstantRelayStoryCurrent(story)
+    const settings = proseSettingsForChat(state, story.chatId)
+    if (story.ended || !config.enabled || !config.autoGenerate || !settings.enabled || settings.paused
+      || settings.mode !== 'relay-planned' || !settings.instantIllustrationDispatch || !settings.plannerConnectionId) return
+    const prefix = story.stream.completeProse()
+    const bounds = relayPlannedIllustrationCountBounds(settings, settings.maximumIllustrationsPerMessage)
+    if (prefix.length < 80 || proseParagraphs(prefix).length < Math.min(4, Math.max(1, bounds.minimumIllustrations))
+      || proseContentEligibilityBlocker(prefix, settings)) return
+    const frequency = await evaluateAndPersistProseFrequencyGate({ chatId: story.chatId, messageId: story.messageId }, settings, userId)
+    assertInstantRelayStoryCurrent(story)
+    if (!frequency.passes || story.ended) return
+    story.prefix = prefix
+    story.settingsFingerprint = contentFingerprint(JSON.stringify(settings))
+    // One Director per live generation. Never save partial story text or
+    // dispatch speculative images; final discovery verifies the exact prefix.
+    story.analysis = analyzeRelayPlannedResponse({ chatId: story.chatId, messageId: story.messageId,
+      swipeId: story.swipeId, content: prefix, state, settings, config, userId,
+      assertSourceCurrent: () => assertInstantRelayStoryCurrent(story),
+    }).catch(error => {
+      if (error?.name !== 'OperationCancelledError') spindle.log.warn(`[Reverie Relay:instant-analysis] ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    })
+    await story.analysis
+  })().catch(error => {
+    if (error?.name !== 'OperationCancelledError') spindle.log.warn(`[Reverie Relay:instant-analysis] ${error instanceof Error ? error.message : String(error)}`)
+  }).finally(() => { story.checking = false })
+}
+
+function stopInstantRelayStory(payload: any, userId?: string): void {
+  const story = instantRelayStories.get(instantRelayStoryScope(cleanString(payload?.chatId), userId))
+  if (!story || story.generationId !== payload?.generationId) return
+  story.invalid = true
+  if (story.analysis) cancelAbortableOperation(`prose:${story.chatId}`)
+}
+
+/** True means the completed event belongs to work already stopped by Abort. */
+function completeInstantRelayStory(payload: any, userId?: string): boolean {
+  const story = instantRelayStories.get(instantRelayStoryScope(cleanString(payload?.chatId), userId))
+  if (!story || story.generationId !== payload?.generationId) return false
+  story.ended = true
+  return story.invalid || story.epoch !== currentUserAbortEpoch(userId)
+}
+
+async function takeInstantRelayAnalysis(chatId: string, messageId: string, swipeId: number, content: string, userId?: string): Promise<RelayPlannedAnalysis | null> {
+  const scope = instantRelayStoryScope(chatId, userId)
+  const story = instantRelayStories.get(scope)
+  if (!story || story.messageId !== messageId || story.swipeId !== swipeId || !story.ended || !story.analysis) return null
+  const settings = proseSettingsForChat(await getState(chatId, userId), chatId)
+  const config = await getConfig(userId)
+  const reusable = !story.invalid && story.stream.valid && story.epoch === currentUserAbortEpoch(userId)
+    && config.autoGenerate && settings.instantIllustrationDispatch && content.startsWith(story.prefix || '\u0000')
+    && contentFingerprint(JSON.stringify(settings)) === story.settingsFingerprint
+  if (!reusable) {
+    story.invalid = true
+  }
+  const analysis = await story.analysis
+  if (instantRelayStories.get(scope) === story) instantRelayStories.delete(scope)
+  if (!reusable || !analysis || story.epoch !== currentUserAbortEpoch(userId)) return null
+  return { ...analysis, opportunities: analysis.opportunities.map(opportunity => ({
+    ...opportunity, sourceContentFingerprint: contentFingerprint(content),
+  })) }
+}
+
 function relayPlannedJson(raw: string, label: string): Record<string, unknown> {
   const clean = cleanString(raw).replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()
   const start = clean.indexOf('{')
@@ -4347,6 +4410,34 @@ function relayPlannedJson(raw: string, label: string): Record<string, unknown> {
   return parsed as Record<string, unknown>
 }
 
+/** Projection only: a host-bound name may use its short form when that exact
+ * short name occurs in this scene. Independent/learned records block it.
+ * Do not persist aliases or merge Appearance records from this inference. */
+export function sceneVerifiedIdentityAliases<T extends { id?: string; name: string; aliases: string[] }>(identity: T, vault: ContinuityVaultState, source: string): T {
+  const base = identity.name.replace(/\s*\([^)]*\)\s*$/u, '').trim()
+  const words = base.split(/\s+/)
+  if (words.length < 2 || words.length > 4 || !words.every(word => /^[\p{L}'’.-]+$/u.test(word))) return identity
+  const own = Object.values(vault.characters).find(character => [character.canonicalCharacterId, character.lumiverseCharacterId, character.lumiversePersonaId].includes(identity.id || ''))
+  if (!own || !(own.lumiverseCharacterId || own.lumiversePersonaId)) return identity
+  const facts = allAppearanceFacts(vault)
+  const aliases = [base, words.at(-1)!].filter(alias => {
+    if ([...alias].length < 3 || !new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(alias)}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(source)) return false
+    const aliasKey = normalizeIdentityOwner(alias)
+    return !Object.values(vault.characters).some(character => {
+      if (character.canonicalCharacterId === own.canonicalCharacterId) return false
+      const otherBase = character.canonicalCharacterName.replace(/\s*\([^)]*\)\s*$/u, '').trim()
+      const matches = [otherBase, otherBase.split(/\s+/).at(-1), ...character.aliases].some(name => normalizeIdentityOwner(name) === aliasKey)
+      if (!matches) return false
+      const emptyGeneratedPlaceholder = normalizeIdentityOwner(character.canonicalCharacterName) === aliasKey
+        && !character.lumiverseCharacterId && !character.lumiversePersonaId
+        && ['native-visual-preset', 'user-confirmed-analysis'].includes(character.sourceType)
+        && !facts.some(fact => fact.canonicalCharacterId === character.canonicalCharacterId)
+      return !emptyGeneratedPlaceholder
+    })
+  })
+  return aliases.length ? { ...identity, aliases: [...new Set([...identity.aliases, ...aliases])] } : identity
+}
+
 export function relayPlannedSubjectStates(
   state: StateFile,
   chatId: string,
@@ -4354,7 +4445,6 @@ export function relayPlannedSubjectStates(
   settings: ProseIllustratorSettings,
 ): RelayPlannedSubjectState[] {
   const strength = effectiveIllustratorAppearanceStrength(settings, state.continuityVault.strength)
-  if (strength === 'off') return []
   const facts = allAppearanceFacts(state.continuityVault)
   const candidates = new Set(extractCharacterCandidates(content).map(name => name.toLocaleLowerCase()))
   for (const fact of facts) {
@@ -4365,18 +4455,50 @@ export function relayPlannedSubjectStates(
   const names = [...new Set(facts
     .filter(fact => candidates.has(fact.canonicalCharacterName.toLocaleLowerCase()))
     .map(fact => fact.canonicalCharacterName))]
+  if (settings.perspectiveMode === 'solo-scene') {
+    for (const selected of selectedCharacterOnlySubjects(settings)) {
+      const canonical = resolveCanonicalCharacter(state.continuityVault, selected)
+      const name = canonical?.canonicalCharacterName || selected
+      if (!names.some(existing => normalizeIdentityOwner(existing) === normalizeIdentityOwner(name))) names.push(name)
+    }
+  }
   for (const candidate of extractCharacterCandidates(content)) if (!names.some(name => name.toLocaleLowerCase() === candidate.toLocaleLowerCase())) names.push(candidate)
-  return names.slice(0, 24).map(name => {
-    const active = selectContinuityForSubjects(state.continuityVault, { subjectNames: [name], chatId, sceneBrief: content, strength }).included
-    const identity = active.filter(fact => fact.layer === 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
-    const current = active.filter(fact => fact.layer !== 'visual-identity').map(appearanceFactDescriptor).filter(Boolean)
-    const pinned = active.filter(fact => fact.pinned).map(appearanceFactDescriptor).filter(Boolean)
-    const animal = [...identity, ...current].some(value => /\b(?:dog|cat|horse|animal|canine|feline|retriever|wolf|fox)\b/i.test(value))
-    return { name, role: animal ? 'animal' : 'character', identity, current, pinned, superseded: [], activeFactIds: active.map(fact => fact.factId) }
+  const verifiedSubjects = Object.values(state.continuityVault.characters)
+    .filter(character => character.lumiverseCharacterId || character.lumiversePersonaId)
+    .map(character => sceneVerifiedIdentityAliases({ id: character.canonicalCharacterId, name: character.canonicalCharacterName, aliases: character.aliases }, state.continuityVault, content))
+  const selectedNames = new Set(settings.perspectiveMode === 'solo-scene'
+    ? selectedCharacterOnlySubjects(settings).map(name => normalizeIdentityOwner(resolveCanonicalCharacter(state.continuityVault, name)?.canonicalCharacterName || name))
+    : [])
+  const seen = new Set<string>()
+  // Keep the selected label before owner-ID deduplication. Otherwise a short
+  // scene alias wins by length, erasing the exact name required by Char only.
+  return names.sort((a, b) => Number(selectedNames.has(normalizeIdentityOwner(b))) - Number(selectedNames.has(normalizeIdentityOwner(a))) || a.length - b.length).slice(0, 24).flatMap(name => {
+    const verified = verifiedSubjects.filter(subject => [subject.name, ...subject.aliases].some(alias => normalizeIdentityOwner(alias) === normalizeIdentityOwner(name)))
+    const owner = verified.length === 1 ? verified[0].id : name
+    const ownerKey = normalizeIdentityOwner(owner)
+    if (seen.has(ownerKey)) return []
+    seen.add(ownerKey)
+    // The Director needs the confirmed Appearance snapshot. Accumulated prose
+    // contains previous outfits as well as the current one; treating every
+    // clothing mention as an override erases the context it must compare.
+    // Selected, subject-owned shot overrides are applied by the compiler.
+    // Off suppresses Appearance facts, not the source-approved cast. Erasing
+    // all names makes the Director's real actors fail unknown-subject checks.
+    const active = strength === 'off' ? [] : selectContinuityForSubjects(state.continuityVault, { subjectNames: [owner], chatId, sceneBrief: 'full-body', strength }).included
+    const identity = relayPlannedAppearanceDescriptors(active.filter(fact => fact.layer === 'visual-identity').map(appearanceFactDescriptor))
+    const current = relayPlannedAppearanceDescriptors(active.filter(fact => fact.layer !== 'visual-identity').map(appearanceFactDescriptor))
+    const wardrobe = relayPlannedAppearanceDescriptors(active.filter(fact => fact.layer === 'wardrobe').map(appearanceFactDescriptor))
+    const pinned = relayPlannedAppearanceDescriptors(active.filter(fact => fact.pinned || fact.userConfirmed).map(appearanceFactDescriptor))
+    // Only a complete species descriptor proves an animal. Eye analogies,
+    // wolf-cut hair and animal-print clothing must not subtract human actors.
+    const animal = identity.some(value => value.split(/[,;]+/).some(fragment =>
+      /^(?:(?:species|animal)\s*:\s*)?(?:(?:a|an|large|small|young|adult|old|domestic)\s+)*(?:dog|cat|horse|animal|canine|feline|(?:golden|labrador)\s+retriever|retriever|wolf|fox)$/i
+        .test(fragment.replace(/_/g, ' ').trim())))
+    return [{ name, verifiedIdentity: verified.length === 1 || facts.some(fact => normalizeIdentityOwner(fact.canonicalCharacterName) === normalizeIdentityOwner(name)), role: animal ? 'animal' : 'character', identity, current, wardrobe, pinned, superseded: [], activeFactIds: active.map(fact => fact.factId) }]
   })
 }
 
-function relayPlannedContextForResponse(input: {
+export function relayPlannedContextForResponse(input: {
   chatId: string
   messageId: string
   swipeId: number
@@ -4385,6 +4507,8 @@ function relayPlannedContextForResponse(input: {
   settings: ProseIllustratorSettings
   config: RouterConfig
   latestUserVisualContext?: string
+  manualRequest?: boolean
+  userId?: string
 }): RelayPlannedContext {
   const references = selectProseReferenceAssets(input.state, input.chatId, input.settings, false)
   const locationReferences = selectProseReferenceAssets(input.state, input.chatId, input.settings, true)
@@ -4397,17 +4521,22 @@ function relayPlannedContextForResponse(input: {
     .map(plan => ({ scope: 'current-response', planId: plan.planId, title: plan.title, subjects: plan.namedSubjects, paragraphIndex: plan.anchor.paragraphIndex, status: plan.status })),
   ]
   const native = nativeSnapshotFromConfig(input.config)?.settings || {}
+  const countBounds = relayPlannedIllustrationCountBounds(input.settings,
+    input.settings.maximumIllustrationsPerMessage
+      - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId)
+      - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId))
   return {
     version: RELAY_PLANNED_V2,
     chatId: input.chatId,
     messageId: input.messageId,
     swipeId: input.swipeId,
-    maximumIllustrations: Math.max(0, Math.min(
-      Math.max(0, input.settings.maximumIllustrationsPerMessage - countCommittedProseIllustrationsForMessage(input.state, input.chatId, input.messageId, input.swipeId) - countActiveProsePlansForMessage(input.state, input.chatId, input.messageId, input.swipeId)),
-      input.settings.maximumImages,
-      input.settings.maximumOpportunitiesPerMessage,
-    )),
+    ...countBounds,
+    sightlineGuard: input.settings.sightlineGuard !== false,
+    quickweave: input.settings.quickweave === true,
+    openingFrame: input.settings.openingFrame === true && !hasOpeningFrameForMessage(input.state, input.chatId, input.messageId, input.swipeId),
     maximumCharacters: input.settings.maximumCharacters,
+    frequencyMode: input.settings.frequencyMode,
+    manualRequest: input.manualRequest,
     maximumPromptCharacters: 6000,
     perspectiveMode: input.settings.perspectiveMode,
     defaultAspectRatio: input.settings.defaultAspectRatio,
@@ -4420,6 +4549,9 @@ function relayPlannedContextForResponse(input: {
     }).filter(row => Boolean(row.text)),
     latestUserVisualContext: input.latestUserVisualContext || '',
     subjects: relayPlannedSubjectStates(input.state, input.chatId, input.content, input.settings),
+    characterOnlySubjects: input.settings.perspectiveMode === 'solo-scene'
+      ? selectedCharacterOnlySubjects(input.settings).map(name => resolveCanonicalCharacter(input.state.continuityVault, name)?.canonicalCharacterName || name)
+      : undefined,
     referenceAssetIds: references.map(asset => asset.assetId),
     locationReferenceAssetIds: locationReferences.map(asset => asset.assetId),
     priorIllustrations,
@@ -4427,17 +4559,45 @@ function relayPlannedContextForResponse(input: {
   }
 }
 
-function relayPlannedDirectorMessages(settings: ProseIllustratorSettings, context: RelayPlannedContext): Array<{ role: 'system' | 'user'; content: string }> {
+function relayPlannedPersonaPovGuidance(context: RelayPlannedContext): string {
+  return context.perspectiveMode === 'persona-pov'
+    ? `${PERSONA_POV_VISIBILITY_CONTRACT}\nThe verified camera-holder names are ${JSON.stringify(context.cameraHolderNames || [])}. They may act in the source paragraph but must not occur in namedSubjects or subjectDirectives. Describe the other subjects from this camera-holder's eye level. Preserve the source event without depicting or inventing a substitute for the camera-holder.`
+    : ''
+}
+
+/** Only deduplicate appended stock guidance. The saved base and source data are never rewritten. */
+function appendUniqueDirectorGuidance(base: string, additions: string[]): string {
+  const seen = new Set(base.split(/\n\s*\n/).map(text => text.trim()).filter(Boolean))
+  const extra = additions.flatMap(text => text.split(/\n\s*\n/)).map(text => text.trim()).filter(text => {
+    if (!text || seen.has(text)) return false
+    seen.add(text)
+    return true
+  })
+  return [base, ...extra].filter(Boolean).join('\n\n')
+}
+
+export function relayPlannedDirectorMessages(settings: ProseIllustratorSettings, context: RelayPlannedContext): Array<{ role: 'system' | 'user'; content: string }> {
   const referenceIds = [...context.referenceAssetIds, ...context.locationReferenceAssetIds]
   return [
-    { role: 'system', content: [
-      registryPrompt(settings, 'relay-planned.director.system'),
+    { role: 'system', content: appendUniqueDirectorGuidance(settings.quickweave && !settings.promptRegistry?.['relay-planned.director.system'] ? QUICKWEAVE_DIRECTOR_GUIDANCE : registryPrompt(settings, 'relay-planned.director.system'), [
+      settings.sightlineGuard !== false ? SIGHTLINE_GUIDANCE : '',
+      context.perspectiveMode === 'scene-flow' ? SCENE_FLOW_GUIDANCE : '',
+      context.perspectiveMode === 'dreamcut' || context.perspectiveMode === 'scene-flow' ? DREAMCUT_GUIDANCE : '',
+      context.openingFrame ? OPENING_FRAME_DIRECTOR_GUIDANCE : '',
+      settings.appearanceMemoryEnabled ? `${SCENE_APPEARANCE_GUIDANCE}\nInclude sceneAppearance at the Director JSON root, even if no illustration depicts the change. Keep all existing required illustration fields.` : '',
+      illustrationNsfwPlannerGuidance(settings),
+      relayPlannedFrequencyDirective(context),
+      relayPlannedCountDirective(context),
+      relayPlannedPersonaPovGuidance(context),
       settings.promptFormat === 'danbooru-tags' ? RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE : '',
       settings.promptFormat === 'danbooru-tags' ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : '',
       context.perspectiveMode === 'storyboard' ? STORYBOARD_DIRECTOR_GUIDANCE : '',
+      context.perspectiveMode === 'blocking-fidelity' ? effectiveFramingPrompt(settings) : '',
+      context.perspectiveMode === 'blocking-fidelity' ? BLOCKING_FIDELITY_DIRECTOR_GUIDANCE : '',
+      context.perspectiveMode === 'blocking-fidelity' ? blockingFidelityAspectGuidance(context.defaultAspectRatio) : '',
       context.perspectiveMode === 'storyboard' && settings.promptFormat === 'danbooru-tags' ? STORYBOARD_BOORU_PARSER_GUIDANCE : '',
-      context.perspectiveMode === 'solo-scene' ? 'CHAR ONLY CAST CONTRACT: Select a still in which exactly one established character is actually visible. An object-only crop is not a Char only illustration, even when the object is visually interesting. If one paragraph centers an object but another paragraph of this same response visibly shows the character with that object, anchor the character-visible paragraph instead. Set namedSubjects to that one character, expectedPeopleCount to 1, backgroundPeople to an empty string, and omit every other person from the frame. Never invent a visible character or change the source event to satisfy this rule; return no illustration if no character-visible beat exists.' : '',
-    ].filter(Boolean).join('\n\n') },
+      context.perspectiveMode === 'solo-scene' ? `CHAR ONLY CAST CONTRACT: The only allowed visible character is ${JSON.stringify(context.characterOnlySubjects || [])}. Select a still in which that exact established character is actually visible. An object-only crop is not a Char only illustration, even when the object is visually interesting. If one paragraph centers an object but another paragraph of this same response visibly shows the selected character with that object, anchor the character-visible paragraph instead. Set namedSubjects to that exact selected name, expectedPeopleCount to 1, backgroundPeople to an empty string, and omit every other person from the frame. Never substitute another character, invent a visible character or change the source event to satisfy this rule; return no illustration if no selected-character-visible beat exists.` : '',
+    ]) },
     { role: 'user', content: [expandModelPromptTemplate(registryPrompt(settings, 'relay-planned.director.request'), {
       maximumIllustrations: context.maximumIllustrations,
       maximumCharacters: context.maximumCharacters,
@@ -4445,18 +4605,18 @@ function relayPlannedDirectorMessages(settings: ProseIllustratorSettings, contex
       defaultAspectRatio: context.defaultAspectRatio,
       promptStyle: context.promptStyle || 'provider-native visual style',
       adultMode: context.adultMode,
-      characterContextJson: JSON.stringify(context.subjects, null, 2),
-      locationContextJson: JSON.stringify({ locationReferenceAssetIds: context.locationReferenceAssetIds }, null, 2),
-      referenceAssetsJson: JSON.stringify(referenceIds.map(id => ({ assetId: id })), null, 2),
-      priorIllustrationsJson: JSON.stringify(context.priorIllustrations, null, 2),
-      globalNegativeRequirementsJson: JSON.stringify(context.globalNegativeRequirements, null, 2),
-      paragraphsJson: JSON.stringify(context.paragraphs.map(({ index, text }) => ({ index, text })), null, 2),
+      characterContextJson: JSON.stringify(context.subjects),
+      locationContextJson: JSON.stringify({ locationReferenceAssetIds: context.locationReferenceAssetIds }),
+      referenceAssetsJson: JSON.stringify(referenceIds.map(id => ({ assetId: id }))),
+      priorIllustrationsJson: JSON.stringify(context.priorIllustrations),
+      globalNegativeRequirementsJson: JSON.stringify(context.globalNegativeRequirements),
+      paragraphsJson: JSON.stringify(context.paragraphs.map(({ index, text }) => ({ index, text }))),
       latestUserVisualContext: context.latestUserVisualContext || '',
-    }), settings.promptFormat === 'danbooru-tags' ? 'TAG MODE SCHEMA ADDITION: Every illustration object must also include "booruTags": ["1girl", "solo", "short_hair", "black_hair", "holding", "card", "workshop"]. Fill this array with distinct visual tags for that illustration\'s actual subjects, complete current outfits, action, props, and setting. Keep promptCore and subjectDirectives as normal planning prose; only booruTags becomes the positive provider prompt.' : ''].filter(Boolean).join('\n\n') },
+    }), RELAY_PLANNED_BLOCKING_GUIDANCE, settings.promptFormat === 'danbooru-tags' ? RELAY_PLANNED_BOORU_SUBJECT_SCHEMA : ''].filter(Boolean).join('\n\n') },
   ]
 }
 
-function relayPlannedRepairMessages(
+export function relayPlannedRepairMessages(
   settings: ProseIllustratorSettings,
   context: RelayPlannedContext,
   illustration: RelayPlannedIllustration,
@@ -4465,13 +4625,20 @@ function relayPlannedRepairMessages(
   return [
     { role: 'system', content: [
       registryPrompt(settings, 'relay-planned.repair-parser.system'),
+      illustrationNsfwPlannerGuidance(settings),
       validationErrors.length && validationErrors.every(error => error.startsWith('scene-'))
-        ? 'TARGETED SCENE CONTRACT REPAIR: Change only promptCore and the reported action tags in booruTags. Preserve every other illustration field exactly, including anchor, cast, subject directives, outfits, composition, references and negatives. Keep all existing non-action tags unchanged. Do not pick an easier moment, add a tool or actor, or rewrite appearance. If that bounded change cannot resolve the reported fault, return repairable false.' : '',
+        ? 'TARGETED SCENE CONTRACT REPAIR: Change only promptCore and the reported action tags in booruTags, including the affected subject\'s own booruTags array. Preserve every other illustration field exactly, including anchor, cast, subject directive prose, outfits, composition, references and negatives. Keep all existing non-action tags unchanged inside their original owner blocks. Do not pick an easier moment, add a tool or actor, or rewrite appearance. If that bounded change cannot resolve the reported fault, return repairable false.' : '',
       settings.promptFormat === 'danbooru-tags' ? 'DANBOORU TAG MODE REPAIR: Return the normal repairable/illustration JSON object. The complete repaired illustration must contain a booruTags array of separate visual tags covering the authoritative visible subjects, stable traits, full current outfits, action, props, and setting. Repair only missing or prose-shaped tags; do not convert a sentence into one underscore-joined pseudo-tag. Keep all valid story and composition fields intact.' : '',
       settings.promptFormat === 'danbooru-tags' ? BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE : '',
+      settings.promptFormat === 'danbooru-tags' ? RELAY_PLANNED_BOORU_SUBJECT_SCHEMA : '',
+      RELAY_PLANNED_BLOCKING_GUIDANCE,
+      relayPlannedPersonaPovGuidance(context),
+      context.perspectiveMode === 'blocking-fidelity' ? effectiveFramingPrompt(settings) : '',
+      context.perspectiveMode === 'blocking-fidelity' ? BLOCKING_FIDELITY_DIRECTOR_GUIDANCE : '',
+      context.perspectiveMode === 'blocking-fidelity' ? blockingFidelityAspectGuidance(context.defaultAspectRatio) : '',
       context.perspectiveMode === 'storyboard' ? STORYBOARD_DIRECTOR_GUIDANCE : '',
       context.perspectiveMode === 'storyboard' && settings.promptFormat === 'danbooru-tags' ? STORYBOARD_BOORU_PARSER_GUIDANCE : '',
-      context.perspectiveMode === 'solo-scene' ? 'CHAR ONLY REPAIR: An object-only shot cannot pass by merely changing expectedPeopleCount. If an authoritative source paragraph visibly shows exactly one established character, re-anchor that paragraph and rebuild the same moment around that character, with exactly one named subject, expectedPeopleCount 1, and backgroundPeople empty. If no such paragraph exists, return repairable false. Do not invent a person or insert an off-frame subject into the image.' : '',
+      context.perspectiveMode === 'solo-scene' ? `CHAR ONLY REPAIR: The only allowed visible character is ${JSON.stringify(context.characterOnlySubjects || [])}. An object-only shot cannot pass by merely changing expectedPeopleCount. If an authoritative source paragraph visibly shows that selected character, re-anchor that paragraph and rebuild the same moment around that character, with exactly that named subject, expectedPeopleCount 1, and backgroundPeople empty. If no such paragraph exists, return repairable false. Do not substitute another character, invent a person or insert an off-frame subject into the image.` : '',
     ].filter(Boolean).join('\n\n') },
     { role: 'user', content: expandModelPromptTemplate(registryPrompt(settings, 'relay-planned.repair-parser.request'), {
       validationErrorsJson: JSON.stringify(validationErrors, null, 2),
@@ -4515,7 +4682,7 @@ function relayPlannedOpportunity(
     positivePrompt: compiled.positivePrompt,
     negativePrompt: compiled.negativePrompt,
     framing: [illustration.composition.shotType, illustration.composition.cameraAngle, illustration.composition.framing, illustration.composition.blocking].filter(Boolean).join(', '),
-    perspectiveMode: settings.perspectiveMode,
+    perspectiveMode: resolvedRelayFraming(illustration, context),
     peoplePolicy: illustration.expectedPeopleCount > 0 ? 'required' : 'forbidden',
     expectedPeopleCount: illustration.expectedPeopleCount,
     namedSubjects: limited.kept,
@@ -4531,7 +4698,7 @@ function relayPlannedOpportunity(
     imageAlignment: settings.imageAlignment,
     imageSize: settings.imageSize,
     warnings: [...new Set([...meta.warnings, ...compiled.warnings])],
-    rawOutput: { plannerVersion: RELAY_PLANNED_V2, director: meta.raw, illustration, sceneContract: compiled.sceneContract },
+    rawOutput: { plannerVersion: RELAY_PLANNED_V2, director: meta.raw, illustration, authoritativeSourceParagraph: compiled.authoritativeSourceParagraph, sceneContract: compiled.sceneContract },
   }
   return {
     opportunityId,
@@ -4576,7 +4743,7 @@ function relayPlannedOpportunity(
   }
 }
 
-async function analyzeRelayPlannedResponse(input: {
+type RelayAnalysisInput = {
   chatId: string
   messageId: string
   swipeId: number
@@ -4586,10 +4753,135 @@ async function analyzeRelayPlannedResponse(input: {
   config: RouterConfig
   userId?: string
   dryRun?: boolean
-}): Promise<RelayPlannedAnalysis> {
+  publishPlanningPreviews?: boolean
+  manualRequest?: boolean
+  assertSourceCurrent?: () => void
+}
+type RelayAnalysisPhase = NonNullable<BackgroundQueueItem['analysisPhase']>
+type RelayAnalysisPhaseRunner = <T>(phase: RelayAnalysisPhase, label: string, operation: () => Promise<T>) => Promise<T>
+
+function relayAnalysisScope(chatId: string, taskId: string, userId?: string): string {
+  return JSON.stringify([userId || '', chatId, taskId])
+}
+
+async function analyzeRelayPlannedResponse(input: RelayAnalysisInput): Promise<RelayPlannedAnalysis> {
+  // Phase broadcasts use the fast state projection: current jobs/slots plus
+  // cached catalogs. Optional host inventory must never delay the Director.
+  if (input.dryRun) return performRelayPlannedAnalysis(input, (_phase, _label, operation) => operation())
+  const taskId = `analysis:${input.chatId}:${input.messageId}:${input.swipeId}`
+  const scope = relayAnalysisScope(input.chatId, taskId, input.userId)
+  const operationKey = `prose:${input.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  if (activeRelayAnalyses.get(scope)?.operationSerial === operationSerial) {
+    const error = new Error('Relay is already analyzing this message. No second planning batch was started.')
+    error.name = 'RelayAnalysisAlreadyRunningError'
+    throw error
+  }
+  const workerId = `${RELAY_RUNTIME_SESSION_ID}:${++relayAnalysisWorkerSequence}`
+  activeRelayAnalyses.set(scope, { workerId, operationSerial })
+  const owns = (state: StateFile) => state.backgroundQueue.items[taskId]?.analysisWorkerId === workerId
+  const publishPreviews = async (opportunities: ProseIllustrationOpportunity[]) => {
+    if (!input.publishPlanningPreviews) return
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    const messages = await spindle.chat.getMessages(input.chatId) as ChatMessage[]
+    const message = messages.find(row => row.id === input.messageId)
+    if (!message || activeSwipeId(message) !== input.swipeId
+      || contentFingerprint(getSwipeContent(message, input.swipeId)) !== contentFingerprint(input.content)) {
+      throw new Error('The story changed during illustration planning. No image was dispatched; retry the current response.')
+    }
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    await mutateState(input.chatId, input.userId, state => {
+      if (!owns(state) || state.backgroundQueue.items[taskId].stage !== 'analyzing') return
+      const capacity = input.settings.maximumIllustrationsPerMessage
+        - countCommittedProseIllustrationsForMessage(state, input.chatId, input.messageId, input.swipeId)
+        - countActiveProsePlansForMessage(state, input.chatId, input.messageId, input.swipeId)
+      const selected = selectRelayPlannedDispatchOpportunities(opportunities,
+        relayPlannedIllustrationCountBounds(input.settings, capacity).maximumIllustrations)
+      updateBackgroundTask(state, taskId, { planningPreviews: selected.map(opportunity => relayPlanningPreviewRecord(opportunity, input)) })
+    })
+    await sendState(input.userId, input.chatId, true)
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+  }
+  const runPhase: RelayAnalysisPhaseRunner = async (phase, label, operation) => {
+    input.assertSourceCurrent?.()
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    const startedAt = Date.now()
+    await mutateState(input.chatId, input.userId, state => {
+      if (!owns(state) || state.backgroundQueue.items[taskId].stage !== 'analyzing') return
+      updateBackgroundTask(state, taskId, { analysisPhase: phase, phaseStartedAt: startedAt, statusText: label })
+    })
+    await sendState(input.userId, input.chatId, true)
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    let outcome = 'completed'
+    try {
+      const result = await operation()
+      input.assertSourceCurrent?.()
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      return result
+    } catch (error) {
+      outcome = error instanceof Error && error.name === 'OperationCancelledError' ? 'cancelled' : 'failed'
+      throw error
+    } finally {
+      await mutateState(input.chatId, input.userId, state => {
+        if (!owns(state)) return
+        appendStateLog(state, { severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'relay_analysis_phase_completed',
+          chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
+          message: `${label}: ${outcome}.`, details: { phase, durationMs: Date.now() - startedAt, outcome } })
+      })
+    }
+  }
+  try {
+    await mutateState(input.chatId, input.userId, state => startBackgroundTask(state, {
+      id: taskId, chatId: input.chatId, source: 'analysis', label: 'Analyze illustration opportunities',
+      stage: 'analyzing', statusText: 'Preparing illustration analysis', requestId: input.messageId,
+      analysisRuntimeId: RELAY_RUNTIME_SESSION_ID, analysisWorkerId: workerId,
+    }))
+    await sendState(input.userId, input.chatId, true)
+    const result = await performRelayPlannedAnalysis(input, runPhase, input.publishPlanningPreviews ? publishPreviews : undefined)
+    input.assertSourceCurrent?.()
+    await publishPreviews(result.opportunities)
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    await mutateState(input.chatId, input.userId, state => {
+      if (owns(state) && state.backgroundQueue.items[taskId].stage === 'analyzing') finishBackgroundTask(state, taskId,
+        result.opportunities.length ? `Found ${result.opportunities.length} visual beats` : 'No visual beats selected')
+    })
+    await sendState(input.userId, input.chatId, true)
+    return result
+  } catch (error) {
+    await mutateState(input.chatId, input.userId, state => {
+      if (!owns(state) || state.backgroundQueue.items[taskId].stage !== 'analyzing') return
+      delete state.backgroundQueue.items[taskId].planningPreviews
+      if (error instanceof Error && error.name === 'OperationCancelledError') updateBackgroundTask(state, taskId, { stage: 'cancelled', statusText: 'Analysis cancelled', etaSeconds: null })
+      else failBackgroundTask(state, taskId, error instanceof Error ? error.message : String(error))
+    })
+    await sendState(input.userId, input.chatId, true)
+    throw error
+  } finally {
+    if (activeRelayAnalyses.get(scope)?.workerId === workerId) activeRelayAnalyses.delete(scope)
+  }
+}
+
+async function performRelayPlannedAnalysis(input: RelayAnalysisInput, runPhase: RelayAnalysisPhaseRunner,
+  publishPreviews?: (opportunities: ProseIllustrationOpportunity[]) => Promise<void>): Promise<RelayPlannedAnalysis> {
+  const operationKey = `prose:${input.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  input = { ...input, settings: await resolveCharacterOnlySettingsForPrompt(input.settings, input.chatId, input.userId) }
+  if (input.settings.perspectiveMode === 'solo-scene' && !selectedCharacterOnlySubjects(input.settings).length) {
+    throw new Error('Character Only could not resolve the active chat character. Choose a Character Override or restore the host character binding. No image was dispatched.')
+  }
   if (!input.settings.plannerConnectionId) throw new Error('Illustration Director unavailable. Configure a Relay-Planned connection.')
   const connection = await spindle.connections.get(input.settings.plannerConnectionId, input.userId)
   if (!connection) throw new Error('Relay-Planned Illustration Director connection not found.')
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  // The Director's local compiler consumes this snapshot too. Refresh the
+  // completed turn before reading it, not in a competing background task.
+  // Diagnostic previews must not mutate Appearance or start a second model.
+  if (!input.dryRun && input.settings.appearanceMemoryEnabled) await runPhase('appearance', 'Updating appearances', () => ensureAppearanceReadyForTurn({
+    chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
+    content: input.content, userId: input.userId, reason: 'relay-planned-before-director',
+  }))
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  input = { ...input, state: await getState(input.chatId, input.userId) }
   const chatMessages = await spindle.chat.getMessages(input.chatId) as ChatMessage[]
   const targetIndex = chatMessages.findIndex(message => message.id === input.messageId)
   const precedingMessages = targetIndex >= 0 ? chatMessages.slice(0, targetIndex) : []
@@ -4597,45 +4889,141 @@ async function analyzeRelayPlannedResponse(input: {
   const latestUserVisualContext = latestUserMessage
     ? compact(sanitizeRecentVisualContext(getSwipeContent(latestUserMessage, activeSwipeId(latestUserMessage))), 1200)
     : ''
-  const context = relayPlannedContextForResponse({ ...input, latestUserVisualContext })
+  const context = relayPlannedContextForResponse({ ...input, latestUserVisualContext: input.settings.quickweave ? '' : latestUserVisualContext })
+  if (input.settings.quickweave) context.priorIllustrations = context.priorIllustrations.filter(row => row.scope === 'current-response')
+  if (effectiveIllustratorAppearanceStrength(input.settings, input.state.continuityVault.strength) !== 'off') {
+    const beforeScan = sceneAppearanceForHistory(input.state.continuityVault, sceneAppearanceSources(chatMessages), input.messageId, Infinity, false)
+    const freshScan = input.state.continuityVault.appearanceSidecar.lastFullRefreshMessageId === input.messageId
+    context.sceneAppearanceBeforeScan = freshScan ? beforeScan : undefined
+    context.sceneAppearanceBaseline = freshScan ? sceneAppearanceSubjects([...Object.values(input.state.continuityVault.visualIdentity), ...Object.values(input.state.continuityVault.wardrobe), ...Object.values(input.state.continuityVault.currentAppearance)]) : beforeScan
+    context.subjects = context.subjects.map(subject => {
+      const scene = context.sceneAppearanceBaseline?.find(row => [row.name, ...row.aliases].some(name => normalizeIdentityOwner(name) === normalizeIdentityOwner(subject.name)))
+      return scene ? { ...subject, current: [...scene.wardrobe, ...scene.appearance], wardrobe: scene.wardrobe } : subject
+    })
+  }
+  if (context.perspectiveMode === 'persona-pov') {
+    const persona = await resolvePersonaPovContext(input.chatId, input.userId)
+    if (!persona.available) throw new Error('Persona POV needs a chat-bound or active Persona before the Director can plan an illustration.')
+    const holder = sceneVerifiedIdentityAliases({ id: persona.personaId, name: persona.personaName || '', aliases: [] as string[] }, input.state.continuityVault, input.content)
+    context.cameraHolderNames = [...new Set([holder.name, ...holder.aliases].filter(Boolean))]
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+  }
+  if (!input.dryRun && input.settings.portraitInsight) {
+    await runPhase('portrait-insight', 'Reading missing avatar traits', () => preparePortraitInsights(input.chatId, input.userId, () => assertAbortableOperationCurrent(operationKey, operationSerial)))
+    for (const subject of context.subjects) subject.identity = [...subject.identity, ...await cachedPortraitForSubject(input.state, subject.name, input.userId, [...subject.identity, ...subject.current])]
+  }
   const directorMessages = relayPlannedDirectorMessages(input.settings, context)
-  const telemetry: RelayPlannedStageTelemetry[] = [{ ...measureModelMessages('relay-planned-director', directorMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 }]
+  const telemetry: RelayPlannedStageTelemetry[] = []
   const modelConfig = { ...input.config, debugLogging: input.dryRun ? false : input.config.debugLogging, parserModel: input.settings.plannerModel || connection.model, parserParameters: input.settings.plannerParameters }
-  const rawDirectorOutput = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, directorMessages, input.userId, input.chatId, undefined, 'relay-planned-director')
-  let validated = validateRelayPlannedDirectorResult(rawDirectorOutput, context)
   let repairCalls = 0
   const validationIssues: string[] = []
-  const finalIllustrations: Array<{ illustration: RelayPlannedIllustration; warnings: string[] }> = []
-  for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
-    validationIssues.push(...row.issues.map(issue => issue.code))
-    if (row.rejected) continue
-    if (!row.requiresRepair) {
-      finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map(issue => issue.message) })
-      continue
+  const repairDiagnostics: Array<Record<string, unknown>> = []
+  const prepareDirectorResult = async (validated: RelayPlannedValidationResult): Promise<RelayPlannedValidationResult> => {
+    const finalIllustrations: Array<{ illustration: RelayPlannedIllustration; warnings: string[]; order: number }> = []
+    const publishAccepted = async () => {
+      if (!publishPreviews) return
+      finalIllustrations.sort((a, b) => a.order - b.order)
+      // Revalidate the partial batch too: a repaired sibling may collide with
+      // an earlier anchor. Publication is UI only; dispatch awaits final checks.
+      const checked = validateRelayPlannedDirectorResult(JSON.stringify({ shouldIllustrate: true, reason: validated.reason,
+        illustrations: finalIllustrations.map(row => row.illustration) }), context)
+      await publishPreviews(checked.illustrations.filter(row => !row.rejected && !row.requiresRepair).map(row =>
+        relayPlannedOpportunity(input, input.settings, context, row.illustration, {
+          connectionId: connection.id, model: input.settings.plannerModel || connection.model,
+          settingsFingerprint: proseOpportunitySettingsFingerprint(input.settings), sourceFingerprint: contentFingerprint(input.content),
+          raw: {}, warnings: row.issues.map(issue => issue.message),
+        })))
     }
-    const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter(issue => issue.repair === 'ambiguous').map(issue => `${issue.code}: ${issue.message}`))
-    telemetry.push({ ...measureModelMessages('relay-planned-repair-parser', repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
-    repairCalls += 1
-    const repairedRaw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, 'relay-planned-repair-parser')
-    const repair = relayPlannedJson(repairedRaw, 'Illustration Plan Repair Parser')
-    if (repair.repairable !== true || !repair.illustration) {
-      validationIssues.push('repair-declined')
-      continue
+    // Publish all already-valid rows before awaiting any sibling repair,
+    // including valid rows that occur after the ambiguous one in story order.
+    for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
+      if (row.rejected || row.requiresRepair) continue
+      finalIllustrations.push({ illustration: row.illustration, warnings: row.issues.map(issue => issue.message), order: validated.illustrations.indexOf(row) })
     }
-    const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] })
-    const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0]
-    if (!repaired || repaired.rejected || repaired.requiresRepair) {
-      validationIssues.push(...(repaired?.issues.map(issue => `repair:${issue.code}`) || ['repair:missing-illustration']))
-      continue
+    // Reconcile the ready subset together so terminal validation does not
+    // briefly remove and re-add cards already published from the stream.
+    await publishAccepted()
+    for (const row of validated.shouldIllustrate ? validated.illustrations : []) {
+      validationIssues.push(...row.issues.map(issue => issue.code))
+      if (row.rejected) continue
+      if (!row.requiresRepair) continue
+      if (input.settings.quickweave) { validationIssues.push('quickweave-repair-skipped'); continue }
+      const repairMessages = relayPlannedRepairMessages(input.settings, context, row.illustration, row.issues.filter(issue => issue.repair === 'ambiguous').map(issue => `${issue.code}: ${issue.message}`))
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      telemetry.push({ ...measureModelMessages('relay-planned-repair-parser', repairMessages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
+      repairCalls += 1
+      const repairedRaw = await runPhase('repair', `Repairing illustration plan ${repairCalls}`, () => generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, repairMessages, input.userId, input.chatId, undefined, 'relay-planned-repair-parser'))
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      const repair = relayPlannedJson(repairedRaw, 'Illustration Plan Repair Parser')
+      if (repair.repairable !== true || !repair.illustration) {
+        repairDiagnostics.push({ title: row.illustration.title, result: repair, issues: ['repair-declined'] })
+        validationIssues.push('repair-declined')
+        continue
+      }
+      const repairedEnvelope = JSON.stringify({ shouldIllustrate: true, reason: validated.reason, illustrations: [repair.illustration] })
+      const repaired = validateRelayPlannedDirectorResult(repairedEnvelope, context).illustrations[0]
+      repairDiagnostics.push({ title: row.illustration.title, result: repair, issues: repaired?.issues || ['repair:missing-illustration'] })
+      if (!repaired || repaired.rejected || repaired.requiresRepair) {
+        validationIssues.push(...(repaired?.issues.map(issue => `repair:${issue.code}`) || ['repair:missing-illustration']))
+        continue
+      }
+      const actionOnlyRepair = row.issues.filter(issue => issue.repair === 'ambiguous').every(issue => issue.code.startsWith('scene-'))
+      if (actionOnlyRepair && !sceneOnlyRepairPreservesPlan(row.illustration, repaired.illustration)) {
+        validationIssues.push('repair:scene-contract-drift')
+        continue
+      }
+      finalIllustrations.push({ illustration: repaired.illustration, order: validated.illustrations.indexOf(row), warnings: [...row.issues.map(issue => issue.message), ...repaired.issues.map(issue => issue.message), 'Repair Parser resolved structural ambiguity.'] })
+      await publishAccepted()
     }
-    const actionOnlyRepair = row.issues.filter(issue => issue.repair === 'ambiguous').every(issue => issue.code.startsWith('scene-'))
-    if (actionOnlyRepair && !sceneOnlyRepairPreservesPlan(row.illustration, repaired.illustration)) {
-      validationIssues.push('repair:scene-contract-drift')
-      continue
+    // A structural repair may re-anchor a shot to another accepted shot.
+    // Recheck the complete batch before using its count or dispatching it.
+    finalIllustrations.sort((a, b) => a.order - b.order)
+    const checked = validateRelayPlannedDirectorResult(JSON.stringify({ shouldIllustrate: true, reason: validated.reason,
+      illustrations: finalIllustrations.map(row => row.illustration) }), context)
+    validationIssues.push(...checked.illustrations.flatMap(row => row.issues.map(issue => issue.code)))
+    const usable = checked.illustrations.filter(row => !row.rejected && !row.requiresRepair)
+    return {
+      ...validated,
+      shouldIllustrate: usable.length > 0,
+      warnings: [...validated.warnings, ...checked.warnings],
+      illustrations: usable.map(row => ({ ...row, issues: [...row.issues,
+        ...(finalIllustrations.find(original => original.illustration === row.illustration || original.illustration.rank === row.illustration.rank)?.warnings || [])
+          .map(message => ({ code: 'validated-shot-note', message, repair: 'review' as const }))] })),
     }
-    finalIllustrations.push({ illustration: repaired.illustration, warnings: [...row.issues.map(issue => issue.message), ...repaired.issues.map(issue => issue.message), 'Repair Parser resolved structural ambiguity.'] })
   }
+  let directorCalls = 0
+  const { raw: rawDirectorOutput, validated } = await runRelayPlannedDirectorWithFrequency(directorMessages, context, async messages => {
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    telemetry.push({ ...measureModelMessages('relay-planned-director', messages, { appearanceMemoryChars: JSON.stringify(context.subjects).length }), modelCalls: 1 })
+    directorCalls += 1
+    if (publishPreviews) await publishPreviews([])
+    let lastPartial = '', lastStreamLength = 0
+    const publishStream = publishPreviews ? async (text: string) => {
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      const appended = text.slice(lastStreamLength)
+      lastStreamLength = text.length
+      if (!appended.includes('}')) return
+      const partial = closedRelayDirectorBatch(text)
+      if (!partial || partial === lastPartial) return
+      lastPartial = partial
+      const checked = validateRelayPlannedDirectorResult(partial, context)
+      await publishPreviews(checked.illustrations.filter(row => !row.rejected && !row.requiresRepair).map(row =>
+        relayPlannedOpportunity(input, input.settings, context, row.illustration, {
+          connectionId: connection.id, model: input.settings.plannerModel || connection.model,
+          settingsFingerprint: proseOpportunitySettingsFingerprint(input.settings), sourceFingerprint: contentFingerprint(input.content),
+          raw: {}, warnings: row.issues.map(issue => issue.message),
+        })))
+    } : undefined
+    const raw = await runPhase(directorCalls === 1 ? 'director' : 'director-retry', directorCalls === 1 ? 'Planning illustrations' : 'Retrying illustration planning (attempt 2)', () => generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, modelConfig, messages, input.userId, input.chatId, undefined, 'relay-planned-director', publishStream))
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    return raw
+  }, prepareDirectorResult)
+  const finalIllustrations = validated.illustrations.filter(row => !row.rejected && !row.requiresRepair)
   const parsedDirector = relayPlannedJson(rawDirectorOutput, 'Illustration Director')
+  if (!input.dryRun && input.settings.appearanceMemoryEnabled) {
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    await rememberSceneAppearanceTurn(input, context.sceneAppearanceChanges || [])
+  }
   const sourceFingerprint = contentFingerprint(input.content)
   const settingsFingerprint = proseOpportunitySettingsFingerprint(input.settings)
   const opportunities = finalIllustrations.map(row => relayPlannedOpportunity(input, input.settings, context, row.illustration, {
@@ -4644,8 +5032,17 @@ async function analyzeRelayPlannedResponse(input: {
     settingsFingerprint,
     sourceFingerprint,
     raw: parsedDirector,
-    warnings: row.warnings,
+    warnings: [...validated.warnings, ...row.issues.map(issue => issue.message)],
   }))
+  if (!opportunities.length && relayPlannedFrequencyRequiresIllustration(context)) {
+    const failure = new Error(`${context.manualRequest ? 'Manual request' : 'Required illustration'} planning failed validation: ${[...new Set(validationIssues)].join(', ') || 'no usable source-grounded shot'}. ${context.manualRequest ? 'The manual request' : 'The selected frequency'} requires an illustration; the Director's scene summary is not a decline reason. No image was dispatched. Check Director output or retry planning.`) as Error & { relayPlannedDiagnostics: Record<string, unknown> }
+    failure.relayPlannedDiagnostics = {
+      director: parsedDirector, validation: validated.illustrations, repairs: repairDiagnostics,
+      paragraphs: context.paragraphs.filter(paragraph => validated.illustrations.some(row => Math.abs(row.illustration.anchor.paragraphIndex - paragraph.index) <= 2)),
+      telemetry,
+    }
+    throw failure
+  }
   return { context, opportunities, directorReason: validated.reason, telemetry, rawDirectorOutput, repairCalls, validationIssues }
 }
 
@@ -4658,10 +5055,18 @@ async function discoverProseOpportunities(input: {
   generationType?: string
   force?: boolean
   suppressAutoDispatch?: boolean
+  preplannedAnalysis?: RelayPlannedAnalysis | null
   userId?: string
 }): Promise<ProseIllustrationOpportunity[]> {
-  if (!input.chatId || !input.messageId || !input.content) return []
+  const manualRequest = input.source === 'model-placed-recovery-once'
+  if (!input.chatId || !input.messageId || !input.content) {
+    if (manualRequest) throw new Error('This response has no story text to illustrate. Choose a saved story response.')
+    return []
+  }
+  const operationKey = `prose:${input.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
   const state = await getState(input.chatId, input.userId)
+  assertAbortableOperationCurrent(operationKey, operationSerial)
   const settings = proseSettingsForChat(state, input.chatId)
   if (settings.perspectiveMode === 'persona-pov') {
     const personaPovContext = await resolvePersonaPovContext(input.chatId, input.userId)
@@ -4671,24 +5076,20 @@ async function discoverProseOpportunities(input: {
         chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
         message: 'Persona POV skipped illustration planning because no chat-bound or active host Persona resolved.',
       }))
-      spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: 'Persona POV needs a chat-bound or active Persona before Relay can plan an illustration.' }, input.userId)
+      const reason = 'Persona POV needs a chat-bound or active Persona before Relay can plan an illustration.'
+      if (manualRequest) throw new Error(reason)
+      spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: reason }, input.userId)
       return []
     }
   }
-  // Appearance refresh is opportunistic. Relay-Planned compiles from the latest
-  // persisted snapshot and must never make image planning wait on Sidecar I/O.
-  void ensureAppearanceReadyForTurn({
-    chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
-    content: input.content, userId: input.userId, reason: `prose-opportunity:${input.source}`,
-  }).catch(error => spindle.log.warn(`[Reverie Relay:appearance-nonblocking] ${error instanceof Error ? error.message : String(error)}`))
-  const operationKey = `prose:${input.chatId}`
-  const queueTaskId = `analysis:${input.chatId}:${input.messageId}:${input.swipeId}`
-  const operationSerial = captureAbortableOperation(operationKey)
   assertAbortableOperationCurrent(operationKey, operationSerial)
   const config = await getConfig(input.userId)
   const chatProfile = effectiveGenerationProfile(config, input.chatId)
   const discoveryEnabled = input.force || isHandsOffProseMode(settings)
-  if (!discoveryEnabled || settings.mode === 'off') return []
+  if (!discoveryEnabled || settings.mode === 'off') {
+    if (manualRequest) throw new Error('Illustrator is off. Enable an Illustrator mode before using Plan Latest.')
+    return []
+  }
   if (!input.force && !config.autoGenerate) {
     await mutateState(input.chatId, input.userId, next => appendStateLog(next, {
       severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'automatic_provider_dispatch_suppressed',
@@ -4698,21 +5099,27 @@ async function discoverProseOpportunities(input: {
     }))
     return []
   }
-  if (!isEligibleProseContent(input.content, settings)) return []
+  const eligibilityBlocker = proseContentEligibilityBlocker(input.content, manualRequest ? { ...settings, skipShortMessages: false } : settings)
+  if (eligibilityBlocker) {
+    if (manualRequest) throw new Error(eligibilityBlocker)
+    return []
+  }
   const existingCount = countCommittedProseIllustrationsForMessage(state, input.chatId, input.messageId, input.swipeId) + countActiveProsePlansForMessage(state, input.chatId, input.messageId, input.swipeId)
-  if (existingCount >= settings.maximumIllustrationsPerMessage) {
+  const limitBlocker = proseMessageLimitBlocker(state, input.chatId, input.messageId, input.swipeId, settings)
+  if (limitBlocker) {
     await mutateState(input.chatId, input.userId, next => appendStateLog(next, {
       severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'prose_opportunity_limit_reached',
       chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
       message: 'Skipped Prose Illustrator discovery because this message is already at the configured illustration limit.',
       details: { existingCount, maximumIllustrationsPerMessage: settings.maximumIllustrationsPerMessage },
     }))
+    if (manualRequest) throw new Error(limitBlocker.detail)
     return []
   }
   const settingsFingerprint = proseOpportunitySettingsFingerprint(settings)
   const sourceFingerprint = contentFingerprint(input.content)
   if (!input.force) {
-    const frequency = await evaluateAndPersistProseFrequencyGate({ chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, sourceContentFingerprint: sourceFingerprint, settingsFingerprint }, settings, input.userId)
+    const frequency = await evaluateAndPersistProseFrequencyGate({ chatId: input.chatId, messageId: input.messageId }, settings, input.userId)
     if (!frequency.passes) return []
   }
   const idempotenceKey = proseOpportunityIdempotenceKey(input.chatId, input.messageId, input.swipeId, sourceFingerprint, settingsFingerprint)
@@ -4727,23 +5134,13 @@ async function discoverProseOpportunities(input: {
         details: { settingsFingerprint, source: input.source },
       })
     })
-    await sendState(input.userId, input.chatId)
+    await sendState(input.userId, input.chatId, true)
+    if (manualRequest) throw new Error('Illustration Director unavailable. Configure a Relay-Planned connection in Illustrator settings before using Plan Latest.')
     return []
   }
   await mutateState(input.chatId, input.userId, next => {
     next.proseIllustrator.processedMessageKeys[idempotenceKey] = Date.now()
     markStaleProseOpportunities(next, input.chatId, input.messageId, input.swipeId, sourceFingerprint)
-    startBackgroundTask(next, {
-      id: queueTaskId,
-      chatId: input.chatId,
-      source: 'analysis',
-      label: 'Analyze illustration opportunities',
-      stage: 'analyzing',
-      statusText: 'Analyzing message 1/1',
-      current: 0,
-      total: 1,
-      requestId: input.messageId,
-    })
     appendStateLog(next, {
       severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'prose_opportunity_analysis_started',
       chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
@@ -4751,11 +5148,17 @@ async function discoverProseOpportunities(input: {
         details: { source: input.source, settingsFingerprint, sourceFingerprint, plannerVersion: RELAY_PLANNED_V2 },
     })
   })
-  await sendState(input.userId, input.chatId)
+  await sendState(input.userId, input.chatId, true)
 
   try {
-    const analysis = await analyzeRelayPlannedResponse({ ...input, state, settings, config })
     assertAbortableOperationCurrent(operationKey, operationSerial)
+    const analysis = input.preplannedAnalysis || await analyzeRelayPlannedResponse({ ...input, state, settings, config, manualRequest,
+      publishPlanningPreviews: isHandsOffProseMode(settings) || input.source === 'model-placed-recovery-once' })
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    if (manualRequest && !analysis.opportunities.length && settings.perspectiveMode !== 'emotional-beat') {
+      const limit = proseMessageLimitBlocker(await getState(input.chatId, input.userId), input.chatId, input.messageId, input.swipeId, settings)
+      throw new Error(limit?.detail || 'Manual request planning produced no usable source-grounded shot. Check Director diagnostics or retry planning. No image was dispatched.')
+    }
     const accepted: ProseIllustrationOpportunity[] = []
     await mutateState(input.chatId, input.userId, next => {
       for (const opportunity of analysis.opportunities) {
@@ -4766,7 +5169,6 @@ async function discoverProseOpportunities(input: {
         delete next.proseIllustrator.activeOpportunityIdByChat[input.chatId]
         delete next.proseIllustrator.activePlanIdByChat[input.chatId]
       }
-      finishBackgroundTask(next, queueTaskId, accepted.length ? `Found ${accepted.length} visual beat${accepted.length === 1 ? '' : 's'}` : 'No strong visual beats found')
       appendStateLog(next, {
         severity: accepted.length ? 'info' : 'info',
         stage: 'prose-opportunity-discovery',
@@ -4776,7 +5178,7 @@ async function discoverProseOpportunities(input: {
         details: { plannerVersion: RELAY_PLANNED_V2, directorReason: analysis.directorReason, accepted, repairCalls: analysis.repairCalls, validationIssues: analysis.validationIssues, telemetry: analysis.telemetry },
       })
     })
-    await sendState(input.userId, input.chatId)
+    await sendState(input.userId, input.chatId, true)
     spindle.sendToFrontend({
       type: 'prose_opportunities_ready',
       chatId: input.chatId,
@@ -4789,21 +5191,21 @@ async function discoverProseOpportunities(input: {
     if (isHandsOffProseMode(settings) && !input.suppressAutoDispatch) await handleAutoOpportunityDispatch(input.chatId, accepted, input.userId)
     return accepted
   } catch (error) {
+    if (error instanceof Error && error.name === 'RelayAnalysisAlreadyRunningError') throw error
     if (error instanceof Error && error.name === 'OperationCancelledError') {
       await mutateState(input.chatId, input.userId, next => {
-        updateBackgroundTask(next, queueTaskId, { stage: 'cancelled', statusText: 'Analysis cancelled', etaSeconds: null })
         appendStateLog(next, {
           severity: 'info', stage: 'prose-opportunity-discovery', eventType: 'prose_opportunity_analysis_cancelled',
           chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
           message: 'Scene analysis was cancelled by the user.',
         })
       })
-      await sendState(input.userId, input.chatId)
+      await sendState(input.userId, input.chatId, true)
+      if (manualRequest) throw error
       return []
     }
     const message = error instanceof Error ? error.message : String(error)
     await mutateState(input.chatId, input.userId, next => {
-      failBackgroundTask(next, queueTaskId, message)
       const failedId = `opp-failed-${contentFingerprint(`${idempotenceKey}:${message}`).replace(/[^a-z0-9]/gi, '-')}`
       next.proseIllustrator.opportunities[failedId] = {
         opportunityId: failedId, chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId,
@@ -4822,7 +5224,8 @@ async function discoverProseOpportunities(input: {
         message: 'Relay-Planned Illustration Director failed.',
       })
     })
-    await sendState(input.userId, input.chatId)
+    await sendState(input.userId, input.chatId, true)
+    if (manualRequest) throw error
     return []
   }
 }
@@ -4926,7 +5329,7 @@ function normalizeProseOpportunities(
       sceneSummary: cleanString(raw.sceneSummary) || cleanString(raw.sceneBrief) || selectedExcerpt || paragraphs[paragraphIndex],
       selectedExcerpt: selectedExcerpt || paragraphs[paragraphIndex],
       paragraphIndex,
-      insertionSide: ['before', 'after', 'end'].includes(insertionRaw) ? insertionRaw as ProseIllustrationAnchor['insertionSide'] : placementSideFromPolicy(settings.placementPolicy),
+      insertionSide: ['before', 'after', 'end', 'opening'].includes(insertionRaw) ? insertionRaw as ProseIllustrationAnchor['insertionSide'] : placementSideFromPolicy(settings.placementPolicy),
       composition: cleanString(raw.composition),
       peoplePolicy: settings.perspectiveMode === 'solo-scene' ? 'required' : ['required', 'allowed', 'forbidden'].includes(peoplePolicyRaw) ? peoplePolicyRaw as ProseIllustratorPeoplePolicy : 'allowed',
       expectedPeopleCount: settings.perspectiveMode === 'solo-scene' ? limited.kept.length : Math.min(clampInt(raw.expectedPeopleCount, 0, 64, limited.kept.length), settings.maximumCharacters > 0 ? settings.maximumCharacters : clampInt(raw.expectedPeopleCount, 0, 64, limited.kept.length)),
@@ -5036,6 +5439,9 @@ function effectiveFramingPrompt(settings: ProseIllustratorSettings): string {
   const selected = selectedCharacterOnlySubjects(settings)[0] || ''
   const registered = registryPrompt(settings, `story.framing.${settings.perspectiveMode}`)
   if (settings.perspectiveMode === 'solo-scene') return replaceCharacterMacro(registered, selected)
+  if (registered && settings.perspectiveMode === 'blocking-fidelity' && settings.promptFormat === 'danbooru-tags') {
+    return `${registered}\n\n${BLOCKING_FIDELITY_BOORU_FORMAT_GUIDANCE}`
+  }
   return registered
 }
 
@@ -5116,12 +5522,27 @@ function countCommittedProseIllustrationsForMessage(state: StateFile, chatId: st
   }).length
 }
 
+function hasOpeningFrameForMessage(state: StateFile, chatId: string, messageId: string, swipeId: number): boolean {
+  return Object.values(state.proseIllustrator.plans || {}).some(plan =>
+    plan.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId && plan.anchor?.insertionSide === 'opening'
+    && (['awaiting-approval', 'ready', 'candidate-review', 'generated'].includes(plan.status)
+      || Object.values(state.proseIllustrator.records || {}).some(record => record.planId === plan.planId && record.status !== 'removed')))
+}
+
 function countActiveProsePlansForMessage(state: StateFile, chatId: string, messageId: string, swipeId: number): number {
   return Object.values(state.proseIllustrator.plans || {}).filter(plan =>
     plan.chatId === chatId && plan.messageId === messageId && plan.swipeId === swipeId &&
     ['awaiting-approval', 'ready', 'candidate-review', 'generated'].includes(plan.status) &&
-    !Object.values(state.proseIllustrator.records || {}).some(record => record.planId === plan.planId && record.status === 'completed'),
+    // Reserved/queued slots already count as committed. Counting their plans
+    // again can consume the next selected beat's allowance before it starts.
+    !Object.values(state.proseIllustrator.records || {}).some(record => record.planId === plan.planId && record.status !== 'removed'),
   ).length
+}
+
+export function proseMessageLimitBlocker(state: StateFile, chatId: string, messageId: string, swipeId: number, settings: ProseIllustratorSettings): GenerationBlocker | null {
+  const count = countCommittedProseIllustrationsForMessage(state, chatId, messageId, swipeId) + countActiveProsePlansForMessage(state, chatId, messageId, swipeId)
+  if (count < settings.maximumIllustrationsPerMessage) return null
+  return { code: 'illustration-limit', title: 'Message image limit reached', detail: `${count} illustrations or accepted plans already use this message's limit of ${settings.maximumIllustrationsPerMessage}. Continue appends to the same message. Raise Total Image Limit per Message under Illustrations → Image Controls, or start a new story reply. Existing images are preserved.`, severity: 'warning', action: 'Adjust message image limit' }
 }
 
 function countProposedOpportunitiesForMessage(state: StateFile, chatId: string, messageId: string, swipeId: number, sourceFingerprint: string): number {
@@ -5131,29 +5552,37 @@ function countProposedOpportunitiesForMessage(state: StateFile, chatId: string, 
   ).length
 }
 
-async function evaluateAndPersistProseFrequencyGate(input: { chatId: string; messageId: string; swipeId: number; sourceContentFingerprint: string; settingsFingerprint: string }, settings: ProseIllustratorSettings, userId?: string): Promise<{ eligibleOrdinal: number; frequencyMode: string; everyN: number; passes: boolean; alreadyCounted: boolean }> {
-  const key = `${input.chatId}:${input.messageId}:${input.swipeId}:${input.sourceContentFingerprint}:${input.settingsFingerprint}`
+async function evaluateAndPersistProseFrequencyGate(input: { chatId: string; messageId: string }, settings: ProseIllustratorSettings, userId?: string): Promise<{ eligibleOrdinal: number; frequencyMode: string; everyN: number; passes: boolean; alreadyCounted: boolean }> {
+  // Cadence counts saved replies, not revisions, replacement swipes or settings.
+  // Those still have separate source/plan idempotence keys below this gate.
+  const key = `${input.chatId}:${input.messageId}`
   let result = { eligibleOrdinal: 0, frequencyMode: settings.frequencyMode, everyN: Math.max(1, settings.everyNEligibleMessages), passes: true, alreadyCounted: false }
   await mutateState(input.chatId, userId, state => {
-    const existing = state.proseIllustrator.frequencyDecisions[key]
-    if (existing) {
-      result = { eligibleOrdinal: existing.eligibleOrdinal, frequencyMode: settings.frequencyMode, everyN: existing.everyN, passes: existing.passes, alreadyCounted: true }
-      return
-    }
+    const decisions = state.proseIllustrator.frequencyDecisions
+    // Adopt the first ordinal from the old fingerprint-keyed ledger without
+    // renumbering historical counters or counting an upgraded reply again.
+    const existing = decisions[key] || Object.entries(decisions)
+      .filter(([legacyKey, row]) => legacyKey.startsWith(`${key}:`) && Number.isFinite(row.eligibleOrdinal) && row.eligibleOrdinal > 0)
+      .map(([, row]) => row).sort((a, b) => a.eligibleOrdinal - b.eligibleOrdinal)[0]
     const counters = state.proseIllustrator.autoCounters[input.chatId] || { eligibleMessages: 0, updatedAt: Date.now() }
-    counters.eligibleMessages += 1
-    counters.updatedAt = Date.now()
-    const passes = settings.frequencyMode !== 'every-n' || ((counters.eligibleMessages - 1) % Math.max(1, settings.everyNEligibleMessages)) === 0
-    state.proseIllustrator.autoCounters[input.chatId] = counters
-    state.proseIllustrator.frequencyDecisions[key] = { eligibleOrdinal: counters.eligibleMessages, passes, everyN: Math.max(1, settings.everyNEligibleMessages), recordedAt: Date.now() }
-    result = { eligibleOrdinal: counters.eligibleMessages, frequencyMode: settings.frequencyMode, everyN: Math.max(1, settings.everyNEligibleMessages), passes, alreadyCounted: false }
+    if (!existing) {
+      counters.eligibleMessages += 1
+      counters.updatedAt = Date.now()
+      state.proseIllustrator.autoCounters[input.chatId] = counters
+    }
+    const eligibleOrdinal = existing?.eligibleOrdinal ?? counters.eligibleMessages
+    const everyN = Math.max(1, settings.everyNEligibleMessages)
+    const passes = settings.frequencyMode !== 'every-n' || ((eligibleOrdinal - 1) % everyN) === 0
+    decisions[key] = { eligibleOrdinal, passes, everyN, recordedAt: existing?.recordedAt ?? Date.now() }
+    result = { eligibleOrdinal, frequencyMode: settings.frequencyMode, everyN, passes, alreadyCounted: Boolean(existing) }
   })
   return result
 }
 
-function proseOpportunitySettingsFingerprint(settings: ProseIllustratorSettings): string {
+export function proseOpportunitySettingsFingerprint(settings: ProseIllustratorSettings): string {
   return contentFingerprint(JSON.stringify({
     mode: settings.mode,
+    perspectiveMode: settings.perspectiveMode,
     plannerConnectionId: settings.plannerConnectionId,
     plannerModel: settings.plannerModel,
     contextMessageCount: settings.contextMessageCount,
@@ -5162,6 +5591,11 @@ function proseOpportunitySettingsFingerprint(settings: ProseIllustratorSettings)
     frequencyMode: settings.frequencyMode,
     everyNEligibleMessages: settings.everyNEligibleMessages,
     maximumIllustrationsPerMessage: settings.maximumIllustrationsPerMessage,
+    modelPlacedCountMode: settings.modelPlacedCountMode,
+    illustrationsPerRun: settings.illustrationsPerRun,
+    minimumImages: settings.minimumImages,
+    maximumImages: settings.maximumImages,
+    promptFormat: settings.promptFormat,
     defaultPromptProfileId: settings.defaultPromptProfileId,
     defaultAspectRatio: settings.defaultAspectRatio,
     continuityStrength: settings.continuityStrength,
@@ -5197,6 +5631,7 @@ function scheduleAssistantScan(input: {
   userId?: string
   sourceContent?: string
   source: string
+  sources?: Iterable<string>
   delayMs?: number
   attempt?: number
 }): void {
@@ -5210,10 +5645,11 @@ function scheduleAssistantScan(input: {
     swipeId: input.swipeId,
     userId: input.userId,
     sourceContent: input.sourceContent,
-    sources: new Set<string>(),
+    sources: new Set<string>(input.sources),
     attempt: input.attempt ?? 0,
   }
   scheduled.sources.add(input.source)
+  for (const source of input.sources || []) scheduled.sources.add(source)
   scheduled.userId = input.userId ?? scheduled.userId
   scheduled.swipeId = input.swipeId ?? scheduled.swipeId
   if (containsRelayRequestMarkup(input.sourceContent) || !scheduled.sourceContent) scheduled.sourceContent = input.sourceContent
@@ -5235,6 +5671,7 @@ function scheduleProseOpportunityScan(input: {
   userId?: string
   sourceContent?: string
   source: string
+  sources?: Iterable<string>
   generationType?: string
   delayMs?: number
   attempt?: number
@@ -5249,11 +5686,15 @@ function scheduleProseOpportunityScan(input: {
     swipeId: input.swipeId,
     userId: input.userId,
     sourceContent: input.sourceContent,
-    sources: new Set<string>(),
+    // Authoritative-message retries retain the original event's permission.
+    // Losing generation-ended here silently turns fresh work into a replay.
+    sources: new Set<string>(input.sources),
     generationType: input.generationType,
+    imagePriority: retainProseImagePriority(input.chatId, input.messageId, input.userId),
     attempt: input.attempt ?? 0,
   }
   scheduled.sources.add(input.source)
+  for (const source of input.sources || []) scheduled.sources.add(source)
   scheduled.userId = input.userId ?? scheduled.userId
   scheduled.swipeId = input.swipeId ?? scheduled.swipeId
   scheduled.generationType = input.generationType || scheduled.generationType
@@ -5264,13 +5705,20 @@ function scheduleProseOpportunityScan(input: {
     void flushProseOpportunityScan(scheduled).catch(error => {
       if (handleChatBoundAsyncError('prose_opportunity_scan', scheduled.chatId, scheduled.userId, error)) return
       spindle.log.error(`[Reverie Relay:prose_opportunity_scan] ${error instanceof Error ? error.message : String(error)}`)
-    })
+    }).finally(() => scheduled.imagePriority?.release())
   }, input.delayMs ?? 120)
   scheduledProseOpportunityScans.set(key, scheduled)
 }
 
 async function flushProseOpportunityScan(scheduled: Omit<NonNullable<ReturnType<typeof scheduledProseOpportunityScans.get>>, 'timer'> & { timer?: ReturnType<typeof setTimeout> }): Promise<void> {
-  const message = await resolveMessage(scheduled.chatId, scheduled.messageId)
+  const operationKey = `prose:${scheduled.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  // Planning is a saved-message operation. Event snapshots/raw terminal text
+  // can precede host macro or output processing, unlike Instant discovery.
+  // Reconciliation and selection must fingerprint the same persisted swipe.
+  const hostMessage = await resolveHostMessage(scheduled.chatId, scheduled.messageId)
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  const message = hostMessage ? canonicalEditedMessage(hostMessage) : null
   if (!message && scheduled.attempt < 4) {
     scheduleProseOpportunityScan({ ...scheduled, source: 'prose-opportunity-authoritative-retry', attempt: scheduled.attempt + 1, delayMs: 80 * (scheduled.attempt + 1) })
     return
@@ -5282,12 +5730,27 @@ async function flushProseOpportunityScan(scheduled: Omit<NonNullable<ReturnType<
   // configured reanalysis path requested this scan.
   if (!hasFreshGenerationBoundary(scheduled.sources) && !scheduled.sources.has('message-edited')) return
   const swipeId = Number.isFinite(Number(scheduled.swipeId)) ? Number(scheduled.swipeId) : activeSwipeId(message)
-  const content = scheduled.sourceContent || getSwipeContent(message, swipeId)
+  const rawContent = strictSwipeContent(message, swipeId)
+  // The completed Surface scan can persist safe grammar repairs concurrently.
+  // Commit that same canonical source before the Director fingerprints it;
+  // otherwise our own later repair invalidates its newly selected scenes.
+  const content = normalizeRelaySurfaceContracts(rawContent)
+  if (!content.trim()) return
+  if (content !== rawContent) await patchSwipeContent(scheduled.chatId, message, swipeId, content)
+  await mutateState(scheduled.chatId, scheduled.userId, state => appendStateLog(state, {
+    severity: 'debug', stage: 'prose-source-authority', eventType: 'prose_saved_source_selected',
+    chatId: scheduled.chatId, messageId: scheduled.messageId, swipeId,
+    message: 'Illustration discovery selected the authoritative saved swipe.',
+    details: { sourceFingerprint: contentFingerprint(content), capturedFingerprint: scheduled.sourceContent ? contentFingerprint(scheduled.sourceContent) : null },
+  }))
+  const preplannedAnalysis = await takeInstantRelayAnalysis(scheduled.chatId, scheduled.messageId, swipeId, content, scheduled.userId)
+  assertAbortableOperationCurrent(operationKey, operationSerial)
   await discoverProseOpportunities({
     chatId: scheduled.chatId,
     messageId: scheduled.messageId,
     swipeId,
     content,
+    preplannedAnalysis,
     source: [...scheduled.sources].join('+') || 'lifecycle',
     generationType: scheduled.generationType,
     userId: scheduled.userId,
@@ -5435,7 +5898,7 @@ async function handleMessageDeleted(payload: any, userId?: string, latestDeleted
   if (!chatId || !messageId) return
   if (latestDeleted) {
     const { aborted, cancelledRecords } = await abortAllRelayWork(chatId, userId, 'latest-message-deleted')
-    sendAbortAllAcknowledgement(aborted, cancelledRecords, userId, 'Latest message deleted; Relay Abort All acknowledged')
+    sendAbortAllNotice(aborted, cancelledRecords, userId, 'Latest message deleted; Relay Abort All acknowledged')
   }
   pendingGenerationContent.delete(pendingContentKey(chatId, messageId))
 
@@ -5447,6 +5910,7 @@ async function handleMessageDeleted(payload: any, userId?: string, latestDeleted
   for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
     if (scheduled.chatId !== chatId || scheduled.messageId !== messageId) continue
     clearTimeout(scheduled.timer)
+    scheduled.imagePriority?.release()
     scheduledProseOpportunityScans.delete(key)
   }
   for (const [key, deferred] of [...deferredScans.entries()]) {
@@ -5486,10 +5950,6 @@ async function handleSwipeLifecycle(payload: any, userId?: string): Promise<void
     const message = payload?.message as ChatMessage
     const swipeId = Number.isFinite(Number(payload?.swipeId)) ? Number(payload.swipeId) : activeSwipeId(message)
     const content = getSwipeContent(message, swipeId)
-    if (message.role === 'user' || (isAssistantMessage(message) && !isOwnMessage(message))) {
-      const activeId = activeSwipeId(message)
-      scheduleStoryAnalysis({ chatId, message, swipeId: activeId, userId, content: getSwipeContent(message, activeId), delayMs: 120 })
-    }
     if (isAssistantMessage(message) && !isOwnMessage(message) && containsRelayRequestMarkup(content)) {
       scheduleAssistantScan({ chatId, messageId, swipeId, userId, sourceContent: content, source: `message-swiped-${action}`, delayMs: 40 })
     }
@@ -5726,25 +6186,31 @@ void phoneTransport.ready.catch(error => spindle.log.warn(`[Reverie Phone] ${Str
 ;(spindle.on as unknown as (event: string, handler: (payload: any, userId?: string) => Promise<string | undefined>) => void)('TOOL_INVOCATION', (payload, userId) => phoneToolBridge.invoke(payload, userId))
 
 async function phoneIdentities(chatId: string, userId?: string): Promise<PhoneIdentity[]> {
-  if (!await spindle.chats.get(chatId, userId)) throw new Error('Open a saved character chat before using the phone.')
+  const chat = await spindle.chats.get(chatId, userId)
+  if (!chat) throw new Error('Open a saved character chat before using the phone.')
   // Phone ownership comes from a confirmed host ID, not the short-name visual
   // subject heuristic. Library titles with aliases/roles are still valid owners.
   const [characterId, persona] = await Promise.all([ownerCharacterIdForChat(chatId, userId), readCurrentHostPersona(userId, chatId)])
   const identities: PhoneIdentity[] = []
-  if (characterId) {
+  // Lumiverse keeps the primary character_id for compatibility in group chats.
+  // The member list is authoritative; prose and previous phone archives are not.
+  const metadata = cleanParameters((chat as any).metadata)
+  const memberIds = Array.isArray(metadata.character_ids) ? metadata.character_ids.map(cleanString).filter(Boolean) : []
+  const characterIds = [...new Set([characterId, ...memberIds].filter((id): id is string => Boolean(id)))]
+  const phoneState = await getState(chatId, userId)
+  for (const characterId of characterIds) {
     const card = await spindle.characters.get(characterId, userId) as any
     const name=cleanString(card?.extensions?.alternate_character_name)||cleanString(card?.name)
     const aliases=[card?.name,...(Array.isArray(card?.aliases)?card.aliases:[]),...(Array.isArray(card?.alternate_names)?card.alternate_names:[]),card?.nickname].map(cleanString).filter(Boolean)
     const avatarUrl=cleanString(card?.avatar_url||card?.avatarUrl||card?.image_url||card?.imageUrl||card?.avatar?.url)||undefined
-    const actors = Object.values((await getState(chatId, userId)).storyConstellations.actors).filter(actor => actor.lumiverseCharacterId === characterId && !actor.mergedIntoActorId)
+    const actors = Object.values(phoneState.storyConstellations.actors).filter(actor => actor.lumiverseCharacterId === characterId && !actor.mergedIntoActorId)
     if(name)identities.push({ id: `character:${characterId}`, name, kind: 'character',avatarUrl, aliases: [...new Set([...aliases, ...actors.flatMap(actor => [actor.displayName, ...actor.aliases])])],
       description: [cleanString((card as any)?.description), cleanString((card as any)?.personality)].filter(Boolean).join('\n').slice(0, 7000) })
   }
   if (persona?.id && cleanString(persona.name)) identities.push({ id: `persona:${persona.id}`, name: cleanString(persona.name), kind: 'persona',avatarUrl:cleanString(persona.avatar_url||persona.avatarUrl||persona.image_url||persona.imageUrl)||undefined })
   const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
-  const phoneState=await getState(chatId,userId)
   identities.push(...normalizePhoneDevice(await readPhoneArchive(chatId,userId,phoneState.phoneDevice)).npcContacts||[])
-  identities.push(...phoneNpcContacts(Object.values(phoneState.storyConstellations.actors),history.filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).map(message=>({messageId:String(message.id),swipeId:activeSwipeId(message),content:getSwipeContent(message,activeSwipeId(message))})),identities))
+  identities.push(...phoneNpcContacts(Object.values(phoneState.storyConstellations.actors),history.filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).map(message=>({messageId:String(message.id),swipeId:activeSwipeId(message),content:getAuthoritativeSwipeContent(message,activeSwipeId(message))})),identities))
   return identities
 }
 
@@ -5763,7 +6229,7 @@ async function readReconciledPhoneDevice(chatId:string,userId?:string,identities
   const current:StoryPhoneText[]=[]
   if(character&&persona)for(const message of history){
     if(!isAssistantMessage(message)||isOwnMessage(message))continue
-    const swipeId=activeSwipeId(message),source=getSwipeContent(message,swipeId)
+    const swipeId=activeSwipeId(message),source=getAuthoritativeSwipeContent(message,swipeId)
     if(!phoneStorySourceCommitted((message as any).extra,swipeId))continue
     if(!/<reverie-phone\b/i.test(source))continue
     for(const entry of parsePhoneActivities(source)){
@@ -5786,9 +6252,11 @@ async function readReconciledPhoneDevice(chatId:string,userId?:string,identities
 
 async function readPhoneCoreRecords(chatId:string,userId?:string,snapshot?:{state:PhoneDeviceState;identities:PhoneIdentity[]},messages?:ChatMessage[]):Promise<PhoneCoreRecord[]>{
   const history=messages||await spindle.chat.getMessages(chatId) as ChatMessage[]
-  const sourceRecords=history.slice(-100).filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).flatMap(message=>phoneCoreRecords(getSwipeContent(message,activeSwipeId(message)),message.id,activeSwipeId(message))).slice(-300)
+  // Core apps mirror saved story history, not a moving recent-context window.
+  // The active message may have been edited before its swipe cache catches up.
+  const sourceRecords=history.filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).flatMap(message=>phoneCoreRecords(getAuthoritativeSwipeContent(message,activeSwipeId(message)),message.id,activeSwipeId(message)).map(record=>({...record,createdAt:(message.created_at||0)*1000})))
   const device=snapshot?.state||normalizePhoneDevice(await readPhoneArchive(chatId,userId,(await getState(chatId,userId)).phoneDevice)),identities=snapshot?.identities||await phoneIdentities(chatId,userId)
-  return [...sourceRecords,...(device.localApps||[]).flatMap(record=>{const owner=identities.find(person=>person.id===record.ownerId);return owner?[phoneLocalAppRecord(record,owner)]:[]})]
+  return [...sourceRecords,...(device.localApps||[]).flatMap(record=>{const owner=identities.find(person=>person.id===record.ownerId);return owner?[phoneLocalAppRecord(record,owner)]:[]})].sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))
 }
 
 const phoneService = createPhoneService({
@@ -5818,7 +6286,7 @@ const phoneService = createPhoneService({
   rpContext:async(chatId,userId)=>{
     if(!await spindle.chats.get(chatId,userId))throw new Error('This RP chat is no longer available.')
     const history=await spindle.chat.getMessages(chatId) as ChatMessage[]
-    return phoneRpContext(history.filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).map(message=>({role:message.role,name:(message as any).name,content:getSwipeContent(message,activeSwipeId(message))})))
+    return phoneRpContext(history.filter(message=>!isOwnMessage(message)&&phoneStorySourceCommitted((message as any).extra,activeSwipeId(message))).map(message=>({role:message.role,name:(message as any).name,content:getAuthoritativeSwipeContent(message,activeSwipeId(message))})))
   },
   appView:async(command,userId)=>{
     if(!await spindle.chats.get(command.chatId,userId))throw new Error('This phone chat is unavailable.')
@@ -5831,10 +6299,28 @@ const phoneService = createPhoneService({
     if(!owner)throw new Error('Choose a current phone owner.')
     if(record.ownerId&&record.ownerId!==owner.id)throw new Error('This phone-local app belongs to another owner.')
     if(record.ownerName&&state.phoneDevice?.linkedOwners?.[record.ownerName]!==owner.id&&![owner.name,...(owner.aliases||[])].some(name=>name.toLocaleLowerCase()===record.ownerName!.toLocaleLowerCase()))throw new Error('This app record belongs to another phone owner. Link an old owner name explicitly in Phone Settings.')
+    if(record.appId==='amazon'){
+      const device=await readReconciledPhoneDevice(command.chatId,userId)
+      const shopping=amazonState(device,record,userId,command.chatId,owner.id)
+      return {appId:record.appId,recordId:record.id,title:record.title,targets:[],bubbles:[],amazon:{snapshot:parseAmazon(record.markup),scopeKey:commerceScopeKey(shopping)},html:renderPhoneCoreRecord(record,state.customSurfaces,{chatId:command.chatId,records:renderSnapshotRecords(state)})}
+    }
     const targets=phoneAppTargets(record.markup),target=targets.find(target=>target.id===(command.targetId||targets[0]?.id))
     if(!target)throw new Error('This app post/channel changed. Reopen its current record before replying.')
     const participants=await phoneIdentities(command.chatId,userId)
     return {appId:record.appId,recordId:record.id,title:record.title,interactionMode:phoneAppInteractionMode(record.appId),targets:targets.map(({markup,...target})=>({...target,replyActorId:phoneAppResponder(markup,participants,owner.id)})),bubbles:phoneSourceBubbles(targets,participants),replyActorId:phoneAppResponder(target.markup,participants,owner.id),targetId:target.id,sourceMarkup:target.markup,html:renderPhoneCoreRecord(record,state.customSurfaces,{chatId:command.chatId,records:renderSnapshotRecords(state)})}
+  },
+  commerce:async(command,userId,authorized)=>{
+    if(!await spindle.chats.get(command.chatId,userId))throw new Error('This shopping chat is unavailable.')
+    await mutateState(command.chatId,userId,async state=>{
+      const record=(await readPhoneCoreRecords(command.chatId,userId)).find(record=>record.id===command.recordId&&record.appId==='amazon')
+      const owner=(await phoneIdentities(command.chatId,userId)).find(person=>person.id===command.from)
+      if(!record||!owner)throw new Error('Shopping source or owner changed. Reopen its current record.')
+      if(record.ownerId&&record.ownerId!==owner.id||record.ownerName&&state.phoneDevice?.linkedOwners?.[record.ownerName]!==owner.id&&![owner.name,...(owner.aliases||[])].some(name=>name.toLocaleLowerCase()===record.ownerName!.toLocaleLowerCase()))throw new Error('This app belongs to another owner.')
+      const device=normalizePhoneDevice(await readPhoneArchive(command.chatId,userId,state.phoneDevice))
+      if(!authorized())throw new Error('Shopping action cancelled. Saved purchases were preserved.')
+      mutateAmazon(device,record,command,userId)
+      await checkpointPhoneArchive(command.chatId,device,userId);state.phoneDevice=device
+    })
   },
   projection: async (chatId, userId, snapshot) => {
     await phoneTransport.ready.catch(() => {})
@@ -5850,13 +6336,15 @@ const phoneService = createPhoneService({
       for (const entry of extractCharacterPhoneEntries(content, ref)) saved.set(entry.entryId, entry)
     }
     const assets = Object.values(state.assetLibrary.assets)
+    const mediaBySource=new Map<string,unknown[]>()
+    for(const record of renderSnapshotRecords(state)){const key=JSON.stringify([record.messageId,record.swipeId]);const media=mediaBySource.get(key)||[];media.push([record.key,record.status,record.imageUrl,record.imageId,record.pendingPlacement?.imageUrl]);mediaBySource.set(key,media)}
     return {
       incomingTransport: phoneTransport.mode(),
       connections: await getParserConnections(userId),
       imageConnections:(await spindle.imageGen.listConnections(userId)).map(connection=>({id:connection.id,name:connection.name,model:connection.model,isDefault:connection.is_default})),
       framingModes:PHONE_FRAMING,
       apps:PHONE_CORE_APPS,
-      appRecords:(await readPhoneCoreRecords(chatId,userId,snapshot,messages)).map(({markup:_,...record})=>record),
+      appRecords:(await readPhoneCoreRecords(chatId,userId,snapshot,messages)).map(({markup:_,...record})=>({...record,renderFingerprint:contentFingerprint(JSON.stringify([record.media||[],mediaBySource.get(JSON.stringify([record.messageId,record.swipeId]))||[]]))})),
       saved: [...saved.values()].slice(-300).map(entry => {
         const asset = assets.find(asset => asset.chatId === chatId && asset.messageId === entry.sourceRef.messageId && asset.swipeId === entry.sourceRef.swipeId
           && (asset.assetId === entry.assetId || Boolean(entry.requestId && asset.requestId === entry.requestId) || Boolean(entry.imageId && asset.imageId === entry.imageId)))
@@ -5899,6 +6387,7 @@ const phoneService = createPhoneService({
 
 async function handleFrontendMessage(payload: FrontendMessage, userId?: string): Promise<void> {
   switch (payload.type) {
+    case 'portrait_insight_reply': portraitInsight.reply(payload, userId); return
     case 'phone_tools_render_refresh': {
       const entry = phoneToolRenderReceipts.get(payload.receipt)
       if (!entry || entry.userId !== userId || entry.attempts >= 2 || Date.now() - entry.at > 30_000
@@ -5929,10 +6418,49 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
       }
       await phoneService.handle(payload, userId)
       return
-    case 'list_state':
-      await reconcileInstalledNarrativeOnStartup(userId)
-      await sendState(userId, payload.chatId ?? undefined)
+    case 'list_state': {
+      // Hydrate saved settings/slots before optional host catalogs, regex
+      // repair, fork imports or history reconciliation. Retrying a dropped
+      // initial reply must not start another copy of that maintenance work.
+      const scope = renderScopeKey(payload.chatId || '__none__', userId)
+      if (payload.bootstrap) {
+        const hydration = frontendBootstrapReads.get(scope) || sendState(userId, payload.chatId ?? undefined, true)
+        frontendBootstrapReads.set(scope, hydration)
+        try { await hydration } finally {
+          if (frontendBootstrapReads.get(scope) === hydration) frontendBootstrapReads.delete(scope)
+        }
+      }
+      const pending = payload.bootstrap ? frontendBootstrapRefreshes.get(scope) : undefined
+      if (pending) { await pending; return }
+      const refresh = (async () => {
+        // Visible clients can miss an entire Relay lifecycle, not only its last
+        // tick. An unchanged probe must not reconcile chat history, sync macros,
+        // enumerate providers or serialize the full drawer every twenty seconds.
+        if (!payload.bootstrap && payload.chatId && Number.isSafeInteger(payload.knownRevision) && payload.knownRevision! >= 0) {
+          const state = await getState(payload.chatId, userId)
+          if (state.revision === payload.knownRevision) {
+            spindle.sendToFrontend({ type: 'state_unchanged', chatId: payload.chatId, revision: state.revision }, userId)
+            return
+          }
+        }
+        await reconcileInstalledNarrativeOnStartup(userId)
+        if (payload.chatId) await inheritForkCompletedMedia(payload.chatId, userId)
+        await sendState(userId, payload.chatId ?? undefined)
+      })()
+      if (payload.bootstrap) frontendBootstrapRefreshes.set(scope, refresh)
+      try { await refresh } finally {
+        if (frontendBootstrapRefreshes.get(scope) === refresh) frontendBootstrapRefreshes.delete(scope)
+      }
       return
+    }
+    case 'list_render_records': {
+      const state = await getState(payload.chatId, userId)
+      const rows = renderSnapshotRecords(state).filter(record => record.status === 'completed').map(stripCompletedRecord)
+      const cursor = Math.max(0, Math.floor(Number(payload.cursor) || 0))
+      spindle.sendToFrontend({ type: 'render_records', chatId: payload.chatId, fingerprint: completedRenderCatalogFingerprint(state),
+        cursor, records: rows.slice(cursor, cursor + 128), nextCursor: cursor + 128 < rows.length ? cursor + 128 : null }, userId)
+      return
+    }
     case 'scan_message': {
       const config = payload.automatic === true || payload.streaming === true ? await getConfig(userId) : null
       if (payload.automatic === true && config?.autoRescanOnChatOpen === false) return
@@ -5941,7 +6469,7 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
         if (!streamingConfig.enabled || payload.automatic !== false) return
         const state = await getState(payload.chatId, userId)
         const settings = proseSettingsForChat(state, payload.chatId)
-        if (!settings.enabled || settings.mode !== 'inline-protocol' || !settings.instantIllustrationDispatch) return
+        if (!settings.instantIllustrationDispatch) return
       }
       await scanAndGenerate(payload.chatId, payload.messageId ?? undefined, payload.swipeId, userId, snapshotFromPayload(payload), payload.sourceContent, payload.automatic === true, payload.streaming === true)
       return
@@ -6032,8 +6560,8 @@ async function handleFrontendMessage(payload: FrontendMessage, userId?: string):
     case 'narrative_utility_registry':
       await sendNarrativeUtilityRegistry(payload.requestId, userId)
       return
-    case 'story_action':
-      await handleStoryAction(payload, userId)
+    case 'phone_record_action':
+      await handlePhoneRecordAction(payload, userId)
       return
     case 'surface_prompt_preview': {
       try {
@@ -6349,205 +6877,20 @@ export function applyGalleryLinkResultToSlot(record: SlotRecord, link: GalleryLi
   record.galleryLinkRetryMode = link.status === 'linked' ? undefined : 'gallery-only'
 }
 
-async function handleStoryAction(payload: Extract<FrontendMessage, { type: 'story_action' }>, userId?: string): Promise<void> {
+async function handlePhoneRecordAction(payload: Extract<FrontendMessage, { type: 'phone_record_action' }>, userId?: string): Promise<void> {
   const chatId = cleanString(payload.chatId)
   if (!chatId) return
-  if (payload.action === 'retry-analysis') {
-    const config = await getConfig(userId)
-    if (!config.storyConstellationsEnabled) throw new Error('Enable Event Constellations before retrying analysis.')
-    if (storyBackfills.has(storyBackfillKey(chatId, userId))) throw new Error('Wait for this chat’s backfill to finish before retrying a source.')
-    const messages = await spindle.chat.getMessages(chatId) as ChatMessage[]
-    const message = messages.find(row => row.id === payload.messageId)
-    if (!message || isOwnMessage(message) || !(isAssistantMessage(message) || message.role === 'user')) throw new Error('The original story message is unavailable.')
-    const swipeId = activeSwipeId(message)
-    if (swipeId !== payload.swipeId) throw new Error('Reactivate the original source swipe before retrying analysis.')
-    const content = getSwipeContent(message, swipeId)
-    const key = `${userId || '__default__'}:${chatId}:${message.id}:${swipeId}:${storyFingerprint(content)}`
-    if (scheduledStoryAnalysis.has(key)) return
-    scheduledStoryAnalysis.add(key)
-    try { await analyzeStoryMessage({ chatId, userId, message, swipeId, content, retry: true }) }
-    finally { scheduledStoryAnalysis.delete(key) }
-    return
-  }
-  if (payload.action === 'backfill') {
-    const key = storyBackfillKey(chatId, userId)
-    if (storyBackfills.has(key)) {
-      const current = storyBackfills.get(key)!
-      sendStoryBackfillStatus(current, 'running', 'A backfill is already running for this chat.')
-      return
-    }
-    void runStoryBackfill(chatId, userId, payload.includeInactiveSwipes === true)
-    return
-  }
-  if (payload.action === 'cancel-backfill') {
-    const run = storyBackfills.get(storyBackfillKey(chatId, userId))
-    if (run) { run.cancelled = true; sendStoryBackfillStatus(run, 'running', 'Cancellation requested; the current Sidecar call will finish first.') }
-    return
-  }
   await mutateState(chatId, userId, state => {
-    const story = state.storyConstellations
-    const now = Date.now()
-    if (payload.action === 'confirm-proposal' || payload.action === 'supersede-event') {
-      if (!payload.proposalId) return
-      const proposal = story.proposals[payload.proposalId]
-      const event = payload.action === 'confirm-proposal' && proposal?.proposalKind === 'event-echo'
-        ? confirmStoryEchoProposal(story, payload.proposalId, now)
-        : confirmStoryProposal(story, payload.proposalId, now)
-      if (!event) return
-      if (payload.action === 'supersede-event' && payload.eventId) {
-        const previous = story.events[payload.eventId]
-        if (previous && previous.eventId !== event.eventId && previous.canonState === 'confirmed') {
-          previous.canonState = 'superseded'; previous.supersededByEventId = event.eventId; previous.updatedAt = now
-          event.supersedesEventId = previous.eventId
-        }
-      }
-      return
-    }
-    if (payload.action === 'reject-proposal') {
-      const proposal = payload.proposalId ? story.proposals[payload.proposalId] : undefined
-      if (proposal?.status === 'proposed') { proposal.status = 'rejected'; proposal.updatedAt = now }
-      return
-    }
-    if (payload.action === 'mark-non-canon') {
-      if (payload.eventId && story.events[payload.eventId]) { story.events[payload.eventId].canonState = 'non-canon'; story.events[payload.eventId].updatedAt = now }
-      const proposal = payload.proposalId ? story.proposals[payload.proposalId] : undefined
-      if (proposal && proposal.status === 'proposed') { proposal.status = 'rejected'; proposal.updatedAt = now }
-      return
-    }
-    if (payload.action === 'edit-proposal') {
-      const proposal = payload.proposalId ? story.proposals[payload.proposalId] : undefined
-      if (proposal?.status !== 'proposed') return
-      if (typeof payload.title === 'string' && payload.title.trim()) proposal.title = payload.title.trim().slice(0, 120)
-      if (typeof payload.summary === 'string' && payload.summary.trim()) proposal.summary = payload.summary.trim().slice(0, 520)
-      proposal.updatedAt = now
-      return
-    }
-    if (payload.action === 'merge-events') {
-      const primary = payload.eventId ? story.events[payload.eventId] : undefined
-      const duplicate = payload.duplicateEventId ? story.events[payload.duplicateEventId] : undefined
-      if (!primary || !duplicate || primary.eventId === duplicate.eventId || primary.canonState !== 'confirmed' || duplicate.canonState !== 'confirmed') return
-      primary.sourceRefs.push(...duplicate.sourceRefs.filter(ref => !primary.sourceRefs.some(old => old.contentFingerprint === ref.contentFingerprint && old.messageId === ref.messageId && old.swipeId === ref.swipeId)))
-      primary.linkedAssetIds = [...new Set([...primary.linkedAssetIds, ...duplicate.linkedAssetIds])]
-      primary.echoIds = [...new Set([...primary.echoIds, ...duplicate.echoIds])]
-      primary.participants = [...new Map([...primary.participants, ...duplicate.participants].map(item => [item.actorId, item])).values()]
-      for (const echo of Object.values(story.echoes)) if (echo.eventId === duplicate.eventId) echo.eventId = primary.eventId
-      for (const entry of Object.values(story.phoneEntries)) if (entry.eventId === duplicate.eventId) entry.eventId = primary.eventId
-      const duplicateOverride = story.reelOverrides[duplicate.eventId]
-      if (duplicateOverride && !story.reelOverrides[primary.eventId]) story.reelOverrides[primary.eventId] = { ...duplicateOverride, eventId: primary.eventId, updatedAt: now }
-      for (const edge of Object.values(story.knowledgeEdges)) if (edge.eventId === duplicate.eventId) {
-        const newId = `${primary.eventId}:${edge.actorId}`
-        const prior = story.knowledgeEdges[newId]
-        if (!prior) { delete story.knowledgeEdges[edge.edgeId]; edge.eventId = primary.eventId; edge.edgeId = newId; story.knowledgeEdges[newId] = edge }
-        else { prior.sourceRefs.push(...edge.sourceRefs); prior.history.push(...edge.history); delete story.knowledgeEdges[edge.edgeId] }
-      }
-      duplicate.canonState = 'superseded'; duplicate.supersededByEventId = primary.eventId; duplicate.updatedAt = now
-      primary.updatedAt = now
-      return
-    }
-    if (payload.action === 'link-echo') {
-      const echo = payload.echoId ? story.echoes[payload.echoId] : undefined
-      const event = payload.eventId ? story.events[payload.eventId] : undefined
-      if (echo && event?.canonState === 'confirmed' && echo.sourceRef.sourceState === 'active') {
-        echo.eventId = event.eventId; echo.linkState = 'confirmed'; echo.updatedAt = now
-        if (!event.echoIds.includes(echo.echoId)) event.echoIds.push(echo.echoId)
-      }
-      return
-    }
-    if (payload.action === 'reject-echo') {
-      const echo = payload.echoId ? story.echoes[payload.echoId] : undefined
-      if (echo) { echo.linkState = 'rejected'; echo.updatedAt = now }
-      return
-    }
-    if (payload.action === 'set-actor-kind') {
-      const actor = payload.actorId ? story.actors[payload.actorId] : undefined
-      if (!actor || actor.mergedIntoActorId || !payload.actorKind) return
-      actor.kind = payload.actorKind
-      if (payload.actorKind === 'character') {
-        actor.lumiverseCharacterId = cleanString(payload.canonicalIdentityId).slice(0, 120) || undefined
-        actor.canonicalCharacterId = actor.lumiverseCharacterId
-        actor.lumiversePersonaId = undefined
-      } else if (payload.actorKind === 'persona') {
-        actor.lumiversePersonaId = cleanString(payload.canonicalIdentityId).slice(0, 120) || undefined
-        actor.lumiverseCharacterId = undefined
-        actor.canonicalCharacterId = undefined
-      } else {
-        actor.lumiverseCharacterId = undefined
-        actor.lumiversePersonaId = undefined
-        actor.canonicalCharacterId = undefined
-      }
-      actor.updatedAt = now
-      return
-    }
-    if (payload.action === 'merge-actors') {
-      if (payload.actorId && payload.mergeIntoActorId) mergeStoryActors(story, payload.actorId, payload.mergeIntoActorId, now)
-      return
-    }
-    if (payload.action === 'link-echo-asset' || payload.action === 'unlink-echo-asset') {
-      const echo = payload.echoId ? story.echoes[payload.echoId] : undefined
-      if (!echo || echo.linkState === 'rejected') return
-      if (payload.action === 'unlink-echo-asset') echo.assetId = undefined
-      else if (payload.assetId && state.assetLibrary.assets[payload.assetId]) echo.assetId = payload.assetId
-      echo.updatedAt = now
-      return
-    }
-    if (payload.action === 'set-knowledge') {
-      const event = payload.eventId ? story.events[payload.eventId] : undefined
-      const actorName = cleanString(payload.actorName).slice(0, 80)
-      if (!event || event.canonState !== 'confirmed' || !actorName || !payload.beliefState || !payload.acquisitionMode) return
-      const actor = ensureStoryActor(story, actorName, undefined, now)
-      if (!actor) return
-      const actorId = actor.actorId
-      const sourceRef = createStorySourceRef({ chatId, messageId: 'manual-knowledge', swipeId: 0, role: 'system', content: `${event.eventId}:${actorId}:${payload.beliefState}`, excerpt: 'Knowledge state explicitly set by the user.', sourceKind: 'manual' })
-      applyStoryKnowledge(story, { eventId: event.eventId, actorId, beliefState: payload.beliefState, acquisitionMode: payload.acquisitionMode, sourceRef, origin: 'manual', now })
-      return
-    }
-    if (payload.action === 'resolve-conflict') {
-      const conflict = payload.conflictId ? story.conflicts[payload.conflictId] : undefined
-      if (!conflict || conflict.status !== 'open' || !payload.resolution) return
-      resolveStoryKnowledgeConflict(story, conflict.conflictId, payload.resolution, payload.echoId, now)
-      return
-    }
-    if (payload.action === 'resolve-source-warning') {
-      const event = payload.eventId ? story.events[payload.eventId] : undefined
-      if (event) { event.sourceWarning = undefined; event.updatedAt = now }
-      return
-    }
-    if (payload.action === 'set-reel-override') {
-      updateStoryReelOverride(story, payload.eventId || '', {
-        pinned: payload.pinned,
-        hidden: payload.hidden,
-        captionOverride: payload.captionOverride,
-        chapterLabelOverride: payload.chapterLabelOverride,
-        preferredHeroAssetId: payload.preferredHeroAssetId,
-      }, now)
-      return
-    }
-    if (payload.action === 'link-asset') {
-      const event = payload.eventId ? story.events[payload.eventId] : undefined
-      const assetId = cleanString(payload.assetId)
-      if (!event || !assetId || !state.assetLibrary.assets[assetId]) return
-      if (!event.linkedAssetIds.includes(assetId)) event.linkedAssetIds.push(assetId)
-      event.updatedAt = now
-      return
-    }
-    if (payload.action === 'unlink-asset') {
-      const event = payload.eventId ? story.events[payload.eventId] : undefined
-      if (event && payload.assetId) event.linkedAssetIds = event.linkedAssetIds.filter(id => id !== payload.assetId)
-      return
-    }
-    if (payload.action === 'remove-phone-entry') {
-      if (payload.phoneEntryId) delete story.phoneEntries[payload.phoneEntryId]
-    }
-    if (payload.action === 'link-phone-asset' || payload.action === 'unlink-phone-asset') {
-      const entry = payload.phoneEntryId ? story.phoneEntries[payload.phoneEntryId] : undefined
-      if (!entry || entry.kind !== 'photo') return
-      if (payload.action === 'unlink-phone-asset') { entry.assetId = undefined; entry.imageId = undefined }
-      else if (payload.assetId && state.assetLibrary.assets[payload.assetId]) {
-        entry.assetId = payload.assetId
-        entry.imageId = state.assetLibrary.assets[payload.assetId].imageId
-      }
-      entry.updatedAt = now
-    }
+    const entry = payload.phoneEntryId ? state.storyConstellations.phoneEntries[payload.phoneEntryId] : undefined
+    if (!entry) return
+    if (payload.action === 'remove-phone-entry') { delete state.storyConstellations.phoneEntries[entry.entryId]; return }
+    if (entry.kind !== 'photo') return
+    if (payload.action === 'unlink-phone-asset') { entry.assetId = undefined; entry.imageId = undefined }
+    else if (payload.action === 'link-phone-asset' && payload.assetId && state.assetLibrary.assets[payload.assetId]) {
+      entry.assetId = payload.assetId
+      entry.imageId = state.assetLibrary.assets[payload.assetId].imageId
+    } else return
+    entry.updatedAt = Date.now()
   })
   await sendState(userId, chatId)
 }
@@ -6995,8 +7338,13 @@ async function handleExplainNoGeneration(payload: Extract<FrontendMessage, { typ
     if (!settings.enabled || settings.mode === 'off') blockers.push({ code: 'illustrator-off', title: 'Illustrator is off', detail: 'Choose Suggest, Manual, or Auto mode.', severity: 'warning', action: 'Change mode' })
     if (settings.paused) blockers.push({ code: 'illustrator-paused', title: 'Auto Illustrator is paused', detail: 'Resume Auto Illustrator for this chat.', severity: 'warning', action: 'Resume' })
     if (settings.frequencyMode === 'every-n') blockers.push({ code: 'frequency-gate', title: `Every ${settings.everyNEligibleMessages} eligible messages`, detail: 'Messages that are too short, utility-only, stale, or otherwise ineligible do not advance the counter.', severity: 'info' })
+    const latestAssistant = (await spindle.chat.getMessages(chatId) as ChatMessage[]).filter(message => isAssistantMessage(message) && !isOwnMessage(message)).at(-1)
+    if (latestAssistant) {
+      const limit = proseMessageLimitBlocker(state, chatId, latestAssistant.id, activeSwipeId(latestAssistant), settings)
+      if (limit) blockers.push(limit)
+    }
     const opportunities = Object.values(state.proseIllustrator.opportunities).filter(row => row.chatId === chatId && row.status !== 'dismissed')
-    if (!opportunities.length) blockers.push({ code: 'no-eligible-beat', title: 'No eligible illustration beat', detail: 'Relay did not find an eligible visual moment in the available prose.', severity: 'info', action: 'Check Illustrator settings and planner connection' })
+    if (!opportunities.length && !blockers.some(row => row.code === 'illustration-limit')) blockers.push({ code: 'no-eligible-beat', title: 'No eligible illustration beat', detail: 'No eligible visual moment is currently recorded. Open Logs for the latest discovery decision, or review the Illustrator settings and planner connection.', severity: 'info', action: 'Check Illustrator settings and planner connection' })
   }
   if (!blockers.length) blockers.push({ code: 'ready', title: 'Settings allow generation', detail: 'No settings blocker was found, but this does not confirm that the Director selected a valid image. Check the Background Queue for a job, or open Logs for the latest Director decision and validation result.', severity: 'info' })
   const stateId = chatId || UTILITY_STATE_ID
@@ -7313,6 +7661,35 @@ function updateQueueSafetySummary(state: StateFile, now = Date.now()): void {
   }
 }
 
+async function dispatchRelayBatch(jobs: RouterJob[], options: RunJobOptions, userId?: string): Promise<void> {
+  const userAbortEpoch = options.userAbortEpoch ?? currentUserAbortEpoch(userId)
+  const batchOptions = { ...options, userAbortEpoch }
+  // Prepare concurrently, but reserve image dispatch before asynchronous parsers
+  // can reorder the batch. Illustrations first, then all Surface types in their
+  // authored order. A slow GPU never occupies a prompt-preparation worker.
+  const ordered = [...jobs.filter(job => job.target === 'prose.illustration'), ...jobs.filter(job => job.target !== 'prose.illustration')]
+  const running: Promise<void>[] = []
+  let previous = options.imageDispatchAfter || Promise.resolve()
+  for (const job of ordered) {
+    const work = dispatchRelayJob(job, { ...batchOptions, imageDispatchAfter: previous }, userId)
+    running.push(work)
+    previous = work.catch(() => {}) // a failed/cancelled predecessor cannot strand the queue
+  }
+  await Promise.all(running)
+}
+
+async function awaitImageDispatchOrder(previous?: Promise<void>, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal)
+  if (!previous) return
+  await new Promise<void>((resolve, reject) => {
+    const cleanup = () => signal?.removeEventListener('abort', abort)
+    const abort = () => { cleanup(); reject(new JobCancelledError()) }
+    signal?.addEventListener('abort', abort, { once: true })
+    previous.then(() => { cleanup(); resolve() }, error => { cleanup(); reject(error) })
+  })
+  throwIfAborted(signal)
+}
+
 async function dispatchRelayJob(job: RouterJob, options: RunJobOptions, userId?: string): Promise<void> {
   const userAbortEpoch = options.userAbortEpoch ?? currentUserAbortEpoch(userId)
   if (userAbortEpoch !== currentUserAbortEpoch(userId)) return
@@ -7509,12 +7886,42 @@ export function registerDirectHostAppearanceSources(
   }
 }
 
+function sceneAppearanceSources(messages: ChatMessage[]): SceneAppearanceSource[] {
+  return messages.filter(message => !isOwnMessage(message) && (message.role ? message.role === 'assistant' : isAssistantMessage(message))).map(message => {
+    const swipeId = activeSwipeId(message)
+    const content = getAuthoritativeSwipeContent(message, swipeId)
+    return { messageId: message.id, swipeId, content, paragraphs: proseParagraphs(content) }
+  })
+}
+
+async function rememberSceneAppearanceTurn(input: Pick<AppearanceReadyInput, 'chatId' | 'messageId' | 'swipeId' | 'content' | 'userId'>, changes?: unknown): Promise<void> {
+  const config = await getConfig(input.userId)
+  if (!config.enabled) return
+  const state = await getState(input.chatId, input.userId)
+  if (effectiveIllustratorAppearanceStrength(proseSettingsForChat(state, input.chatId), state.continuityVault.strength) === 'off') return
+  const epoch = currentUserAbortEpoch(input.userId)
+  const sources = sceneAppearanceSources(await spindle.chat.getMessages(input.chatId) as ChatMessage[])
+  const source = sources.find(row => row.messageId === input.messageId)
+  if (!source || source.swipeId !== input.swipeId || sceneAppearanceFingerprint(source.paragraphs) !== sceneAppearanceFingerprint(proseParagraphs(input.content))) return
+  const preview = { ...state.continuityVault }
+  recordSceneAppearanceTurn(preview, sources, input.messageId, changes)
+  if (JSON.stringify(preview.sceneAppearance) === JSON.stringify(state.continuityVault.sceneAppearance)) return
+  await mutateState(input.chatId, input.userId, next => {
+    if (!automaticDispatchIsAuthorized(epoch, input.userId)) return
+    recordSceneAppearanceTurn(next.continuityVault, sources, input.messageId, changes)
+  })
+}
+
 function appearanceReadinessKey(input: AppearanceReadyInput): string {
   return `${input.chatId}:${input.messageId}:${input.swipeId}:${contentFingerprint(input.content)}`
 }
 
 async function ensureAppearanceReadyForTurn(input: AppearanceReadyInput): Promise<void> {
   const mode = input.mode || 'normal'
+  // Completed-generation events carry raw authoring while discovery and the
+  // Director read safely normalized contracts. They are one continuity turn,
+  // not permission for a second model call. Real text/swipe edits still differ.
+  if (mode === 'normal') input = { ...input, content: normalizeRelaySurfaceContracts(input.content) }
   const key = appearanceReadinessKey(input)
   if (mode === 'normal') {
     const existing = appearanceReadinessByTurn.get(key)
@@ -7522,8 +7929,11 @@ async function ensureAppearanceReadyForTurn(input: AppearanceReadyInput): Promis
   }
   const ready = (async () => {
     try {
+      if (mode === 'normal') await rememberSceneAppearanceTurn(input)
       await runAppearanceSidecar({ ...input, mode })
+      if (mode === 'normal') await rememberSceneAppearanceTurn(input)
     } catch (error) {
+      if (error instanceof Error && error.name === 'OperationCancelledError') throw error
       const message = error instanceof Error ? error.message : String(error)
       if (mode === 'normal') appearanceFailureCooldownByTurn.set(`${input.chatId}:${input.messageId}:${input.swipeId}`, Date.now())
       await mutateState(input.chatId, input.userId, state => {
@@ -7559,6 +7969,17 @@ async function ensureAppearanceReadyForTurn(input: AppearanceReadyInput): Promis
 }
 
 export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise<boolean | AppearanceFieldRefreshResult> {
+  const operationKey = `prose:${input.chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  const abortEpoch = currentUserAbortEpoch(input.userId)
+  const assertCurrent = () => {
+    assertAbortableOperationCurrent(operationKey, operationSerial)
+    if (!automaticDispatchIsAuthorized(abortEpoch, input.userId)) {
+      const error = new Error('Appearance refresh cancelled by user.')
+      error.name = 'OperationCancelledError'
+      throw error
+    }
+  }
   const mode = input.mode || 'normal'
   const contextTier = mode === 'normal' ? 'routine' : mode === 'reconcile' ? 'diagnostic' : 'expanded'
   if (mode !== 'normal') invalidateContextSnapshots()
@@ -7574,6 +7995,14 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
   }
   const turnKey = `${input.messageId}:${input.swipeId}:${contentFingerprint(input.content)}${mode === 'enrichment' ? `:enrichment:${input.focusCharacter?.id || ''}` : ''}`
   if (mode === 'normal' && state.continuityVault.appearanceSidecar.processedTurnKeys[turnKey]) return false
+  let cadenceHistory: ChatMessage[] | undefined
+  if (mode === 'normal' && !input.refreshField) {
+    const interval = config.appearanceUpdateIntervalMessages
+    const baseline = state.continuityVault.appearanceSidecar.lastFullRefreshMessageId || ''
+    if (baseline && interval > 1) cadenceHistory = await spindle.chat.getMessages(input.chatId) as ChatMessage[]
+    if (!appearanceUpdateIsDue(interval, baseline, input.messageId,
+      (cadenceHistory || []).filter(message => (message.role ? message.role === 'assistant' : message.is_user === false) && !isOwnMessage(message)).map(message => message.id))) return false
+  }
   const [character, persona, characterContext, personaContext] = await Promise.all([
     readChatCharacterIdentity(input.chatId, input.userId),
     readActivePersonaIdentity(input.userId, input.chatId),
@@ -7615,7 +8044,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
   if (!connection) throw new Error('Appearance Sidecar connection not found.')
   const appearanceState = await getState(input.chatId, input.userId)
   const [history, lorebookContext] = await Promise.all([
-    spindle.chat.getMessages(input.chatId) as Promise<ChatMessage[]>,
+    cadenceHistory ? Promise.resolve(cadenceHistory) : spindle.chat.getMessages(input.chatId) as Promise<ChatMessage[]>,
     readLorebookSources(input.chatId, input.userId),
   ])
   const nativeSettings = input.nativeSnapshot?.settings || nativeSnapshotFromConfig(config)?.settings || {}
@@ -7654,13 +8083,14 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     : expandModelPromptTemplate(registryPrompt(settings, requestPromptId), {
       adultMode: adultModeFromSettings(config, nativeSettings),
       providerVocabulary: 'canonical Booru tags plus readable visual phrases for unknown vocabulary',
-      manualAppearanceJson: appearanceFactJson(appearanceFacts.filter(fact => fact.userConfirmed)),
+      manualAppearanceJson: appearanceFactJson(appearanceFacts.filter(fact => fact.userConfirmed && fact.status === 'active' && (fact.layer !== 'current-appearance' || fact.active !== false))),
       canonicalAppearanceJson: appearanceFactJson(appearanceFacts.filter(fact => fact.layer === 'visual-identity' && fact.status === 'active')),
       currentVisualStateJson: appearanceFactJson(appearanceFacts.filter(fact => fact.layer !== 'visual-identity' && fact.status === 'active' && (fact.layer !== 'current-appearance' || fact.active !== false))),
       subjectBindingsJson: JSON.stringify({ activeCharacter: character, activePersona: persona, nativeImageGenBindings: bindings }, null, 2),
       tagVocabularyJson: JSON.stringify({ mode: 'backend-validated', unknownVocabulary: 'visual-phrase', aliasesNormalizedBy: 'Reverie Relay' }, null, 2),
-      sourceResponse: input.content,
+      sourceResponse: String(payload.currentAssistantMessage || ''),
     })
+  assertCurrent()
   const raw = await generateParserText({ id: connection.id, name: connection.name, provider: connection.provider, model: connection.model }, {
     ...config,
     parserModel: sidecarModel || connection.model,
@@ -7669,6 +8099,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     { role: 'system', content: registryPrompt(settings, systemPromptId) },
     { role: 'user', content: requestContent },
   ], input.userId, input.chatId, payload.contextMetrics as ContextMetrics, 'appearance-sidecar')
+  assertCurrent()
   if (input.refreshField) {
     if (!input.focusCharacter) throw new Error('A character is required for a manual Appearance Sidecar field refresh.')
     const result = normalizeAppearanceFieldRefreshOutput(raw, input.refreshField)
@@ -7677,6 +8108,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     const acceptedNames = new Set([focused.canonicalCharacterName, ...focused.aliases].map(value => value.trim().toLocaleLowerCase()).filter(Boolean))
     if (!acceptedNames.has(result.subject.trim().toLocaleLowerCase())) throw new Error(`Appearance Sidecar returned ${result.subject} instead of ${focused.canonicalCharacterName}.`)
     await mutateState(input.chatId, input.userId, next => {
+      assertCurrent()
       replaceAppearanceMemoryFieldFromSidecar(next.continuityVault, {
         characterId: focused.canonicalCharacterId,
         field: result.field,
@@ -7700,6 +8132,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
   }
   const observations = normalizeAppearanceSidecarOutput(raw)
   await mutateState(input.chatId, input.userId, next => {
+    assertCurrent()
     const vault = next.continuityVault
     if (mode === 'normal' && vault.appearanceSidecar.processedTurnKeys[turnKey]) return
     const ingestion = ingestAppearanceSidecarObservations(vault, observations, {
@@ -7713,6 +8146,7 @@ export async function runAppearanceSidecar(input: AppearanceReadyInput): Promise
     vault.appearanceSidecar.lastRunAt = Date.now()
     vault.appearanceSidecar.lastMessageId = input.messageId
     vault.appearanceSidecar.lastSwipeId = input.swipeId
+    if (mode !== 'enrichment' && !input.focusCharacter) vault.appearanceSidecar.lastFullRefreshMessageId = input.messageId
     vault.appearanceSidecar.lastConnectionId = connection.id
     vault.appearanceSidecar.lastModel = sidecarModel || connection.model
     vault.appearanceSidecar.lastError = undefined
@@ -7839,13 +8273,13 @@ async function scanAndGenerate(
     const rawStoredContent = getAuthoritativeSwipeContent(message, swipeId)
     const storedProseNormalization = streaming
       ? { markup: rawStoredContent, repairs: [] as ReturnType<typeof normalizeProseIllustrationContracts>['repairs'] }
-      : normalizeProseIllustrationContracts(rawStoredContent)
+      : normalizeProseIllustrationContracts(rawStoredContent, { completedResponse: true })
     const storedContent = streaming ? rawStoredContent : normalizeRelaySurfaceContracts(storedProseNormalization.markup)
     if (!streaming && storedContent !== rawStoredContent) await patchSwipeContent(chatId, message, swipeId, storedContent)
     const pending = messageId ? pendingGenerationContent.get(pendingContentKey(chatId, message.id)) : undefined
     const rawCapturedContent = sourceContent || pending?.content || ''
-    const capturedProseNormalization = normalizeProseIllustrationContracts(rawCapturedContent)
-    const capturedContent = normalizeRelaySurfaceContracts(capturedProseNormalization.markup)
+    const capturedProseNormalization = normalizeProseIllustrationContracts(rawCapturedContent, { completedResponse: !streaming })
+    const capturedContent = normalizeRelaySurfaceContracts(capturedProseNormalization.markup, !streaming)
     const content = streaming
       ? (containsRelayRequestMarkup(capturedContent) ? capturedContent : '')
       : (containsRelayRequestMarkup(capturedContent) ? capturedContent : storedContent)
@@ -7857,7 +8291,7 @@ async function scanAndGenerate(
       await mutateState(chatId, userId, state => appendStateLog(state, {
         severity: 'info', stage: 'request-normalization', eventType: 'prose_illustration_contract_repaired',
         chatId, messageId: message.id, swipeId,
-        message: `Repaired ${proseContractRepairs.length} unambiguous prose illustration prompt tag${proseContractRepairs.length === 1 ? '' : 's'} locally.`,
+        message: `Repaired ${proseContractRepairs.length} unambiguous prose illustration contract detail${proseContractRepairs.length === 1 ? '' : 's'} locally.`,
         details: { repairs: proseContractRepairs.map(repair => ({ code: repair.code, slot: repair.slot, index: repair.index })) },
       }))
     }
@@ -7892,9 +8326,12 @@ async function scanAndGenerate(
 
     const allParsedRequests = parseSafeSurfaceImageRequests(content)
     const parsedRequests = suppressTextOnlyNarrativeRequests(content, allParsedRequests, config.narrativeUtilityImageEnabled)
-    // The streaming lane is intentionally narrow: other Surface families keep
-    // their existing completed-response Status Card path.
-    const requests = streaming ? parsedRequests.filter(request => request.target === 'prose.illustration') : parsedRequests
+    const streamSettings = streaming ? proseSettingsForChat(await getState(chatId, userId), chatId) : null
+    // Surface requests are independent of who plans prose illustrations. A
+    // complete Surface request may stream in Relay mode; story-authored prose
+    // illustrations still belong exclusively to the Story Model workflow.
+    const requests = streaming ? parsedRequests.filter(request => request.target !== 'prose.illustration'
+      || streamSettings?.enabled && streamSettings.mode === 'inline-protocol' && canStreamIllustration(request)) : parsedRequests
     const invalidProseIllustrations = inspectProseIllustrationSchemas(content)
     if (invalidProseIllustrations.length) {
       await mutateState(chatId, userId, state => {
@@ -7978,6 +8415,7 @@ async function scanAndGenerate(
         promptSource: req.promptSource,
         promptProfileId: selectedProfileId,
         sourceContent: content,
+        streamingSource: streaming,
         authoritativeSourceParagraph: paragraphSource?.paragraph,
         proseAnchor: paragraphSource?.anchor,
       }
@@ -8137,10 +8575,7 @@ async function scanAndGenerate(
       }
       return
     }
-    // An authored illustration sequence is ordered storytelling, not an
-    // unordered provider batch. Its first request must enter generation first.
-    const initialConcurrency = jobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit
-    await runWithConcurrency(jobs, initialConcurrency, job => dispatchRelayJob(job, {
+    await dispatchRelayBatch(jobs, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
@@ -8150,7 +8585,7 @@ async function scanAndGenerate(
       settingsSource: freshness.source,
       settingsAgeMs: freshness.ageMs,
       dispatchReason: 'new-eligible-automatic-request',
-    }, userId), () => automaticBatchAbortEpoch === currentUserAbortEpoch(userId))
+    }, userId)
   } finally {
     releaseDiscoveryLock()
   }
@@ -8239,11 +8674,6 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
           record.authoritativeSourceParagraph ||= job.authoritativeSourceParagraph
           record.proseAnchor ||= job.proseAnchor
         }
-        appendStateLog(state, {
-          severity: 'info', stage: 'parser-start', eventType: 'parser_started', chatId: job.chatId, messageId: job.messageId,
-          swipeId: job.swipeId, requestId: job.requestId, slot, target: job.target, attemptNumber: record.attemptNumber,
-          triggerType: options.triggerType, message: 'Prompt parsing started.',
-        })
       }
       return Object.fromEntries(job.slots.map(slot => {
         const record = state.slots[slotKey({ ...job, slot })]
@@ -8271,6 +8701,24 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
       let attemptNumber: number | undefined
       let regenerateSwarmSeed = false
       try {
+      const preparationStartedAt = Date.now()
+      await mutateJobState(job, userId, state => {
+        const stored = state.slots[key]
+        stored.preparationStartedAt = preparationStartedAt
+        stored.parsingStartedAt = preparationStartedAt
+        const attempt = currentAttempt(stored)
+        if (attempt) {
+          attempt.preparationStartedAt = preparationStartedAt
+          attempt.parsingStartedAt = preparationStartedAt
+        }
+        appendStateLog(state, {
+          severity: 'info', stage: 'parser-start', eventType: 'parser_started', chatId: job.chatId, messageId: job.messageId,
+          swipeId: job.swipeId, requestId: job.requestId, slot, target: job.target, attemptNumber: stored.attemptNumber,
+          triggerType: options.triggerType, message: 'Prompt preparation worker started.',
+          details: { preparationStartedAt, preprocessingLimit: config.queueConcurrencyLimit },
+        })
+      })
+      if (isJobCancelled(job)) throw new JobCancelledError()
       failureStage = 'provider-validation'
       imagePlan = await raceWithAbort(prepareImagePlan(config, job, record, options.nativeSnapshot, userId, highResMode), options.signal)
       regenerateSwarmSeed = (options.triggerType.startsWith('regenerate') || options.triggerType === 'intent-regeneration') && isSwarmUiProvider(imagePlan.provider)
@@ -8282,6 +8730,7 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
 
       failureStage = 'parser-failed'
       if (isJobCancelled(job)) throw new JobCancelledError()
+      if (job.target === 'prose.illustration') await preparePortraitInsights(job.chatId, userId, () => { if (isJobCancelled(job)) throw new JobCancelledError() })
       prepared = options.reparse
         ? await raceWithAbort(parseSlotPrompt(job, slot, messages, targetIndex, config, userId, imagePlan.nativeImageSettings as NativeImageSettings, highResMode, options.triggerType === 'reparse' || options.triggerType === 'intent-regeneration'), options.signal)
         : resolvedPromptFromRecord(record, config)
@@ -8331,6 +8780,10 @@ async function runJob(job: RouterJob, options: RunJobOptions, userId?: string): 
       }
 
       failureStage = 'image-generation-failed'
+      if (job.target !== 'prose.illustration') {
+        await awaitImageDispatchOrder(proseImagePriorities.get(proseImagePriorityKey(job.chatId, job.messageId, userId))?.promise, options.signal)
+      }
+      await awaitImageDispatchOrder(options.imageDispatchAfter, options.signal)
       if (isJobCancelled(job)) throw new JobCancelledError()
       const generated = await generateImage(job.chatId, prepared, imagePlan, userId, {
         chatId: job.chatId,
@@ -8639,15 +9092,23 @@ async function regenerateSlot(key: string, nativeSnapshot?: NativeSettingsSnapsh
   await sendState(userId, chatId)
 }
 
-export function normalizeRelaySurfaceContracts(content: string): string {
-  const proseNormalized = normalizeProseIllustrationContracts(content).markup
+export function normalizeRelaySurfaceContracts(content: string, completedResponse = true): string {
+  // Complete Plot Sparks can omit an illustration closer even though its
+  // visual_prompt and Media boundaries are explicit. Recover the validated
+  // board before request parsing; display-only recovery otherwise yields
+  // visible panels with zero backend jobs. Scan/rescan persist these inserted
+  // closers before jobs snapshot their exact source/placement owner.
+  const narrativeNormalized = normalizePlotSparksXmlClosingTags(content)
+  const proseNormalized = normalizeProseIllustrationContracts(narrativeNormalized, { completedResponse }).markup
   return normalizeSurfaceDocument(normalizeCharacterProfileContract(proseNormalized), SHIPPED_SURFACE_SPECS).markup
 }
 
 export function parseSafeSurfaceImageRequests(content: string): ReturnType<typeof parseImageRequests> {
-  // Mask only ambiguous Surface islands; retain offsets and all other prose.
-  // Scans/reparse persist safe repairs before a job snapshots original XML.
-  const safe = normalizeSurfaceDocument(maskRetiredPhoneSurfaces(content), SHIPPED_SURFACE_SPECS, block => block.diagnostics.length ? ' '.repeat(block.original.length) : block.markup)
+  // Read-only callers use the same canonical projection as scan/rescan, which
+  // persist safe repairs before jobs snapshot original XML. Projection offsets
+  // are not raw-source edit offsets; placement still verifies its exact owner.
+  const narrativeNormalized = normalizePlotSparksXmlClosingTags(content)
+  const safe = normalizeSurfaceDocument(maskRetiredPhoneSurfaces(narrativeNormalized), SHIPPED_SURFACE_SPECS, block => block.diagnostics.length ? ' '.repeat(block.original.length) : block.markup)
   return parseImageRequests(safe.markup)
 }
 
@@ -8668,6 +9129,7 @@ const NARRATIVE_REQUEST_OWNERS: Readonly<Record<string, RegExp>> = {
   'Relationship Map': /\[relationship_map\][\s\S]*?\[\/relationship_map\]/gi,
   'Cast Sheet': /\[character_profile\][\s\S]*?\[\/character_profile\]/gi,
   'Persona Wardrobe': /\[persona_wardrobe\][\s\S]*?\[\/persona_wardrobe\]/gi,
+  'Building Layout': /\[building_layout\][\s\S]*?\[\/building_layout\]/gi,
 }
 
 /** Images-off applies to future automatic work. Explicit actions on an
@@ -8679,7 +9141,7 @@ export function suppressTextOnlyNarrativeRequests<T extends ImageRequest>(
 ): T[] {
   const disabledOwners = Object.entries(NARRATIVE_REQUEST_OWNERS).filter(([name]) => imageEnabled[name] === false)
   if (!disabledOwners.length || !requests.length) return requests
-  const xmlRoots: Record<string, string> = { 'Character Phone': 'character_phone', 'Dramatic Cutaway': 'dramatic_parallel', 'Plot Sparks': 'Plot_Sparks', 'Scene Shift': 'SCENE', 'Parallel Scene': 'PARALLEL', 'Cast Introduction': 'NPC', 'Backstage Secrets': 'SECRET', 'Setting the Scene': 'WORLD', 'Off-Stage': 'else', 'Character Dossier': 'npc', 'Location File': 'place', 'In Another Life': 'WHATIF', 'Archive Entry': 'dossier_ui', 'Relationship Map': 'relationship_map', 'Cast Sheet': 'character_profile', 'Persona Wardrobe': 'persona_wardrobe' }
+  const xmlRoots: Record<string, string> = { 'Character Phone': 'character_phone', 'Dramatic Cutaway': 'dramatic_parallel', 'Plot Sparks': 'Plot_Sparks', 'Scene Shift': 'SCENE', 'Parallel Scene': 'PARALLEL', 'Cast Introduction': 'NPC', 'Backstage Secrets': 'SECRET', 'Setting the Scene': 'WORLD', 'Off-Stage': 'else', 'Character Dossier': 'npc', 'Location File': 'place', 'In Another Life': 'WHATIF', 'Archive Entry': 'dossier_ui', 'Relationship Map': 'relationship_map', 'Cast Sheet': 'character_profile', 'Persona Wardrobe': 'persona_wardrobe', 'Building Layout': 'building_layout' }
   const ranges = disabledOwners.flatMap(([name, owner]) => [...content.matchAll(owner), ...content.matchAll(new RegExp(`<${xmlRoots[name]}\\b[^>]*>[\\s\\S]*?<\\/${xmlRoots[name]}>`, 'g'))].map(match => [match.index, match.index + match[0].length] as const))
   if (!ranges.length) return requests
   return requests.filter(request => {
@@ -9307,6 +9769,7 @@ function hasTrustedRelayMarkerOwnership(state: StateFile, key: string, marker: {
 }
 
 async function rescanChatForSlots(chatId: string, userId?: string, automatic = false, requestedIncludeInactive?: boolean): Promise<void> {
+  await inheritForkCompletedMedia(chatId, userId)
   const startedAt = Date.now()
   const lockKey = `${userId || 'default'}:${chatId}`
   if (rescanLocks.has(lockKey)) {
@@ -10507,6 +10970,8 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
     }
   })
   const currentContent = message ? getAuthoritativeSwipeContent(message, batch.swipeId) : ''
+  batch.entries = batch.entries.filter(entry => !isJobCancelled(entry.job))
+  if (!batch.entries.length) return
   if (!message) {
     await markInitialPlacementBatchForRepair(batch, 'The original message is no longer available.', currentContent, userId)
     return
@@ -10546,7 +11011,7 @@ async function commitInitialPlacementBatch(batch: InitialPlacementBatch, userId?
       const now = Date.now()
       for (const { job, results } of verifiedEntries) for (const result of results) {
         const record = state.slots[slotKey({ ...job, slot: result.slot })]
-        if (!record) continue
+        if (!record || isJobCancelled(job)) continue
         applyGeneration(state, record, result, now)
         appendStateLog(state, {
           severity: 'info', stage: 'image-generation-completed', eventType: 'image_generation_completed', chatId: job.chatId,
@@ -10584,6 +11049,12 @@ async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 
     const key = placementBatchKey(job, userId)
     const batch = pendingPlacementBatches.get(key)
     if (!batch) return false
+    batch.entries = batch.entries.filter(entry => !isJobCancelled(entry.job))
+    if (!batch.entries.length) {
+      clearInitialPlacementVisualFallback(batch)
+      pendingPlacementBatches.delete(key)
+      return false
+    }
     const placementLockAcquiredAt = Date.now()
     let hasGenerationSibling = false
     await mutateState(batch.chatId, userId, state => {
@@ -10603,6 +11074,16 @@ async function maybeCommitInitialPlacementBatch(job: Pick<RouterJob, 'chatId' | 
       healthyStartedVisual: false,
     })
     if (gate !== 'ready') return false
+    // The host can create a message row before saving any authored body.
+    // Neither a missing row nor an unfinished owner means placement failed.
+    // Finalization releases this wait and validates even a changed/removed owner.
+    const story = instantRelayStories.get(instantRelayStoryScope(batch.chatId, userId))
+    const ended = story?.ended && story.messageId === batch.messageId && story.swipeId === batch.swipeId
+    if (!ended && batch.entries.some(entry => entry.job.streamingSource)) {
+      const saved = await resolveHostMessage(batch.chatId, batch.messageId)
+      if (!saved || batch.entries.some(entry => entry.job.streamingSource
+        && !hasExactStateProjectionOwner(getAuthoritativeSwipeContent(saved, batch.swipeId), entry.job))) return false
+    }
     clearInitialPlacementVisualFallback(batch)
     pendingPlacementBatches.delete(key)
     await commitInitialPlacementBatch(batch, userId)
@@ -10659,12 +11140,16 @@ async function handlePlacementVisualUnavailable(payload: PlacementVisualSettledM
   await maybeCommitInitialPlacementBatch(payload, userId)
 }
 
-async function reconsiderPendingPlacementBatches(userId?: string): Promise<void> {
+async function reconsiderPendingPlacementBatches(userId?: string, chatId?: string, messageId?: string, sourceCompleted = false): Promise<void> {
   const scopePrefix = `${relayQueueScope(userId)}:`
   const batches = [...pendingPlacementBatches.entries()]
-    .filter(([key]) => key.startsWith(scopePrefix))
+    .filter(([key, batch]) => key.startsWith(scopePrefix)
+      && (!chatId || batch.chatId === chatId) && (!messageId || batch.messageId === messageId))
     .map(([, batch]) => batch)
-  for (const batch of batches) await maybeCommitInitialPlacementBatch(batch, userId)
+  for (const batch of batches) {
+    if (sourceCompleted) for (const entry of batch.entries) entry.job.streamingSource = false
+    await maybeCommitInitialPlacementBatch(batch, userId)
+  }
 }
 
 async function stageGeneratedPlacement(job: RouterJob, results: SlotGenerationResult[], replaceExisting: boolean, requireVisualSettlement: boolean, userId?: string): Promise<boolean> {
@@ -11018,14 +11503,27 @@ async function discardRelayCandidate(chatId: string, batchId: string, candidateK
 
 async function abortAllRelayWork(initiatingChatId: string, userId?: string, operationSource = 'global-abort-all'): Promise<{ aborted: GlobalAbortSummary; cancelledRecords: number }> {
   const aborted = freezeAndCancelUserRuntime(initiatingChatId, userId)
+  const abortedAt = abortRuntimeForUser(userId).lastAbortAllAt!
+  // Runtime handoffs are already frozen. A slow state write or optional host
+  // catalog must not hold the cancellation acknowledgement hostage.
+  spindle.sendToFrontend({
+    type: 'queue_abort_ack',
+    abortedAt,
+    chatIds: aborted.chatIds,
+    abortedQueued: aborted.providerWaiters + aborted.nativeSettingsWaiters + aborted.deferredWork + aborted.scheduledScans,
+    abortedActive: aborted.activeAttempts + aborted.providerStreams,
+    remoteCancelRequested: 0,
+    alreadyStopped: aborted.activeAttempts + aborted.providerStreams + aborted.providerWaiters === 0 ? 1 : 0,
+  }, userId)
   let cancelledRecords = 0
   for (const chatId of aborted.chatIds) {
     await mutateState(chatId, userId, state => {
       const now = Date.now()
-      state.backgroundQueue.abortRequestedAt = now
+      state.backgroundQueue.abortRequestedAt = abortedAt
       state.backgroundQueue.updatedAt = now
       for (const record of Object.values(state.slots)) {
-        if (!isGenerationActiveStatus(record.status) && !['paused-backlog', 'awaiting-native-settings'].includes(record.status)) continue
+        if (!isGenerationActiveStatus(record.status) && !['paused-backlog', 'awaiting-native-settings'].includes(record.status)
+          && !(record.status === 'placement-pending' && cancelledJobs.has(jobCancellationKey(record)))) continue
         cancelledJobs.add(jobCancellationKey(record))
         if (record.status !== 'cancelled') { state.stats.cancelledTotal += 1; cancelledRecords += 1 }
         record.status = 'cancelled'
@@ -11046,6 +11544,7 @@ async function abortAllRelayWork(initiatingChatId: string, userId?: string, oper
         }
       }
       for (const item of Object.values(state.backgroundQueue.items)) {
+        delete item.planningPreviews
         if (['completed','failed','cancelled'].includes(item.stage)) continue
         updateBackgroundTask(state, item.id, { stage: 'cancelled', statusText: 'Cancelled by Abort All', etaSeconds: null })
       }
@@ -11062,21 +11561,14 @@ async function abortAllRelayWork(initiatingChatId: string, userId?: string, oper
   return { aborted, cancelledRecords }
 }
 
-function sendAbortAllAcknowledgement(aborted: GlobalAbortSummary, cancelledRecords: number, userId?: string, reason = 'Global Abort All acknowledged'): void {
-  spindle.sendToFrontend({
-    type: 'queue_abort_ack',
-    abortedQueued: aborted.providerWaiters + aborted.nativeSettingsWaiters + aborted.deferredWork + aborted.scheduledScans,
-    abortedActive: aborted.activeAttempts + aborted.providerStreams,
-    remoteCancelRequested: 0,
-    alreadyStopped: cancelledRecords + aborted.activeAttempts + aborted.providerStreams + aborted.providerWaiters === 0 ? 1 : 0,
-  }, userId)
+function sendAbortAllNotice(aborted: GlobalAbortSummary, cancelledRecords: number, userId?: string, reason = 'Global Abort All acknowledged'): void {
   spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: `${reason}: ${cancelledRecords} slot${cancelledRecords === 1 ? '' : 's'} stopped across ${aborted.chatIds.length} chat${aborted.chatIds.length === 1 ? '' : 's'}. Relay will not hand off another provider request without new user work.` }, userId)
 }
 
 async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queue_action' }>, nativeSnapshot?: NativeSettingsSnapshot, userId?: string): Promise<void> {
   if (payload.action === 'abort_all') {
     const { aborted, cancelledRecords } = await abortAllRelayWork(payload.chatId, userId)
-    sendAbortAllAcknowledgement(aborted, cancelledRecords, userId)
+    sendAbortAllNotice(aborted, cancelledRecords, userId)
     return
   }
   if (payload.action === 'generate_pending' || payload.action === 'generate_all_pending') {
@@ -11093,8 +11585,7 @@ async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queu
     if (payload.action === 'generate_pending' && !selected.size) throw new Error('Generate Selected Pending requires at least one selected slot.')
     const pending = selectPendingRecordsForExplicitAction(Object.values(state.slots), selected, payload.action === 'generate_all_pending')
     const pendingJobs = groupRecordsIntoJobs(pending)
-    const pendingConcurrency = pendingJobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit
-    await runWithConcurrency(pendingJobs, pendingConcurrency, job => dispatchRelayJob(job, {
+    await dispatchRelayBatch(pendingJobs, {
       replaceExisting: false,
       reparse: true,
       triggerType: 'initial',
@@ -11105,7 +11596,7 @@ async function handleQueueAction(payload: Extract<FrontendMessage, { type: 'queu
       dispatchReason: payload.action === 'generate_all_pending' ? 'explicit-generate-all-pending' : 'explicit-generate-selected-pending',
       providerOrigin: payload.action === 'generate_all_pending' ? 'explicit-generate-all-pending' : 'explicit-generate-selected-pending',
       authorizedSlotKey: payload.action === 'generate_pending' && selected.size === 1 ? [...selected][0] : undefined,
-    }, userId))
+    }, userId)
     return
   }
   if (payload.action === 'discard_pending') {
@@ -11212,9 +11703,11 @@ async function handleProseIllustratorAction(
       for (const [key, scheduled] of [...scheduledProseOpportunityScans.entries()]) {
         if (scheduled.chatId !== chatId) continue
         if (scheduled.timer) clearTimeout(scheduled.timer)
+        scheduled.imagePriority?.release()
         scheduledProseOpportunityScans.delete(key)
       }
       await mutateState(chatId, userId, state => {
+        for (const task of Object.values(state.backgroundQueue.items)) delete task.planningPreviews
         for (const plan of Object.values(state.proseIllustrator.plans)) {
           if (plan.chatId !== chatId || ['generated', 'cancelled', 'rejected'].includes(plan.status)) continue
           plan.status = 'cancelled'
@@ -11285,7 +11778,12 @@ async function handleProseIllustratorAction(
       return
     }
     case 'relay_plan_once': {
+      // Own the command before any host I/O, so Abort All can cancel a click
+      // that is still resolving its message rather than already analyzing it.
+      const operationKey = `prose:${chatId}`
+      const operationSerial = captureAbortableOperation(operationKey)
       const message = await resolveMessage(chatId, payload.messageId)
+      assertAbortableOperationCurrent(operationKey, operationSerial)
       if (!message) throw new Error('Message not found.')
       const swipeId = Number.isFinite(Number(payload.swipeId)) ? Number(payload.swipeId) : activeSwipeId(message)
       const accepted = await discoverProseOpportunities({
@@ -11298,17 +11796,18 @@ async function handleProseIllustratorAction(
         suppressAutoDispatch: true,
         userId,
       })
+      assertAbortableOperationCurrent(operationKey, operationSerial)
       if (!accepted.length) {
-        spindle.sendToFrontend({ type: 'relay_notice', level: 'warning', message: 'Relay-Planned found no strong visual beat in that response.' }, userId)
+        spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: 'Emotional Beat found no suitable emotional moment in this response. Choose another framing mode to illustrate a quiet still.' }, userId)
         return
       }
-      await handleAutoOpportunityDispatch(chatId, accepted, userId, { forceHandsOff: true })
+      await handleAutoOpportunityDispatch(chatId, accepted, userId, { forceHandsOff: true, manualDispatch: true })
       spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: 'Relay-Planned recovery started for this response only. Your selected Illustrator mode was not changed.' }, userId)
       return
     }
     case 'generate_plan':
       if (!payload.planId) throw new Error('Plan ID is required.')
-      await generateProseIllustrationPlan(chatId, payload.planId, nativeSnapshot, userId)
+      await generateProseIllustrationPlan(chatId, payload.planId, nativeSnapshot, userId, { manualDispatch: true })
       return
     case 'remove_illustration':
       if (!payload.illustrationId) throw new Error('Illustration ID is required.')
@@ -11319,15 +11818,6 @@ async function handleProseIllustratorAction(
 
 function normalizeTagList(value: string): string {
   return [...new Set(value.split(/[,\n]+/).map(tag => tag.trim().replace(/\s+/g, '_')).filter(Boolean))].join(', ')
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize)))
-  }
-  return btoa(binary)
 }
 
 async function recordLastGeneratedImage(chatId: string | null | undefined, imageUrl: string, userId?: string): Promise<void> {
@@ -11411,6 +11901,7 @@ async function planProseIllustrationForMessage(
   if (!isEligibleProseContent(content, settings)) throw new Error('Selected message is not eligible for Prose Illustrator planning.')
   if (mode === 'relay-planned') {
     const config = await getConfig(userId)
+    assertAbortableOperationCurrent(operationKey, operationSerial)
     const analysis = await analyzeRelayPlannedResponse({ chatId, messageId: message.id, swipeId, content, state, settings, config, userId })
     assertAbortableOperationCurrent(operationKey, operationSerial)
     if (!analysis.opportunities.length) {
@@ -11464,7 +11955,8 @@ async function selectProseOpportunity(chatId: string, opportunityId: string, use
   const opportunity = state.proseIllustrator.opportunities[opportunityId]
   if (!opportunity || opportunity.chatId !== chatId) throw new Error('Opportunity not found.')
   if (!['proposed', 'selected'].includes(opportunity.status)) throw new Error(`Opportunity is ${opportunity.status} and cannot be selected.`)
-  const message = await resolveMessage(chatId, opportunity.messageId)
+  const hostMessage = await resolveHostMessage(chatId, opportunity.messageId)
+  const message = hostMessage ? canonicalEditedMessage(hostMessage) : null
   if (!message) {
     await mutateState(chatId, userId, next => {
       delete next.proseIllustrator.opportunities[opportunityId]
@@ -11591,6 +12083,10 @@ export async function composePromptForOpportunity(
   if (!settings.plannerConnectionId) throw new Error('Scene analyzer unavailable. Select a Prose Illustrator planner connection before composing a prompt.')
   const connection = await spindle.connections.get(settings.plannerConnectionId, userId)
   if (!connection) throw new Error('Prose Illustrator Sidecar connection not found.')
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  if (settings.appearanceMemoryEnabled) await ensureAppearanceReadyForTurn({ chatId, messageId: opportunity.messageId, swipeId: opportunity.swipeId,
+    content, userId, reason: 'prose-before-composer' })
+  assertAbortableOperationCurrent(operationKey, operationSerial)
   const messages = await buildProsePromptComposerMessages(chatId, opportunity, content, settings, userId)
   const config = await getConfig(userId)
   assertAbortableOperationCurrent(operationKey, operationSerial)
@@ -11614,15 +12110,19 @@ export async function composePromptForOpportunity(
   const sexualEscalationRejected = hasUnrequestedExplicitEscalation(authoritativeScene, rawPositivePrompt)
   if (sexualEscalationRejected) throw new Error('Sidecar prompt composer added explicit content absent from the selected scene; Relay stopped before provider dispatch instead of substituting narrative prose for an image prompt.')
   const cleanedPositivePrompt = settings.stripGenericStyleBoilerplate ? stripGenericIllustratorStyleBoilerplate(rawPositivePrompt) : rawPositivePrompt
+  const expectedPeopleCount = settings.perspectiveMode === 'solo-scene' ? limited.kept.length : settings.maximumCharacters > 0 ? Math.min(rawExpectedPeopleCount, settings.maximumCharacters) : rawExpectedPeopleCount
+  const storyboardIntegrity = settings.perspectiveMode === 'storyboard' && settings.promptFormat !== 'danbooru-tags'
+    ? storyboardFigureIntegrityClause(expectedPeopleCount, limited.kept)
+    : ''
   const positivePrompt = [
     settings.customPromptPrefix,
     cleanedPositivePrompt,
+    storyboardIntegrity,
     settings.perspectiveMode === 'solo-scene' ? `character-only composition, only ${limited.kept.join(', ') || 'the selected subject'} visible, no unrelated people` : '',
     settings.highResolutionModifier ? 'high-resolution polished rendering, cleaner anatomy, stronger identity consistency, refined detail while preserving the selected prose framing' : '',
   ].filter(Boolean).join(', ')
   const baseNegativePrompt = [settings.customNegativePrefix, cleanString(parsed.negativePrompt), settings.perspectiveMode === 'solo-scene' ? 'extra person, background people, crowd, unrelated character, duplicate person, additional face, silhouette person, reflected person' : ''].filter(Boolean).join(', ')
   const contextualSexual = applyContextualSexualGuidance(positivePrompt, baseNegativePrompt, authoritativeScene)
-  const expectedPeopleCount = settings.perspectiveMode === 'solo-scene' ? limited.kept.length : settings.maximumCharacters > 0 ? Math.min(clampInt(parsed.expectedPeopleCount, 0, 64, opportunity.expectedPeopleCount), settings.maximumCharacters) : clampInt(parsed.expectedPeopleCount, 0, 64, opportunity.expectedPeopleCount)
   const backgroundPeople = settings.perspectiveMode === 'solo-scene' ? '' : cleanString(parsed.backgroundPeople) || opportunity.backgroundPeople
   validateIllustratorPeopleConstraints(settings, limited.kept, expectedPeopleCount, backgroundPeople)
   return {
@@ -11691,8 +12191,10 @@ export async function buildProsePromptComposerMessages(
   const channelGuard = settings.promptFormat === 'danbooru-tags'
     ? [BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_SUBJECT_WARDROBE_GUIDANCE].join('\n\n')
     : 'PROVIDER PROMPT CHANNEL GUARD: The positivePrompt field is sent directly to the image model. Return only an image-ready description of visible content from the selected story beat. Never copy the narrative paragraph/dialogue, Relay placement or wrapper rules, story framing contract, caption intent, or instructions to the Story Model. Do not invent text bubbles, subtitles, or captions.'
-  if (messages[0]?.role === 'system') messages[0].content = `${messages[0].content}\n\n${channelGuard}`
-  else messages.unshift({ role: 'system', content: channelGuard })
+  const storyboardSpatialGuard = settings.perspectiveMode === 'storyboard' ? STORYBOARD_SPATIAL_FIDELITY_GUIDANCE : ''
+  const finalGuard = [channelGuard, MULTI_SUBJECT_BLOCKING_GUIDANCE, storyboardSpatialGuard].filter(Boolean).join('\n\n')
+  if (messages[0]?.role === 'system') messages[0].content = `${messages[0].content}\n\n${finalGuard}`
+  else messages.unshift({ role: 'system', content: finalGuard })
   return messages
 }
 
@@ -11737,7 +12239,7 @@ function planFromOpportunity(
 ): ProseIllustrationPlan {
   const paragraphs = proseParagraphs(content)
   const handsOffAuto = forceHandsOff || isHandsOffProseMode(settings)
-  const insertionSide = settings.placementPolicy === 'end-of-message' ? 'end' : (opportunity.insertionSide || placementSideFromPolicy(settings.placementPolicy))
+  const insertionSide = opportunity.insertionSide === 'opening' ? 'opening' : settings.placementPolicy === 'end-of-message' ? 'end' : (opportunity.insertionSide || placementSideFromPolicy(settings.placementPolicy))
   const planId = `prose-${contentFingerprint(`${opportunity.opportunityId}:${composition.composedAt}`).replace(/[^a-z0-9]/gi, '-')}`
   return {
     planId,
@@ -11784,26 +12286,51 @@ function planFromOpportunity(
   }
 }
 
-async function handleAutoOpportunityDispatch(chatId: string, opportunities: ProseIllustrationOpportunity[], userId?: string, options: { forceHandsOff?: boolean } = {}): Promise<void> {
+function relayPlanningPreviewRecord(opportunity: ProseIllustrationOpportunity, input: RelayAnalysisInput): SlotRecord {
+  const plan = planFromOpportunity(opportunity, input.content, input.settings, opportunity.promptComposition!, true)
+  plan.planId = `relay-planning-${opportunity.opportunityId}`
+  const now = Date.now()
+  return {
+    key: slotKey({ chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, requestId: plan.planId, slot: 'illustration' }),
+    chatId: input.chatId, messageId: input.messageId, swipeId: input.swipeId, requestId: plan.planId,
+    target: 'prose.illustration', imageIntent: 'auto', targetApp: 'prose', slot: 'illustration', status: 'preparing',
+    originalSceneBrief: plan.sceneBrief, originalNegativePrompt: '', originalRequestXml: renderProsePendingMarker(plan),
+    alt: plan.altText, caption: plan.caption, count: 1, requestAspect: plan.aspectRatio, createdAt: now, updatedAt: now,
+    proseAnchor: plan.anchor, proseSynthetic: true, prosePlanningOpportunityId: opportunity.opportunityId,
+    proseImageAlignment: plan.imageAlignment || 'center', proseImageSize: plan.imageSize || 'medium',
+    attempts: [], history: [], promptPipeline: emptyPromptPipeline({ caption: plan.caption, originalNegativePrompt: '' }),
+  }
+}
+
+async function clearRelayPlanningPreviews(chatId: string, messageId: string, swipeId: number, workerId: string | undefined, userId?: string): Promise<void> {
+  await mutateState(chatId, userId, state => {
+    const task = state.backgroundQueue.items[`analysis:${chatId}:${messageId}:${swipeId}`]
+    if (workerId && task?.analysisWorkerId === workerId && task.stage === 'completed') delete task.planningPreviews
+  })
+  await sendState(userId, chatId)
+}
+
+async function handleAutoOpportunityDispatch(chatId: string, opportunities: ProseIllustrationOpportunity[], userId?: string, options: { forceHandsOff?: boolean; manualDispatch?: boolean } = {}): Promise<void> {
   const operationKey = `prose:${chatId}`
   const operationSerial = captureAbortableOperation(operationKey)
   const state = await getState(chatId, userId)
   assertAbortableOperationCurrent(operationKey, operationSerial)
   const settings = proseSettingsForChat(state, chatId)
   if ((!isHandsOffProseMode(settings) && !options.forceHandsOff) || !opportunities.length) return
-  const requested = Math.max(1, Math.min(settings.illustrationsPerRun || 1, settings.maximumIllustrationsPerMessage))
-  const seenBeats = new Set<string>()
-  const selected = [...opportunities]
-    .filter(item => item.status === 'proposed')
-    .sort((a, b) => b.confidence - a.confidence)
-    .filter(item => {
-      const beat = `${item.messageId}:${item.swipeId}:${item.paragraphIndex}:${item.insertionSide}`
-      if (seenBeats.has(beat)) return false
-      seenBeats.add(beat)
-      return true
-    })
-    .slice(0, requested)
-  if (!selected.length) return
+  const first = opportunities[0]
+  const planningWorkerId = state.backgroundQueue.items[`analysis:${chatId}:${first.messageId}:${first.swipeId}`]?.analysisWorkerId
+  const countBounds = relayPlannedIllustrationCountBounds(settings, settings.maximumIllustrationsPerMessage
+    - countCommittedProseIllustrationsForMessage(state, chatId, first.messageId, first.swipeId)
+    - countActiveProsePlansForMessage(state, chatId, first.messageId, first.swipeId))
+  const requested = countBounds.maximumIllustrations
+  const selected = selectRelayPlannedDispatchOpportunities(opportunities.filter(opportunity =>
+    opportunity.insertionSide !== 'opening' || !hasOpeningFrameForMessage(state, chatId, opportunity.messageId, opportunity.swipeId)), requested)
+  if (!selected.length) {
+    await clearRelayPlanningPreviews(chatId, first.messageId, first.swipeId, planningWorkerId, userId)
+    return
+  }
+  if (selected.length < countBounds.minimumIllustrations) spindle.sendToFrontend({ type: 'relay_notice', level: 'warning',
+    message: `Illustration count shortfall: ${selected.length} of ${countBounds.minimumIllustrations}${countBounds.countMode === 'range' ? `–${countBounds.maximumIllustrations}` : ''} requested illustrations passed planning. Generating only the validated shots.` }, userId)
   await mutateState(chatId, userId, next => {
     appendStateLog(next, {
       severity: 'info', stage: 'prose-illustrator-auto', eventType: 'prose_hands_off_dispatch_started',
@@ -11812,14 +12339,29 @@ async function handleAutoOpportunityDispatch(chatId: string, opportunities: Pros
       details: { requested, selectedOpportunityIds: selected.map(item => item.opportunityId), paragraphIndexes: selected.map(item => item.paragraphIndex) },
     })
   })
-  for (const opportunity of selected) {
+  const reservedPlans: string[] = []
+  try {
+    for (const opportunity of selected) {
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      const plan = await selectProseOpportunity(chatId, opportunity.opportunityId, userId, options)
+      // Selection can wait on composition/storage. Keep the original command's
+      // cancellation boundary before a nested generation captures a new one.
+      assertAbortableOperationCurrent(operationKey, operationSerial)
+      await generateProseIllustrationPlan(chatId, plan.planId, undefined, userId, { manualDispatch: options.manualDispatch, reserveOnly: true })
+      reservedPlans.push(plan.planId)
+    }
+  } finally {
+    await clearRelayPlanningPreviews(chatId, first.messageId, first.swipeId, planningWorkerId, userId)
+  }
+  // Publish every accepted placeholder before entering the serialized image
+  // lane. A slow first image must not hide the remaining selected story beats.
+  for (const planId of reservedPlans) {
     assertAbortableOperationCurrent(operationKey, operationSerial)
-    const plan = await selectProseOpportunity(chatId, opportunity.opportunityId, userId, options)
-    await generateProseIllustrationPlan(chatId, plan.planId, undefined, userId)
+    await dispatchReservedProseIllustrationPlan(chatId, planId, undefined, userId, options)
   }
 }
 
-async function generateProseIllustrationPlan(chatId: string, planId: string, nativeSnapshot?: NativeSettingsSnapshot, userId?: string): Promise<void> {
+async function generateProseIllustrationPlan(chatId: string, planId: string, nativeSnapshot?: NativeSettingsSnapshot, userId?: string, options: { manualDispatch?: boolean; reserveOnly?: boolean } = {}): Promise<void> {
   const operationKey = `prose:${chatId}`
   const operationSerial = captureAbortableOperation(operationKey)
   const state = await getState(chatId, userId)
@@ -11910,7 +12452,22 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
     appendStateLog(next, { severity: 'info', stage: 'prose-illustrator', eventType: 'prose_illustration_queued', chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, target: 'prose.illustration', message: 'Queued synthetic prose illustration through the synthetic prose slot.', details: { plan } })
   })
   await sendState(userId, chatId)
+  if (!options.reserveOnly) await dispatchReservedProseIllustrationPlan(chatId, planId, nativeSnapshot, userId, options)
+}
+
+async function dispatchReservedProseIllustrationPlan(chatId: string, planId: string, nativeSnapshot?: NativeSettingsSnapshot, userId?: string, options: { manualDispatch?: boolean } = {}): Promise<void> {
+  const operationKey = `prose:${chatId}`
+  const operationSerial = captureAbortableOperation(operationKey)
+  const state = await getState(chatId, userId)
+  assertAbortableOperationCurrent(operationKey, operationSerial)
+  const plan = state.proseIllustrator.plans[planId]
+  if (!plan) return
+  const settings = proseSettingsForChat(state, chatId)
+  const handsOffDispatch = isHandsOffProseMode(settings) || (plan.mode === 'relay-planned' && plan.source === 'auto')
   const proseSlotKey = slotKey({ chatId, messageId: plan.messageId, swipeId: plan.swipeId, requestId: plan.planId, slot: 'illustration' })
+  // Abort/removal/replacement can happen between reservation and dispatch.
+  // Never resurrect an unstarted slot after those actions.
+  if (state.slots[proseSlotKey]?.status !== 'queued' || state.slots[proseSlotKey].orphaned) return
   if (handsOffDispatch) {
     assertAbortableOperationCurrent(operationKey, operationSerial)
     const latest = await getState(chatId, userId)
@@ -11924,10 +12481,10 @@ async function generateProseIllustrationPlan(chatId: string, planId: string, nat
       nativeSnapshot,
       highResMode: plan.highResolutionModifier ?? settings.highResolutionModifier,
       forceImagePreview: settings.relayInsertionMode === 'review',
-      automaticDispatch: true,
+      automaticDispatch: !options.manualDispatch,
       settingsSource: classifyNativeSettings(nativeSnapshot?.capturedAt).source,
       settingsAgeMs: classifyNativeSettings(nativeSnapshot?.capturedAt).ageMs,
-      dispatchReason: 'relay-planned-automatic-request',
+      dispatchReason: options.manualDispatch ? 'relay-planned-manual-request' : 'relay-planned-automatic-request',
     }, userId)
     return
   }
@@ -11977,7 +12534,7 @@ function normalizeProsePlan(
   const selectedExcerpt = cleanString(raw.selectedExcerpt) || paragraphs[0] || compact(content, 400)
   const paragraphIndex = clampInt(raw.paragraphIndex, 0, Math.max(0, paragraphs.length - 1), bestParagraphIndex(paragraphs, selectedExcerpt))
   const insertionRaw = cleanString(raw.insertionSide)
-  const insertionSide = ['before', 'after', 'end'].includes(insertionRaw) ? insertionRaw as ProseIllustrationAnchor['insertionSide'] : placementSideFromPolicy(settings.placementPolicy)
+  const insertionSide = ['before', 'after', 'end', 'opening'].includes(insertionRaw) ? insertionRaw as ProseIllustrationAnchor['insertionSide'] : placementSideFromPolicy(settings.placementPolicy)
   const planId = `prose-${contentFingerprint(`${chatId}:${messageId}:${swipeId}:${selectedExcerpt}:${Date.now()}`).replace(/[^a-z0-9]/gi, '-')}`
   const peoplePolicyRaw = cleanString(raw.peoplePolicy)
   const namedSubjects = stringList(raw.namedSubjects).slice(0, 8)
@@ -12114,7 +12671,7 @@ const PROSE_NON_NARRATIVE_BRACKET_RE = new RegExp(
 )
 
 export function proseAnalysisText(content: string): string {
-  let value = content || ''
+  let value = stripSceneAppearanceMarkup(content || '')
   for (let pass = 0; pass < 4; pass += 1) {
     const next = value.replace(PROSE_NON_NARRATIVE_BLOCK_RE, ' ').replace(PROSE_NON_NARRATIVE_BRACKET_RE, ' ')
     if (next === value) break
@@ -12127,13 +12684,17 @@ export function proseAnalysisText(content: string): string {
 }
 
 export function isEligibleProseContent(content: string, settings: ProseIllustratorSettings): boolean {
-  if (!content) return false
+  return !proseContentEligibilityBlocker(content, settings)
+}
+
+function proseContentEligibilityBlocker(content: string, settings: ProseIllustratorSettings): string | null {
+  if (!content) return 'This response has no story text to illustrate. Choose a saved story response.'
   const narrative = settings.skipUtilities ? proseAnalysisText(content) : content
-  if (settings.skipOoc && /\b(OOC|out of character|system note|developer handoff)\b/i.test(prosePlainText(narrative))) return false
-  if (settings.skipTestFixtures && /\b(integration test|debug fixture|test-phone|router metadata|smoke test|lifecycle smoke)\b/i.test(prosePlainText(narrative))) return false
+  if (settings.skipOoc && /\b(OOC|out of character|system note|developer handoff)\b/i.test(prosePlainText(narrative))) return 'This response contains OOC content excluded by Skip OOC. Turn that setting off or choose a story response.'
+  if (settings.skipTestFixtures && /\b(integration test|debug fixture|test-phone|router metadata|smoke test|lifecycle smoke)\b/i.test(prosePlainText(narrative))) return 'This response contains a development/test marker. Turn off Ignore Debug/Test Messages under Illustrations → Image Controls to plan images for it, or choose a story response.'
   const text = prosePlainText(narrative)
-  if (settings.skipShortMessages && text.length < settings.minimumMessageLength) return false
-  return proseParagraphs(narrative).length > 0
+  if (settings.skipShortMessages && text.length < settings.minimumMessageLength) return 'This response is shorter than the automatic illustration minimum.'
+  return proseParagraphs(narrative).length > 0 ? null : 'This response has no story text to illustrate after image requests and utility markup are excluded. Choose a saved story response.'
 }
 
 function proseAutoIdempotenceKey(chatId: string, messageId: string, content: string, settings: ProseIllustratorSettings): string {
@@ -12201,13 +12762,18 @@ export function proseParagraphBeforeImageRequest(content: string, requestIndex: 
   return { paragraph: precedingParagraphs[precedingParagraphs.length - 1], paragraphIndex: precedingParagraphs.length - 1 }
 }
 
-function proseRequestAnchor(
-  request: { target: string; promptSource?: string; index: number },
+export function proseRequestAnchor(
+  request: { target: string; promptSource?: string; index: number; fullMatch?: string },
   content: string,
   messageId: string,
   swipeId: number,
 ): { paragraph: string; anchor: ProseIllustrationAnchor } | null {
   if (request.target !== 'prose.illustration' || request.promptSource !== 'visual_prompt') return null
+  if (/^<reverie-illustration\b[^>]*\bplacement=["']opening["']/i.test(request.fullMatch || '')) {
+    const paragraphs = proseParagraphs(content)
+    if (!paragraphs[0]) return null
+    return { paragraph: paragraphs[0], anchor: proseAnchor(messageId, swipeId, content, paragraphs, 0, paragraphs[0], 'opening') }
+  }
   const preceding = proseParagraphBeforeImageRequest(content, request.index)
   if (!preceding) return null
   const paragraphs = proseParagraphs(content)
@@ -12230,9 +12796,10 @@ function renderProsePendingMarker(plan: ProseIllustrationPlan): string {
   return `${slotComment(job, 'illustration')}\n<scene_image pending="true" requestId="${escapeForMarker(plan.planId)}" planId="${escapeForMarker(plan.planId)}" anchor="${escapeForMarker(plan.anchor.paragraphFingerprint)}" alt="${escapeForMarker(plan.altText || 'Scene illustration')}">${escapeForMarker(plan.title || 'Generating scene illustration...')}</scene_image>`
 }
 
-function insertProseMarker(content: string, anchor: ProseIllustrationAnchor, marker: string): { content: string; ambiguous: boolean; warning?: string } {
+export function insertProseMarker(content: string, anchor: ProseIllustrationAnchor, marker: string): { content: string; ambiguous: boolean; warning?: string } {
   // The exact owned marker always wins. This keeps retries and out-of-order completions idempotent.
   if (content.includes(marker)) return { content, ambiguous: false }
+  if (anchor.insertionSide === 'opening') return { content: `${marker}\n\n${content}`, ambiguous: false }
   if (anchor.insertionSide === 'end') return { content: `${content.trimEnd()}\n\n${marker}`, ambiguous: false }
 
   const paragraphs = splitRawParagraphs(content)
@@ -12451,6 +13018,8 @@ async function forceMarkFailed(job: RouterJob, error: string, userId?: string, e
 }
 
 async function restoreHistory(chatId: string, key: string, historyIndex: number, userId?: string): Promise<void> {
+  if (key.split(':')[0] !== chatId) throw new Error('History belongs to a different chat.')
+  await getRecordByKey(key, userId, true)
   await mutateState(chatId, userId, async state => {
     const record = state.slots[key]
     if (!record) throw new Error('Slot not found.')
@@ -12462,8 +13031,13 @@ async function restoreHistory(chatId: string, key: string, historyIndex: number,
 
     const content = getSwipeContent(message, record.swipeId)
     const next = replaceImageUrlAfterSlotComment(content, record, snapshot.imageUrl)
-    if (!next) throw new Error('Could not find the current image slot in the message.')
-    await patchSwipeContent(record.chatId, message, record.swipeId, next)
+    // Current images are state-projected, so the authored story need not
+    // contain a resolved-image marker. Use the same exact ownership proof
+    // as generation; only legacy message-owned media needs a text patch.
+    if (!hasExactStateProjectionOwner(content, jobFromRecord(record))) {
+      if (!next) throw new Error('Could not find the current image slot in the message.')
+      await patchSwipeContent(record.chatId, message, record.swipeId, next)
+    }
 
     const now = Date.now()
     const current = snapshotFromRecord(record, now)
@@ -12663,6 +13237,10 @@ async function reuseAssetInSlot(chatId: string, key: string, assetId: string, us
 }
 
 async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 'continuity_action' }>, userId?: string): Promise<void> {
+  if (payload.action === 'rescan_appearance') {
+    await rescanAppearanceFromOrb(payload.chatId, userId)
+    return
+  }
   if (payload.action === 'rerun_appearance_field') {
     await handleAppearanceFieldRefresh(payload, userId)
     return
@@ -13051,6 +13629,34 @@ async function handleContinuityAction(payload: Extract<FrontendMessage, { type: 
   }
 }
 
+async function rescanAppearanceFromOrb(chatId: string, userId?: string): Promise<void> {
+  const key = renderScopeKey(chatId, userId)
+  if (appearanceRescanLocks.has(key)) {
+    spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: 'An Appearance rescan is already running for this chat.' }, userId)
+    return
+  }
+  appearanceRescanLocks.add(key)
+  try {
+    if (!await spindle.chats.get(chatId, userId)) throw new Error('Open a saved chat before rescanning appearances.')
+    const messages = await spindle.chat.getMessages(chatId) as ChatMessage[]
+    const anchor = messages.filter(message => isAssistantMessage(message) && !isOwnMessage(message)).at(-1)
+    if (!anchor) throw new Error('This chat has no saved story response to rescan for appearances.')
+    spindle.sendToFrontend({ type: 'relay_notice', level: 'info', message: 'Rescanning Appearance Memory…' }, userId)
+    const swipeId = activeSwipeId(anchor)
+    const completed = await runAppearanceSidecar({ chatId, messageId: anchor.id, swipeId, content: getSwipeContent(anchor, swipeId), userId, mode: 'reconcile', reason: 'orb-appearance-rescan' })
+    if (!completed) {
+      const state = await getState(chatId, userId)
+      throw new Error(state.continuityVault.appearanceSidecar.lastError || 'Appearance Sidecar is disabled or Appearance Memory strength is Off.')
+    }
+    await sendState(userId, chatId)
+    spindle.sendToFrontend({ type: 'relay_notice', level: 'success', message: 'Appearance Memory rescan completed.' }, userId)
+  } catch (error) {
+    spindle.sendToFrontend({ type: 'relay_notice', level: 'error', message: error instanceof Error ? error.message : String(error) }, userId)
+  } finally {
+    appearanceRescanLocks.delete(key)
+  }
+}
+
 async function handleAppearanceFieldRefresh(payload: Extract<FrontendMessage, { type: 'continuity_action' }>, userId?: string): Promise<void> {
   const field = payload.appearanceField
   const labels: Record<AppearanceMemoryRefreshField, string> = {
@@ -13192,7 +13798,7 @@ function builtInSurfaceDefinitions(now = Date.now()): Record<string, CustomSurfa
     })
   }
   const activeRows = [...byBaseId.values()]
-  if (activeRows.length !== 47) throw new Error(`Surface inventory drift: expected 47, got ${activeRows.length}`)
+  if (activeRows.length !== 48 || !byBaseId.has('amazon') || !byBaseId.has('building-layout')) throw new Error(`Surface inventory drift: expected 48 including Amazon and Building Layout, got ${activeRows.length}`)
   const definitions = Object.fromEntries(activeRows.map(definition => [definition.surfaceId, definition]))
   builtInSurfaceDefinitionTemplate = definitions
   return Object.fromEntries(Object.entries(definitions).map(([id, definition]) => [id, { ...definition }]))
@@ -13354,7 +13960,7 @@ export function buildIllustratorRuntimeDirective(
   const minimum = requestIllustrations
     ? (countMode === 'range' ? Math.max(1, Math.min(target, settings.minimumImages || 1)) : target)
     : 0
-  const utilityCountScope = 'Count only Inline <reverie-illustration> requests owned by the Illustrator protocol. Exclude every media request required inside an invoked Surface or Narrative Utility from this count; that Utility owns its own structure and count.'
+  const utilityCountScope = 'Count only Inline <reverie-illustration> requests owned by the Illustrator protocol. Exclude every media request required inside an invoked Surface or Narrative Utility from this count; that Utility owns its own structure and count. Also exclude placement="opening" Opening Frame requests from the inline count.'
   const illustrationInstruction = !requestIllustrations
     ? `Do not emit an Illustrator-owned Inline Reverie Relay illustration request for this response. ${utilityCountScope}`
     : countMode === 'range'
@@ -13383,7 +13989,9 @@ export function buildIllustratorRuntimeDirective(
   // Keep these parameters for callers that share the runtime-directive API.
   void profileCatalog
   void inheritedProfileId
-  return runtime
+  return mode === 'model-placed' || mode === 'inline-protocol'
+    ? `${runtime}\nModel Planned cast guidance: aim for at most ${settings.maximumCharacters} visible characters when choosing the illustrated moment. If the exact anchored action requires more people, preserve every necessary participant in the authored request; do not remove an actor or skip the illustration solely to meet this target.`
+    : runtime
 }
 
 function escapeXmlText(value: unknown): string {
@@ -13394,7 +14002,7 @@ export function defaultProseIllustratorSettings(): ProseIllustratorSettings {
   return {
     enabled: true,
     automaticProtocolInjection: true,
-    instantIllustrationDispatch: false,
+    instantIllustrationDispatch: true,
     mode: 'inline-protocol',
     promptFormat: 'natural-language',
     plannerConnectionId: null,
@@ -13414,6 +14022,7 @@ export function defaultProseIllustratorSettings(): ProseIllustratorSettings {
     imageAlignment: 'center',
     imageSize: 'medium',
     adaptiveMode: true,
+    sightlineGuard: true, quickweave: false, portraitInsight: false, openingFrame: false,
     defaultPromptProfileId: 'auto',
     defaultAspectRatio: 'adaptive',
     // Shipped defaults live in the static registry. Persist only user
@@ -13427,6 +14036,8 @@ export function defaultProseIllustratorSettings(): ProseIllustratorSettings {
     appearanceSidecarParameters: {},
     customPromptPrefix: '',
     customNegativePrefix: '',
+    nsfwPlannerEnabled: false,
+    nsfwPlannerText: DEFAULT_NSFW_PLANNER_TEXT,
     stripGenericStyleBoilerplate: true,
     defaultCandidateCount: 1,
     continuityStrength: 'medium',
@@ -13559,7 +14170,7 @@ function normalizeProseOpportunity(id: string, value: unknown): ProseIllustratio
     sceneSummary: cleanString(raw.sceneSummary) || cleanString(raw.sceneBrief),
     selectedExcerpt: cleanString(raw.selectedExcerpt),
     paragraphIndex: Math.max(0, Number(raw.paragraphIndex) || 0),
-    insertionSide: ['before', 'after', 'end'].includes(insertionSide) ? insertionSide as ProseIllustrationAnchor['insertionSide'] : 'after',
+    insertionSide: ['before', 'after', 'end', 'opening'].includes(insertionSide) ? insertionSide as ProseIllustrationAnchor['insertionSide'] : 'after',
     composition: cleanString(raw.composition),
     peoplePolicy: ['required', 'allowed', 'forbidden'].includes(peoplePolicy) ? peoplePolicy as ProseIllustratorPeoplePolicy : 'allowed',
     expectedPeopleCount: clampInt(raw.expectedPeopleCount, 0, 64, 0),
@@ -13640,7 +14251,8 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   for (const [legacyId, canonicalId] of Object.entries(ILLUSTRATOR_FRAMING_REGISTRY_ALIASES)) {
     if (Object.prototype.hasOwnProperty.call(rawRegistry, canonicalId) || !Object.prototype.hasOwnProperty.call(rawRegistry, legacyId)) continue
     const stored = String(rawRegistry[legacyId] ?? '')
-    if (!isStockRetired(legacyId, stored)) promptRegistry[canonicalId] = stored
+    if (isStockRetired(legacyId, stored) || stored.replace(/\r\n/g, '\n').trim() === DEFAULT_PROMPT_REGISTRY[canonicalId]?.replace(/\r\n/g, '\n').trim()) migratedPromptRegistryIds.add(canonicalId)
+    else promptRegistry[canonicalId] = stored
   }
   const legacyRegistryInputs: Array<{ canonicalId: string; legacyId: string; value: unknown }> = [
     { canonicalId: 'story.model-placed', legacyId: 'story.model-placed', value: raw.modelPlacedProtocolOverride },
@@ -13653,7 +14265,9 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   for (const { canonicalId, legacyId, value: legacy } of legacyRegistryInputs) {
     if (Object.prototype.hasOwnProperty.call(rawRegistry, canonicalId) || Object.prototype.hasOwnProperty.call(rawRegistry, legacyId) || !cleanString(legacy)) continue
     const stored = cleanString(legacy)
-    if (isStockRetired(legacyId, stored)) migratedPromptRegistryIds.add(canonicalId)
+    // Derived compatibility fields must not reseed exact shipped defaults as
+    // user overrides on every other normalization/save cycle.
+    if (isStockRetired(legacyId, stored) || stored.replace(/\r\n/g, '\n').trim() === DEFAULT_PROMPT_REGISTRY[canonicalId]?.replace(/\r\n/g, '\n').trim()) migratedPromptRegistryIds.add(canonicalId)
     else promptRegistry[canonicalId] = stored
   }
   const mode = cleanString(raw.mode)
@@ -13666,8 +14280,10 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
   const perspectiveMode = normalizeProsePerspectiveMode(raw.perspectiveMode)
   const imageAlignment = cleanString(raw.imageAlignment)
   const imageSize = cleanString(raw.imageSize)
+  const modelPlacedCountMode = cleanString(raw.modelPlacedCountMode) === 'range' ? 'range' : 'fixed'
   const illustrationsPerRun = clampInt(raw.illustrationsPerRun, 1, 32, defaults.illustrationsPerRun)
-  const maximumImages = Math.max(illustrationsPerRun, clampInt(raw.maximumImages, 1, 32, clampInt(raw.maximumOpportunitiesPerMessage, 1, 32, defaults.maximumImages)))
+  const selectedMaximumImages = clampInt(raw.maximumImages, 1, 32, clampInt(raw.maximumOpportunitiesPerMessage, 1, 32, defaults.maximumImages))
+  const maximumImages = modelPlacedCountMode === 'range' ? selectedMaximumImages : Math.max(illustrationsPerRun, selectedMaximumImages)
   const minimumImages = Math.min(maximumImages, clampInt(raw.minimumImages, 1, 32, defaults.minimumImages))
   const maximumIllustrationsPerMessageInput = raw.maximumIllustrationsPerMessage === undefined ? maximumImages : raw.maximumIllustrationsPerMessage
   return {
@@ -13676,7 +14292,9 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
     // Model Planned always receives its real runtime contract through the
     // interceptor path; the retired optional setting cannot silently omit it.
     automaticProtocolInjection: normalizedMode === 'model-placed' || normalizedMode === 'inline-protocol' ? true : raw.automaticProtocolInjection === true,
-    instantIllustrationDispatch: normalizedMode === 'inline-protocol' && raw.instantIllustrationDispatch === true,
+    // Persist the user's streaming preference across workflow switches.
+    // Explicit off survives upgrades; an unset preference uses the on default.
+    instantIllustrationDispatch: raw.instantIllustrationDispatch !== false,
     mode: normalizedMode,
     promptFormat: raw.promptFormat === 'danbooru-tags' ? 'danbooru-tags' : 'natural-language',
     plannerConnectionId: cleanNullableString(raw.plannerConnectionId),
@@ -13687,15 +14305,19 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
     frequencyMode: ['key-moments', 'every-eligible', 'every-n'].includes(frequencyMode) ? frequencyMode as ProseIllustratorSettings['frequencyMode'] : defaults.frequencyMode,
     everyNEligibleMessages: clampInt(raw.everyNEligibleMessages, 1, 100, defaults.everyNEligibleMessages),
     maximumOpportunitiesPerMessage: maximumImages,
-    maximumIllustrationsPerMessage: Math.max(illustrationsPerRun, clampInt(maximumIllustrationsPerMessageInput, 1, 32, Math.max(defaults.maximumIllustrationsPerMessage, maximumImages))),
+    maximumIllustrationsPerMessage: Math.max((modelPlacedCountMode === 'range' ? maximumImages : illustrationsPerRun) + (raw.openingFrame === true ? 1 : 0), clampInt(maximumIllustrationsPerMessageInput, 1, 32, Math.max(defaults.maximumIllustrationsPerMessage, maximumImages))),
     illustrationsPerRun,
     minimumImages,
     maximumImages,
-    modelPlacedCountMode: cleanString(raw.modelPlacedCountMode) === 'range' ? 'range' : 'fixed',
+    modelPlacedCountMode,
     perspectiveMode,
     imageAlignment: ['left', 'center', 'right'].includes(imageAlignment) ? imageAlignment as ProseIllustratorSettings['imageAlignment'] : defaults.imageAlignment,
     imageSize: ['small', 'medium', 'large', 'full'].includes(imageSize) ? imageSize as ProseIllustratorSettings['imageSize'] : defaults.imageSize,
     adaptiveMode: perspectiveMode === 'solo-scene' || perspectiveMode === 'persona-pov' ? false : raw.adaptiveMode !== false,
+    sightlineGuard: raw.sightlineGuard !== false,
+    quickweave: raw.quickweave === true,
+    portraitInsight: raw.portraitInsight === true,
+    openingFrame: raw.openingFrame === true,
     defaultPromptProfileId: cleanString(raw.defaultPromptProfileId) || defaults.defaultPromptProfileId,
     defaultAspectRatio: ['adaptive', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'].includes(cleanString(raw.defaultAspectRatio)) ? cleanString(raw.defaultAspectRatio) : defaults.defaultAspectRatio,
     promptRegistry,
@@ -13707,6 +14329,8 @@ export function normalizeProseIllustratorSettings(value: unknown): ProseIllustra
     appearanceSidecarParameters: cleanParameters(raw.appearanceSidecarParameters),
     customPromptPrefix: cleanString(raw.customPromptPrefix),
     customNegativePrefix: cleanString(raw.customNegativePrefix),
+    nsfwPlannerEnabled: raw.nsfwPlannerEnabled === true,
+    nsfwPlannerText: typeof raw.nsfwPlannerText === 'string' ? raw.nsfwPlannerText.slice(0, 12000) : defaults.nsfwPlannerText,
     stripGenericStyleBoilerplate: raw.stripGenericStyleBoilerplate !== false,
     defaultCandidateCount: normalizedMode === 'relay-planned' ? 1 : normalizeCandidateCount(raw.defaultCandidateCount, defaults.defaultCandidateCount),
     continuityStrength: ['off', 'low', 'medium', 'strong'].includes(strength) ? strength as ContinuityStrength : defaults.continuityStrength,
@@ -13783,7 +14407,7 @@ function normalizeCustomSurfaceDefinition(surfaceId: string, value: unknown): Cu
     customAccent: /^#[0-9a-f]{3,8}$/i.test(cleanString(raw.customAccent)) ? cleanString(raw.customAccent) : '#c24b78',
     typography: ['system', 'editorial', 'mono', 'mixed'].includes(typography) ? typography as CustomSurfaceDefinition['typography'] : 'mixed',
     advancedCss: sanitizeDeclarativeCss(cleanString(raw.advancedCss)),
-    displayName: cleanString(raw.displayName) || titleCase(baseSurfaceId),
+    displayName: surfaceLibraryName({ baseSurfaceId, displayName: cleanString(raw.displayName) || titleCase(baseSurfaceId) }),
     icon: cleanString(raw.icon) || 'image',
     targetId: isImageTarget(target) ? target : `custom.${baseSurfaceId}`,
     canonicalOuterWrapper: wrapper || `${baseSurfaceId.replace(/-/g, '_')}_surface`,
@@ -14432,6 +15056,7 @@ async function handleCustomSurfaceAction(payload: Extract<FrontendMessage, { typ
     return studio
   })
   configPatch.globalSurfaceStudio = updatedStudio
+  configPatch.surfacePreferencesInitialized = true
   if (Object.keys(configPatch).length > 0) await setConfig(configPatch, userId)
   await sendState(userId, payload.chatId || undefined)
 }
@@ -14587,6 +15212,13 @@ function shapeSceneLedIdentityPrompt(
  * image spend. Ordinary valid Model Planned requests remain one-pass.
  */
 function enforceStoryboardPrompt(prompt: string, job: RouterJob, context: ParserContextResult, format: ProseIllustratorSettings['promptFormat']): string {
+  if (job.target === 'prose.illustration') {
+    // Profiles/identity may have appended facts after a quoted visual_prompt.
+    // Only unwrap the exact authored description, never arbitrary story speech.
+    const authored = (job.composedPositivePrompt || job.originalSceneBrief).trim()
+    const unwrapped = visualDescriptionEvidence(authored)
+    if (authored !== unwrapped && prompt.includes(authored)) prompt = prompt.replace(authored, unwrapped)
+  }
   if (job.target === 'prose.illustration') prompt = normalizeIllustrationViewWording(prompt, context.perspectiveMode, format)
   if (job.target !== 'prose.illustration' || context.perspectiveMode !== 'storyboard' || !job.authoritativeSourceParagraph) return prompt
   const anchor = job.prosePromptComposition?.rawOutput?.illustration as RelayPlannedIllustration | undefined
@@ -14609,8 +15241,8 @@ export function mergeSingleSubjectBooruAppearance(prompt: string, facts: Continu
   if (names.length !== 1 || expectedPeopleCount !== 1 || declaredBooruPeopleCount(prompt) > 1) return prompt
   const nameKey = (value: string) => value.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
   const owner = nameKey(names[0])
-  const tags = facts.filter(fact => fact.valueKind === 'booru-tag'
-    && (fact.layer === 'visual-identity' || fact.layer === 'wardrobe')
+  const tags = facts.filter(fact => (fact.valueKind === 'booru-tag' || fact.sourceReference?.sourceReference === 'scene-appearance:source-grounded')
+    && (fact.layer === 'visual-identity' || fact.layer === 'wardrobe' || fact.sourceReference?.sourceReference === 'scene-appearance:source-grounded')
     && [fact.canonicalCharacterName, ...(fact.aliases || [])].some(name => nameKey(name) === owner))
     .map(fact => fact.value)
   return normalizeBooruTagPrompt([prompt, ...tags].join(', '))
@@ -14649,12 +15281,15 @@ async function buildAuthoritativeVisualPrompt(
   const contextualSexual = tagMode ? { prompt: finalized, negativePrompt: '', applied: false } : applyContextualSexualGuidance(specialIntent.prompt, '', authoritativeSceneText(job))
   const finalPositivePrompt = contextualSexual.prompt
   const nativeNegative = firstString(nativeSettings?.customNegativePrompt, nativeSettings?.negativePrompt, config.nativeNegativePrompt)
+  const figureIntegrity = job.target === 'prose.illustration' && humanPolicy.allowHumanPrompt
+    ? storyModelFigureIntegrityNegatives(Math.max(completeIllustrationSubjectNames(job).length, declaredBooruPeopleCount(finalPositivePrompt), explicitPeopleCount(finalPositivePrompt), explicitNamedVisibleSubjectCount(finalPositivePrompt))).join(', ')
+    : ''
   const normalized = normalizeNegativePrompts({
     native: humanPolicy.allowHumanPrompt ? resolveSubjectNegativeMacros(nativeNegative, context.subjectNegativePrompt) : nativeNegative,
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : '',
     parser: contextualSexual.negativePrompt,
-    router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
+    router: [profiled.decision.negativeAdditions, figureIntegrity, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
   })
   const humanConflict = humanPolicy.allowHumanPrompt
     ? removeConflictingHumanNegatives(normalized.negative)
@@ -14724,6 +15359,7 @@ async function buildAuthoritativeVisualPrompt(
   }
   return {
     prompt: finalPositivePrompt,
+    preserveOwnerParagraphs: !tagMode,
     negativePrompt: normalized.negative,
     promptMode: 'story_model_visual_prompt',
     promptPresetId: job.promptProfileId || config.nativePromptPresetId,
@@ -14862,6 +15498,22 @@ export function freezeAndCancelUserRuntime(initiatingChatId: string, userId?: st
   let nativeSettingsWaiters = 0
   let activeAttempts = 0
 
+  // Completed Instant pixels can still be awaiting the story's first save.
+  // Freeze that deferred handoff too; ordinary user-preview assets stay ready.
+  for (const [key, batch] of [...pendingPlacementBatches.entries()]) {
+    if (!key.startsWith(`${scope}:`)) continue
+    const waiting = batch.entries.filter(entry => entry.job.streamingSource)
+    if (!waiting.length) continue
+    chatIds.add(batch.chatId)
+    for (const entry of waiting) cancelledJobs.add(jobCancellationKey(entry.job))
+    deferredWork += waiting.length
+    batch.entries = batch.entries.filter(entry => !entry.job.streamingSource)
+    if (!batch.entries.length) {
+      clearInitialPlacementVisualFallback(batch)
+      pendingPlacementBatches.delete(key)
+    }
+  }
+
   const lane = imageGenerationLanes.get(scope)
   if (lane) {
     lane.handoffFrozen = true
@@ -14898,6 +15550,7 @@ export function freezeAndCancelUserRuntime(initiatingChatId: string, userId?: st
     if (relayQueueScope(scheduled.userId) !== scope) continue
     chatIds.add(scheduled.chatId)
     if (scheduled.timer) clearTimeout(scheduled.timer)
+    scheduled.imagePriority?.release()
     scheduledProseOpportunityScans.delete(key)
     scheduledScans += 1
   }
@@ -14971,10 +15624,10 @@ function semanticGazeTarget(value: string): 'camera' | 'other-subject' | 'scene'
 }
 
 function explicitPeopleCount(value: string): number {
-  const numeric = /\b([1-9])\s*(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value)
+  const numeric = /\b([1-9])\s*(?:visible\s+)?(?:adult\s+)?(?:people|persons|subjects|characters|men|women|boys|girls|adults)\b/i.exec(value)
   if (numeric) return Number(numeric[1])
   const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 }
-  const word = /\b(one|two|three|four|five)\s+(?:people|persons|subjects|characters|men|women|boys|girls)\b/i.exec(value)
+  const word = /\b(one|two|three|four|five)\s+(?:visible\s+)?(?:adult\s+)?(?:people|persons|subjects|characters|men|women|boys|girls|adults)\b/i.exec(value)
   if (word) return words[word[1].toLocaleLowerCase()] || 0
   if (/\bthird (?:person|subject|character|woman|man)\b/i.test(value)) return 3
   if (/\b(?:solo|single (?:person|subject|character))\b/i.test(value)) return 1
@@ -15043,7 +15696,54 @@ export function modelPlacedSemanticViolations(
   return [...new Set(violations)]
 }
 
-export async function parseSlotPrompt(
+async function cachedPortraitForSubject(state: StateFile, name: string, userId?: string, established: string[] = []): Promise<string[]> {
+  const owner = Object.values(state.continuityVault.characters).find(row => [row.canonicalCharacterName, ...row.aliases].some(alias => alias.toLocaleLowerCase() === name.toLocaleLowerCase()))
+  if (!owner?.lumiverseCharacterId) return []
+  const facts = allAppearanceFacts(state.continuityVault).filter(fact => fact.canonicalCharacterId === owner.canonicalCharacterId)
+  const excluded = facts.filter(fact => fact.manuallyExcluded).map(fact => fact.value)
+  const traits = await portraitInsight.cached(owner.lumiverseCharacterId, userId)
+  return traits ? missingPortraitTraits(traits, [...established, ...facts.filter(fact => fact.status === 'active').map(fact => fact.value)], excluded) : []
+}
+
+async function preparePortraitInsights(chatId: string, userId: string | undefined, assertCurrent: () => void): Promise<void> {
+  const state = await getState(chatId, userId), settings = proseSettingsForChat(state, chatId)
+  if (!settings.portraitInsight || !settings.plannerConnectionId) return
+  const facts = allAppearanceFacts(state.continuityVault)
+  for (const owner of Object.values(state.continuityVault.characters).slice(0, 8)) {
+    if (!owner.lumiverseCharacterId) continue
+    const owned = facts.filter(fact => fact.canonicalCharacterId === owner.canonicalCharacterId)
+    if (owned.some(fact => fact.manuallyExcluded)) continue
+    const established = owned.filter(fact => fact.status === 'active').map(fact => fact.value).join(', ')
+    if (/hair/i.test(established) && /eyes?/i.test(established)) continue
+    assertCurrent()
+    const result = await portraitInsight.prepare({ chatId, cardId: owner.lumiverseCharacterId, connectionId: settings.plannerConnectionId, model: settings.plannerModel, established, assertCurrent, userId })
+    if (result.error) spindle.log.info('[Reverie:Portrait Insight] ' + result.error)
+  }
+}
+
+/** Per-request treatment is derived from saved source/metadata, never a global adaptive coin flip. */
+export function effectiveJobFraming(job: RouterJob, state: StateFile): ProseIllustratorSettings['perspectiveMode'] | '' {
+  if (job.prosePromptComposition?.perspectiveMode) return job.prosePromptComposition.perspectiveMode
+  if (job.target !== 'prose.illustration') return ''
+  const mode = proseSettingsForChat(state, job.chatId).perspectiveMode
+  return storyFraming(mode, job.originalRequestXml || '', authoritativeIllustrationParagraph(job) || job.authoritativeSourceParagraph || '',
+    Math.max(completeIllustrationSubjectNames(job).length, job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0)) as ProseIllustratorSettings['perspectiveMode']
+}
+
+export async function parseSlotPrompt(...args: Parameters<typeof parseSlotPromptUnprojected>): Promise<PreparedPrompt> {
+  const prepared = await parseSlotPromptUnprojected(...args)
+  const [job, , , , config, userId] = args
+  if (job.target !== 'prose.illustration') return prepared
+  const state = await getState(job.chatId, userId)
+  const settings = proseSettingsForChat(state, job.chatId)
+  if (effectiveJobFraming(job, state) === 'dreamcut') return prepared
+  const checked = guardSightline(prepared.prompt, authoritativeIllustrationParagraph(job) || job.authoritativeSourceParagraph || '', settings.sightlineGuard !== false, settings.promptFormat === 'danbooru-tags')
+  prepared.prompt = checked.prompt
+  for (const message of checked.notes) prepared.promptPipeline.warnings.push({ code: 'sightline-guard', message, sources: ['anchored story action'] })
+  return prepared
+}
+
+async function parseSlotPromptUnprojected(
   job: RouterJob,
   slot: string,
   messages: ChatMessage[],
@@ -15068,15 +15768,12 @@ export async function parseSlotPrompt(
     if (!job.originalSceneBrief.trim()) {
       throw new Error('Model Planned request is missing its authored <visual_prompt>; Relay will not ask a Parser to invent one. Reparse the Story Model request or restore its prompt.')
     }
-    if (job.target === 'prose.illustration') {
-      const explicitCount = Math.max(completeIllustrationSubjectNames(job).length,
+    const explicitCount = job.target === 'prose.illustration'
+      ? Math.max(completeIllustrationSubjectNames(job).length,
         promptFormat === 'danbooru-tags' ? declaredBooruPeopleCount(job.originalSceneBrief) : 0)
-      if (explicitCount > parserSettings.maximumCharacters) {
-        throw new Error(`Maximum Characters in Image is ${parserSettings.maximumCharacters}; the Model Planned request explicitly contains ${explicitCount} visible people. No image was dispatched. Reparse or edit the request to keep only the intended subjects.`)
-      }
-    }
+      : 0
     const context = await buildParserContext(job, messages, targetIndex, config, userId, nativeSettings)
-    return buildAuthoritativeVisualPrompt(
+    const prepared = await buildAuthoritativeVisualPrompt(
       job,
       slot,
       config,
@@ -15087,6 +15784,14 @@ export async function parseSlotPrompt(
         : 'Skipped — Story Model visual_prompt passed through; use Reparse for Parser rewriting',
       promptFormat,
     )
+    if (explicitCount > parserSettings.maximumCharacters) {
+      prepared.promptPipeline.warnings.push({
+        code: 'model-placed-cast-exceeds-guidance',
+        message: `The Story Model authored ${explicitCount} visible people against a character-count target of ${parserSettings.maximumCharacters}. Preserved the authored cast; this planning guidance does not block Model Planned images.`,
+        sources: ['Story Model authored cast'],
+      })
+    }
+    return prepared
   }
   if (job.composedPositivePrompt?.trim() && !forceSemanticRewrite) {
     const locallyCompiledRelayPlan = job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2
@@ -15194,6 +15899,7 @@ export async function parseSlotPrompt(
     }
     return {
       prompt: positivePrompt,
+      preserveOwnerParagraphs: context.perspectiveMode === 'blocking-fidelity' && !tagMode,
       negativePrompt: negative.negative,
       promptMode: locallyCompiledRelayPlan
         ? `relay_planned_local_compiler:${RELAY_PLANNED_V2}`
@@ -15235,6 +15941,11 @@ export async function parseSlotPrompt(
       let parserOutput = raw
       let parsed = parsePromptJson(raw)
       parsed.prompt = imageContentWithoutSurfaceDestination(parsed.prompt)
+      if (!directionRewrite && promptFormat === 'danbooru-tags' && job.synthetic && job.prosePromptComposition?.positivePrompt
+        && booruSubjectOwnershipChanged(job.prosePromptComposition.positivePrompt, parsed.prompt)) {
+        return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw,
+          'Parser merged subject blocks or moved established appearance/outfit tags between subjects. Preserved the saved subject-owned image prompt.', promptFormat)
+      }
       const authoritativeScene = authoritativeSceneText(job)
       if (job.target === 'custom.artifact-media' && context.classification === 'character portrait' && portraitReplacedBySurfaceUi(parsed.prompt)) {
         return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, raw, 'Parser replaced the requested portrait with its hosting UI card. Preserved the authoritative portrait description instead.', promptFormat)
@@ -15248,13 +15959,16 @@ export async function parseSlotPrompt(
           ...(job.prosePromptComposition?.namedSubjects || []),
           ...context.visualSubjects.map(subject => subject.name),
         ]
+        // Booru underscores join words inside a tag. Compare its semantic
+        // evidence as words, without changing the provider-bound tag spelling.
+        const semanticText = (value: string) => promptFormat === 'danbooru-tags' ? value.replace(/_/g, ' ') : value
         const missingSemantics = modelPlacedSemanticViolations(
-          authoritativeScene,
-          parsed.prompt,
+          semanticText(authoritativeScene),
+          semanticText(parsed.prompt),
           protectedSubjects,
-          job.originalSceneBrief,
+          semanticText(job.originalSceneBrief),
           Math.max(Number(job.prosePromptComposition?.expectedPeopleCount || 0), context.visualSubjects.length),
-          context.context,
+          semanticText(context.context),
           directionRewrite ? job.regenerationIntent : undefined,
         )
         if (missingSemantics.length) {
@@ -15383,6 +16097,7 @@ export async function parseSlotPrompt(
       }
       return {
         prompt: positivePrompt,
+        preserveOwnerParagraphs: context.perspectiveMode === 'blocking-fidelity' && !tagMode,
         negativePrompt: normalized.negative,
         promptMode: `router_parser${config.nativePromptMode ? `:${config.nativePromptMode}` : ''}`,
         promptPresetId: config.nativePromptPresetId,
@@ -15412,7 +16127,7 @@ export async function parseSlotPrompt(
   return buildParserFallbackPrompt(job, slot, config, context, nativeSettings, connection, lastRaw, fallbackError.message, promptFormat)
 }
 
-export async function generateParserText(connection: ParserConnection, config: RouterConfig, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, userId?: string, chatId?: string, contextMetrics?: Partial<ContextMetrics>, workflow = 'parser'): Promise<string> {
+export async function generateParserText(connection: ParserConnection, config: RouterConfig, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, userId?: string, chatId?: string, contextMetrics?: Partial<ContextMetrics>, workflow = 'parser', onText?: (text: string) => Promise<void>): Promise<string> {
   logStage(config, 'parser_start', {
     connectionId: connection.id,
     provider: connection.provider,
@@ -15436,9 +16151,12 @@ export async function generateParserText(connection: ParserConnection, config: R
     parameters: config.parserParameters,
     reasoning: { source: 'off' },
     userId,
-  } as any, chatId, userId)
+  } as any, chatId, userId, onText)
   const text = extractText(result)
-  if (!text.trim()) throw new Error('Parser returned an empty response.')
+  if (!text.trim()) {
+    if (workflow === 'relay-planned-director') throw new EmptyDirectorResponseError()
+    throw new Error('Parser returned an empty response.')
+  }
   return text
 }
 
@@ -15460,6 +16178,24 @@ function mergePromptFragmentsUnique(...values: string[]): string {
     }
   }
   return out.join(', ')
+}
+
+/** Repeated markers/traits in a multi-subject Booru scene belong to different
+ * owners. Deduplicate only the global additions against that intact scene;
+ * never flatten its owner scopes during the last provider-bound merge. */
+function mergeScenePromptFragmentsUnique(scenePrompt: string, prefixes: string[] = [], suffixes: string[] = [], preserveOwnerParagraphs = false): string {
+  const sceneFragments = cleanString(scenePrompt).split(/[,\n]+/).map(value => value.trim()).filter(Boolean)
+  if (!preserveOwnerParagraphs && sceneFragments.filter(isBooruSubjectMarker).length < 2) {
+    return mergePromptFragmentsUnique(...prefixes, scenePrompt, ...suffixes)
+  }
+  const seen = new Set(sceneFragments.map(normalizedPromptFragment))
+  const additions = (values: string[]) => mergePromptFragmentsUnique(...values).split(',').map(value => value.trim()).filter(value => {
+    const key = normalizedPromptFragment(value)
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  }).join(', ')
+  return [additions(prefixes), scenePrompt.trim(), additions(suffixes)].filter(Boolean).join(', ')
 }
 
 const GENERIC_SUBJECT_ONLY_PROMPT_TOKENS = new Set([
@@ -15696,29 +16432,24 @@ async function generateImage(chatId: string | undefined, prepared: PreparedPromp
   if (!asset) {
     if (!persistedDataUrl && imageUrl) {
       try {
-        const response = await fetch(imageUrl)
-        if (response.ok) {
-          const bytes = new Uint8Array(await response.arrayBuffer())
-          const mime = response.headers.get('content-type') || 'image/png'
-          const dataUrl = `data:${mime};base64,${bytesToBase64(bytes)}`
-          const uploaded = await spindle.images.uploadFromDataUrl(dataUrl, {
-            originalFilename: `reverie-relay-${streamContext?.source || 'generation'}-${Date.now()}.png`,
-            owner_character_id: ownerCharacterId || undefined,
-            owner_chat_id: resolvedOwnerChatId || undefined,
-            add_to_gallery: false,
-            gallery_caption: undefined,
-            userId,
-          } as any)
-          imageId = cleanString(uploaded.id)
-          imageUrl = cleanString(uploaded.url) || (imageId ? imageUrlFromId(imageId) : imageUrl)
-          galleryItemId = cleanString((uploaded as any).galleryItemId) || galleryItemId
-          if ((uploaded as any).galleryLinked === true || cleanString((uploaded as any).galleryLinkStatus) === 'linked') {
-            galleryLinkStatus = 'linked'
-            galleryLinkedAt ||= Date.now()
-          }
-          galleryLinkError = cleanString((uploaded as any).galleryLinkError) || galleryLinkError
-          asset = uploaded
+        const dataUrl = await providerImageDataUrl(imageUrl, (url, options) => spindle.cors(url, options))
+        const uploaded = await spindle.images.uploadFromDataUrl(dataUrl, {
+          originalFilename: `reverie-relay-${streamContext?.source || 'generation'}-${Date.now()}.png`,
+          owner_character_id: ownerCharacterId || undefined,
+          owner_chat_id: resolvedOwnerChatId || undefined,
+          add_to_gallery: false,
+          gallery_caption: undefined,
+          userId,
+        } as any)
+        imageId = cleanString(uploaded.id)
+        imageUrl = cleanString(uploaded.url) || (imageId ? imageUrlFromId(imageId) : imageUrl)
+        galleryItemId = cleanString((uploaded as any).galleryItemId) || galleryItemId
+        if ((uploaded as any).galleryLinked === true || cleanString((uploaded as any).galleryLinkStatus) === 'linked') {
+          galleryLinkStatus = 'linked'
+          galleryLinkedAt ||= Date.now()
         }
+        galleryLinkError = cleanString((uploaded as any).galleryLinkError) || galleryLinkError
+        asset = uploaded
       } catch (error) {
         spindle.log.warn(`[ReverieRelay:image_persistence] Could not copy provider result URL into ImageTable: ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -15888,7 +16619,7 @@ async function prepareImagePlan(
   if (!nativeSnapshot && hasStoredImageSettings(record)) {
     const connection = record.imageConnectionId ? await getImageConnection(record.imageConnectionId, userId) : null
     const storedBaseTagPlan = filterBaseTagsForTarget(record.loraBaseTags || '', job, classifyImageRequest(job), highResMode)
-    const regenerationOverrides = buildSlotOverrides(job, record.imageProvider || connection?.provider || '', config.generationSettingsSource === 'native' ? config.imageAspectPolicy : 'request')
+    const regenerationOverrides = buildSlotOverrides(job, record.imageProvider || connection?.provider || '')
     const storedSlotOverrides = { ...cloneRecord(record.slotOverrides), ...regenerationOverrides }
     const storedFinalParameters = { ...cloneRecord(record.finalImageParameters || record.imageParameters), ...regenerationOverrides }
     const plan: ImagePlan = {
@@ -15930,7 +16661,7 @@ async function prepareImagePlan(
 
   const connectionDefaultParameters = withConnectionWorkflowDefaults(cleanParameters(connection.default_parameters), connection)
   const nativeActiveParameters = nativeSnapshot ? extractNativeParameters(nativeSettings) : cloneRecord(config.imageParameters)
-  const slotOverrides = buildSlotOverrides(job, connection.provider || '', config.generationSettingsSource === 'native' ? config.imageAspectPolicy : 'request')
+  const slotOverrides = buildSlotOverrides(job, connection.provider || '')
   const finalParameters: Record<string, unknown> = {
     ...connectionDefaultParameters,
     ...nativeActiveParameters,
@@ -15997,38 +16728,25 @@ export function withSwarmRegenerationSeed(parameters: Record<string, unknown>, p
   return isRegeneration && isSwarmUiProvider(provider) ? { ...parameters, seed: -1 } : parameters
 }
 
-export function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt, randomizeSwarmSeed = false): Record<string, unknown> {
+function buildImageParameters(plan: ImagePlan, prepared: PreparedPrompt, randomizeSwarmSeed = false): Record<string, unknown> {
   const randomize = randomizeSwarmSeed && isSwarmUiProvider(plan.provider)
   const parameters = withSwarmRegenerationSeed(cloneRecord(plan.finalParameters), plan.provider, randomize)
-  if (parameters.workflow && typeof parameters.workflow === 'object') {
-    const comfy = readComfyConfig(plan.connection?.metadata)
-    if (comfy?.fieldMappings?.length) {
-      parameters.workflow = patchWorkflow(parameters.workflow as Record<string, unknown>, comfy.fieldMappings, {
-        positive_prompt: prepared.prompt,
-        prompt: prepared.prompt,
-        negative_prompt: prepared.negativePrompt,
-        negativePrompt: prepared.negativePrompt,
-        model: plan.model,
-        checkpoint: plan.model,
-        seed: randomize ? -1 : Math.floor(Math.random() * 2147483647),
-      })
-      parameters.workflowFormat = parameters.workflowFormat || 'api_prompt'
-      parameters.preserveImportedWorkflow = parameters.preserveImportedWorkflow ?? true
-    }
-  }
-  // A recipe's explicit resolution or dimensions outrank the request aspect.
-  // NovelAI ignores generic aspectRatio and reads parameters.resolution.
-  const explicitResolution = cleanString(plan.slotOverrides.resolution)
-  const explicitWidth = Number(plan.slotOverrides.width)
-  const explicitHeight = Number(plan.slotOverrides.height)
-  const aspect = explicitResolution
-    ? undefined
-    : explicitWidth > 0 && explicitHeight > 0
-      ? `${explicitWidth}:${explicitHeight}`
-      : cleanString(plan.slotOverrides.aspectRatio) || undefined
-  const relayGuidance = plan.slotOverrides.guidance ?? plan.slotOverrides.cfgScale ?? plan.slotOverrides.cfg
-    ?? (plan.settingsSource === 'router-config' ? plan.nativeActiveParameters.cfgScale ?? plan.nativeActiveParameters.cfg : undefined)
-  return imageProviderParameters(plan.provider, parameters, aspect, prepared.negativePrompt, relayGuidance)
+  if (!parameters.workflow || typeof parameters.workflow !== 'object') return parameters
+
+  const comfy = readComfyConfig(plan.connection?.metadata)
+  if (!comfy?.fieldMappings?.length) return parameters
+  parameters.workflow = patchWorkflow(parameters.workflow as Record<string, unknown>, comfy.fieldMappings, {
+    positive_prompt: prepared.prompt,
+    prompt: prepared.prompt,
+    negative_prompt: prepared.negativePrompt,
+    negativePrompt: prepared.negativePrompt,
+    model: plan.model,
+    checkpoint: plan.model,
+    seed: randomize ? -1 : Math.floor(Math.random() * 2147483647),
+  })
+  parameters.workflowFormat = parameters.workflowFormat || 'api_prompt'
+  parameters.preserveImportedWorkflow = parameters.preserveImportedWorkflow ?? true
+  return parameters
 }
 
 function hasStoredImageSettings(record: SlotRecord): boolean {
@@ -16061,21 +16779,11 @@ export function resolveIllustrationRequestAspect(requestAspect: unknown, aspectP
   return cleanString(requestAspect).replace(/\s+/g, '') || undefined
 }
 
-export function buildSlotOverrides(
-  job: Pick<RouterJob, 'aspect'>,
-  provider = '',
-  policy: RouterConfig['imageAspectPolicy'] = 'request',
-): Record<string, unknown> {
-  // NovelAI's native resolution is authoritative until the user explicitly
-  // requests an aspect policy. Existing providers keep their staged behavior.
-  const novelAi = provider.trim().toLocaleLowerCase() === 'novelai'
-  const aspect = novelAi
-    ? policy === 'native' ? '' : policy === 'request' ? cleanString(job.aspect) : policy
-    : cleanString(job.aspect)
+function buildSlotOverrides(job: RouterJob, provider = ''): Record<string, unknown> {
   const overrides: Record<string, unknown> = {}
-  if (!aspect) return overrides
-  overrides.aspectRatio = aspect
-  const dims = dimensionsForAspect(aspect)
+  if (!job.aspect) return overrides
+  overrides.aspectRatio = job.aspect
+  const dims = dimensionsForAspect(job.aspect)
   if (dims && /swarm|stability|sdapi|stable-diffusion/i.test(provider)) {
     overrides.width = dims.width
     overrides.height = dims.height
@@ -16262,10 +16970,11 @@ export function assembleProviderPrompts(
   plan: Pick<ImagePlan, 'recipePositivePrompt' | 'recipeNegativePrompt' | 'effectiveBaseTags' | 'userPositivePromptPrefix' | 'userNegativePromptPrefix'>,
   scenePrompt: string,
   sceneNegativePrompt: string,
+  preserveOwnerParagraphs = false,
 ): { prompt: string; negativePrompt: string; scenePromptBeforePrefix: string } {
-  const scenePromptBeforePrefix = mergePromptFragmentsUnique(plan.recipePositivePrompt || '', scenePrompt)
+  const scenePromptBeforePrefix = mergeScenePromptFragmentsUnique(scenePrompt, [plan.recipePositivePrompt || ''], [], preserveOwnerParagraphs)
   return {
-    prompt: mergePromptFragmentsUnique(plan.userPositivePromptPrefix, scenePromptBeforePrefix, plan.effectiveBaseTags),
+    prompt: mergeScenePromptFragmentsUnique(scenePromptBeforePrefix, [plan.userPositivePromptPrefix], [plan.effectiveBaseTags], preserveOwnerParagraphs),
     negativePrompt: mergePromptFragmentsUnique(plan.userNegativePromptPrefix, plan.recipeNegativePrompt || '', sceneNegativePrompt),
     scenePromptBeforePrefix,
   }
@@ -16306,15 +17015,15 @@ export function assemblePreparedProviderPrompts(
   prepared: PreparedPrompt,
 ): { prompt: string; negativePrompt: string; scenePromptBeforePrefix: string; removedFallbackFragments: string[] } {
   if (!/^router_parser_fallback(?::|$)/i.test(prepared.promptMode)) {
-    return { ...assembleProviderPrompts(plan, prepared.prompt, prepared.negativePrompt), removedFallbackFragments: [] }
+    return { ...assembleProviderPrompts(plan, prepared.prompt, prepared.negativePrompt, prepared.preserveOwnerParagraphs === true), removedFallbackFragments: [] }
   }
 
   const blocked = fallbackProviderBlockedFragments(prepared.promptPipeline)
   const recipe = sanitizeFallbackProviderAddition(plan.recipePositivePrompt || '', blocked)
   const prefix = sanitizeFallbackProviderAddition(plan.userPositivePromptPrefix, blocked)
   const removedFallbackFragments = [...recipe.removed, ...prefix.removed]
-  const scenePromptBeforePrefix = mergePromptFragmentsUnique(prepared.prompt, recipe.prompt, prefix.prompt)
-  const prompt = mergePromptFragmentsUnique(scenePromptBeforePrefix, plan.effectiveBaseTags)
+  const scenePromptBeforePrefix = mergeScenePromptFragmentsUnique(prepared.prompt, [], [recipe.prompt, prefix.prompt])
+  const prompt = mergeScenePromptFragmentsUnique(scenePromptBeforePrefix, [], [plan.effectiveBaseTags])
   if (/^\s*active\s+(?:character|persona)\s*\(/i.test(prompt)) {
     throw new Error('Fallback provider prompt guard rejected a preset-led identity dump.')
   }
@@ -16488,7 +17197,7 @@ function enrichPromptPipelineWithImagePlan(pipeline: PromptPipeline, plan: Image
   pipeline.warnings.push(...extra.filter(warning => !existing.has(`${warning.code}:${warning.message}`)))
 }
 
-function nativeImagePlanWarnings(plan: ImagePlan): PromptWarning[] {
+export function nativeImagePlanWarnings(plan: ImagePlan): PromptWarning[] {
   const warnings: PromptWarning[] = []
   const nativeSettings = plan.nativeImageSettings || {}
   if (plan.settingsSource === 'router-config' && Object.keys(nativeSettings).length === 0) {
@@ -16501,7 +17210,11 @@ function nativeImagePlanWarnings(plan: ImagePlan): PromptWarning[] {
   }
   const activePresetId = cleanString(nativeSettings.activeLoraPresetId)
   const bypassed = nativeSettings.bypassActiveLoraPreset === true
-  if (activePresetId && !bypassed && !plan.nativeActiveLoraPreset) {
+  // A valid native preset may be intentionally unused (LoRA Source: None or
+  // Relay Stack). That is not a missing preset definition.
+  const presetExists = Array.isArray(nativeSettings.loraPresets)
+    && nativeSettings.loraPresets.some(preset => cleanString(preset.id) === activePresetId)
+  if (activePresetId && !bypassed && !plan.nativeActiveLoraPreset && !presetExists) {
     warnings.push({
       code: 'native-lora-preset-unresolved',
       message: `Native LoRA preset "${activePresetId}" was selected but its preset definition could not be resolved. No preset LoRAs were inherited.`,
@@ -16603,9 +17316,9 @@ function firstString(...values: unknown[]): string {
   return ''
 }
 
-export function requiresWorkflow(plan: Pick<ImagePlan, 'provider' | 'connection'>): boolean {
-  const provider = plan.provider.trim().toLocaleLowerCase()
-  if (provider === 'novelai' || provider.includes('swarm')) return false
+export function requiresWorkflow(plan: ImagePlan): boolean {
+  const provider = `${plan.provider} ${plan.connectionName}`.toLowerCase()
+  if (provider.includes('swarm')) return false
   if (provider.includes('comfy')) return true
   const metadata = plan.connection?.metadata
   if (!metadata || typeof metadata !== 'object') return false
@@ -16695,14 +17408,19 @@ async function buildParserContext(
   const nativeIncludeCharacters = typeof nativeSettings?.includeCharacters === 'boolean' ? nativeSettings.includeCharacters : config.nativeIncludeCharacters
   const nativeIncludePersona = typeof nativeSettings?.includePersona === 'boolean' ? nativeSettings.includePersona : config.nativeIncludePersona
   const promptPresets = clonePromptPresets(nativeSettings?.promptPresets ?? config.nativePromptPresets)
-  const state = await getState(job.chatId, _userId)
-  const continuityFramingMode = job.prosePromptComposition?.perspectiveMode
-    || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
+  const storedState = await getState(job.chatId, _userId)
+  const scene = job.target === 'prose.illustration' && effectiveIllustratorAppearanceStrength(proseSettingsForChat(storedState, job.chatId), storedState.continuityVault.strength) !== 'off'
+    ? sceneAppearanceForHistory(storedState.continuityVault, sceneAppearanceSources(messages), job.messageId, job.proseAnchor?.paragraphIndex ?? Infinity) : []
+  const state = scene.length ? { ...storedState, continuityVault: projectSceneAppearanceVault(storedState.continuityVault, scene) } : storedState
+  const continuityFramingMode = effectiveJobFraming(job, state)
   const personaPovMode = continuityFramingMode === 'persona-pov'
-  const [activeCharacter, activePersona] = await Promise.all([
+  const [hostCharacter, hostPersona] = await Promise.all([
     visibleIdentityRequest || castRequirements.character ? readChatCharacterIdentity(job.chatId, _userId).catch(() => null) : Promise.resolve(null),
     visibleIdentityRequest || castRequirements.persona || personaPovMode ? readCurrentHostPersona(_userId, job.chatId) : Promise.resolve(null),
   ])
+  const sourceForIdentity = messages.slice(0, targetIndex + 1).map(message => getAuthoritativeSwipeContent(message, message.swipe_id || 0)).join('\n')
+  const activeCharacter = hostCharacter ? sceneVerifiedIdentityAliases(hostCharacter, state.continuityVault, sourceForIdentity) : null
+  const activePersona = hostPersona ? sceneVerifiedIdentityAliases({ ...hostPersona, aliases: hostPersona.aliases || [] }, state.continuityVault, sourceForIdentity) : null
   const characterNamed = requestReferencesActiveIdentity(job, activeCharacter)
   const personaNamed = requestReferencesActiveIdentity(job, activePersona)
   const declaredSubjects = completeIllustrationSubjectNames(job)
@@ -16838,10 +17556,16 @@ async function buildParserContext(
   const visualSubjects = filterPersonaPovVisualSubjects(
     restrictRelayPlannedVisualSubjects(
       restrictSoloSceneVisualSubjects(castScopedVisualSubjects, continuityFramingMode, castSubjects.length),
-      job,
+      job, [activeCharacter, activePersona].filter((identity): identity is NonNullable<typeof identity> => Boolean(identity)),
     ),
     continuityFramingMode, activePersona, job.originalSceneBrief,
   )
+  if (job.target === 'prose.illustration' && continuityFramingMode !== 'dreamcut' && proseSettingsForChat(state, job.chatId).portraitInsight) {
+    for (const subject of visualSubjects) {
+      const traits = await cachedPortraitForSubject(state, subject.name, _userId, [subject.prompt, job.originalSceneBrief])
+      subject.prompt = [subject.prompt, ...traits].filter(Boolean).join(', ')
+    }
+  }
   const appliedIdentityBindingIds = identityBindings
     .filter(binding => visualSubjects.some(subject => {
       if (subject.kind !== binding.kind) return false
@@ -16929,23 +17653,23 @@ async function buildParserContext(
     personaPovCameraHolderNames,
     context: blocks.join('\n\n---\n\n'), ...parserInstructionOwnership,
     contextMetrics: { tier: 'routine', expansionReason: '', historyMessages: recent ? (recent.match(/^(?:user|assistant):/gm) || []).length : 0, characterChars: characterCard.length, personaChars: personaCard.length, appearanceMemoryChars: formatProjectedAppearanceFacts(continuity.projectedIncluded).length, ...(lorebookContextMetrics.get(job.chatId) || {}) },
-    characterContext: effectiveIncludeCharacters ? character : '', personaContext: effectiveIncludePersona ? persona : '', unresolvedMacros,
+    characterContext: continuityFramingMode !== 'dreamcut' && effectiveIncludeCharacters ? character : '', personaContext: continuityFramingMode !== 'dreamcut' && effectiveIncludePersona ? persona : '', unresolvedMacros,
     classification, nativeIncludeCharacters, nativeIncludePersona, effectiveIncludeCharacters, effectiveIncludePersona,
     gatingReason: [
       suppressIdentityContext ? `${gatingReason}; profile suppressed character/persona context` : gatingReason,
       !humanPolicy.allowHumanContext ? `${humanPolicy.targetClass} target suppressed character/persona/recent-human context` : '',
     ].filter(Boolean).join('; '),
-    sanitizedRecentContext: [parentContext, recent].filter(Boolean).join('\n\n'), visualSubjects, subjectNegativePrompt, personaPovNegativePrompt,
+    sanitizedRecentContext: [parentContext, recent].filter(Boolean).join('\n\n'), visualSubjects: continuityFramingMode === 'dreamcut' ? [] : visualSubjects, subjectNegativePrompt, personaPovNegativePrompt,
     includedContinuityFacts: continuity.included,
     projectedContinuityFacts: continuity.projectedIncluded,
-    projectedContinuityFactsForPromptAppend: projectedContinuityIncludedOnce,
+    projectedContinuityFactsForPromptAppend: continuityFramingMode === 'dreamcut' ? [] : projectedContinuityIncludedOnce,
     projectedContinuityNegativePrompt: continuity.projectedNegativePrompt,
     projectedContinuityNotes: continuity.projectionNotes,
     excludedContinuityFacts: continuity.projectedExcluded,
     attachedReferenceAssetIds: continuity.attachedReferenceAssetIds,
     continuityConflicts: continuity.conflicts,
     continuityStrength: continuity.strength,
-    identityBindings,
+    identityBindings: continuityFramingMode === 'dreamcut' ? [] : identityBindings,
     appliedIdentityBindingIds,
     identityFallbacks,
     appearanceRevision: state.continuityVault.updatedAt || 0,
@@ -17157,6 +17881,14 @@ export function parsePromptJson(raw: string): ParsedPromptJson {
 }
 
 
+export function proseImageOnlyFallbackPrompt(job: RouterJob): string {
+  if (job.target !== 'prose.illustration') return job.originalSceneBrief
+  if (job.promptSource === 'visual_prompt') return job.originalSceneBrief.trim()
+  // Synthetic Relay plans own a saved provider composition, not Story Model
+  // XML. Its positive prompt is image-only; sceneBrief/sourceContent are not.
+  return job.synthetic ? cleanString(job.prosePromptComposition?.positivePrompt) : ''
+}
+
 function buildParserFallbackPrompt(
   job: RouterJob,
   slot: string,
@@ -17168,14 +17900,15 @@ function buildParserFallbackPrompt(
   parserError: string,
   promptFormat: ProseIllustratorSettings['promptFormat'] = 'natural-language',
 ): PreparedPrompt {
-  if (job.target === 'prose.illustration' && (job.promptSource !== 'visual_prompt' || !job.originalSceneBrief.trim())) {
+  const imageOnlyFallback = proseImageOnlyFallbackPrompt(job)
+  if (job.target === 'prose.illustration' && !imageOnlyFallback) {
     throw new Error('Relay stopped prose illustration fallback because no image-only <visual_prompt> was available; it will not substitute the surrounding story paragraph.')
   }
   const classification = context.classification
   const humanPolicy = targetHumanPolicy(job, classification)
   const profileBase = resolveProviderPromptProfileDecision(job, config)
   const visibleBase = job.target === 'prose.illustration'
-    ? job.originalSceneBrief
+    ? imageOnlyFallback
     : [
       job.originalSceneBrief,
       job.caption ? `Context: ${job.caption}` : '',
@@ -17201,7 +17934,7 @@ function buildParserFallbackPrompt(
     native: nativeNegative,
     request: job.originalNegativePrompt,
     subject: humanPolicy.allowHumanPrompt ? context.subjectNegativePrompt : '',
-    parser: contextualSexual.negativePrompt,
+    parser: [job.synthetic ? job.prosePromptComposition?.negativePrompt : '', contextualSexual.negativePrompt].filter(Boolean).join(', '),
     router: [profiled.decision.negativeAdditions, !humanPolicy.allowHumanPrompt ? humanPolicy.noHumanGuardrails : '', context.perspectiveMode === 'persona-pov' ? context.personaPovNegativePrompt : '', config.additionalNegativePrompt].filter(Boolean).join(', '),
   })
   const humanConflict = humanPolicy.allowHumanPrompt
@@ -17458,16 +18191,14 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     tutorialStep: clampInt(raw.tutorialStep, 0, 12, 0),
     autoRescanOnChatOpen: raw.autoRescanOnChatOpen !== false,
     includeInactiveSwipesInRescan: raw.includeInactiveSwipesInRescan === true,
-    storyConstellationsEnabled: raw.storyConstellationsEnabled === true,
-    autoConfirmStoryEvents: raw.autoConfirmStoryEvents === true,
-    storyKnowledgeConflictAlerts: raw.storyKnowledgeConflictAlerts !== false,
-    analyzeEditedStoryMessages: raw.analyzeEditedStoryMessages !== false,
-    injectStoryEventContext: raw.injectStoryEventContext === true,
+    storyConstellationsEnabled: false,
+    autoConfirmStoryEvents: false,
+    storyKnowledgeConflictAlerts: false,
+    analyzeEditedStoryMessages: false,
+    injectStoryEventContext: false,
     followNativeParser: raw.followNativeParser !== false,
     followNativeImageGen: raw.followNativeImageGen !== false,
     generationSettingsSource: raw.generationSettingsSource === 'relay' ? 'relay' : raw.followNativeImageGen === false ? 'relay' : 'native',
-    imageAspectPolicy: ['native', 'request', '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9'].includes(String(raw.imageAspectPolicy))
-      ? raw.imageAspectPolicy as RouterConfig['imageAspectPolicy'] : 'native',
     loraSource: ['native', 'relay', 'none'].includes(String(raw.loraSource)) ? raw.loraSource as RouterConfig['loraSource'] : raw.followNativeImageGen === false ? 'relay' : 'native',
     vaultStrength,
     parserConnectionId: cleanNullableString(raw.parserConnectionId),
@@ -17477,6 +18208,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     appearanceSidecarConnectionId: cleanNullableString(raw.appearanceSidecarConnectionId),
     appearanceSidecarModel: cleanString(raw.appearanceSidecarModel),
     appearanceSidecarParameters: cleanParameters(raw.appearanceSidecarParameters),
+    appearanceUpdateIntervalMessages: normalizeAppearanceUpdateInterval(raw.appearanceUpdateIntervalMessages),
     parserRetries: clampInt(raw.parserRetries, 0, 5, DEFAULT_CONFIG.parserRetries),
     includeRecentMessages: clampInt(raw.includeRecentMessages, 0, 32, DEFAULT_CONFIG.includeRecentMessages),
     includeCharacterInfo: raw.includeCharacterInfo !== false,
@@ -17507,6 +18239,7 @@ function normalizeConfig(raw: Partial<RouterConfig>): RouterConfig {
     orbPositionDesktop: normalizeOrbPosition(raw.orbPositionDesktop, DEFAULT_CONFIG.orbPositionDesktop),
     orbPositionMobile: normalizeOrbPosition(raw.orbPositionMobile, DEFAULT_CONFIG.orbPositionMobile),
     orbSize: ['small', 'medium', 'large'].includes(String(raw.orbSize)) ? raw.orbSize as RouterConfig['orbSize'] : DEFAULT_CONFIG.orbSize,
+    orbSizePx: normalizeOrbSizePx(raw.orbSizePx, raw.orbSize),
     orbDesign: ORB_DESIGNS.includes(String(raw.orbDesign) as OrbDesign) ? raw.orbDesign as RouterConfig['orbDesign'] : DEFAULT_CONFIG.orbDesign,
     orbCustomIconDataUrl: sanitizeOrbCustomIconDataUrl(raw.orbCustomIconDataUrl),
     lastActiveDrawerTab: cleanString(raw.lastActiveDrawerTab) || DEFAULT_CONFIG.lastActiveDrawerTab,
@@ -17685,6 +18418,16 @@ function normalizeBackgroundQueue(value: unknown): BackgroundQueueState {
       slotKey: cleanString(row.slotKey) || undefined,
       requestId: cleanString(row.requestId) || undefined,
       planId: cleanString(row.planId) || undefined,
+      analysisRuntimeId: cleanString(row.analysisRuntimeId) || undefined,
+      analysisWorkerId: cleanString(row.analysisWorkerId) || undefined,
+      analysisPhase: (['appearance', 'portrait-insight', 'director', 'director-retry', 'repair'].includes(cleanString(row.analysisPhase)) ? row.analysisPhase : undefined) as BackgroundQueueItem['analysisPhase'],
+      phaseStartedAt: Number(row.phaseStartedAt) || undefined,
+      planningPreviews: row.source === 'analysis' && ['analyzing', 'completed'].includes(stage) && Array.isArray(row.planningPreviews)
+        ? row.planningPreviews.filter(preview => preview && typeof preview === 'object'
+          && preview.chatId === row.chatId && preview.messageId === row.requestId
+          && typeof preview.requestId === 'string' && preview.requestId.startsWith('relay-planning-')
+          && preview.prosePlanningOpportunityId && preview.proseAnchor && preview.status === 'preparing').slice(0, 32) as SlotRecord[]
+        : undefined,
     }
   }
   return { items, abortRequestedAt: Number(raw.abortRequestedAt) || 0, updatedAt: Number(raw.updatedAt) || Date.now() }
@@ -17782,6 +18525,10 @@ function startBackgroundTask(state: StateFile, input: Partial<BackgroundQueueIte
     slotKey: input.slotKey,
     requestId: input.requestId,
     planId: input.planId,
+    analysisRuntimeId: input.analysisRuntimeId,
+    analysisWorkerId: input.analysisWorkerId,
+    analysisPhase: input.analysisPhase,
+    phaseStartedAt: input.phaseStartedAt,
   }
   state.backgroundQueue.items[item.id] = item
   state.backgroundQueue.updatedAt = now
@@ -18520,6 +19267,7 @@ function migrateState(raw: Partial<StateFile> | null | undefined): StateFile {
   const base = raw && typeof raw === 'object' ? raw : {}
   const slots = base.slots && typeof base.slots === 'object' ? base.slots as Record<string, SlotRecord> : {}
   const state: StateFile = {
+    inheritedMediaFrom: cleanString(base.inheritedMediaFrom) || undefined,
     schemaVersion: STATE_SCHEMA_VERSION,
     revision: Math.max(0, Number(base.revision) || 0),
     clearedAt: Number(base.clearedAt) || undefined,
@@ -18698,7 +19446,15 @@ function normalizeRelayChatStats(value: unknown): RelayChatStats {
 }
 
 export async function setConfig(patch: Partial<RouterConfig>, userId?: string): Promise<RouterConfig> {
-  return mutateConfigAtomic(current => ({ ...current, ...patch }), userId)
+  return mutateConfigAtomic(current => ({
+    ...current, ...patch,
+    // Controls send their changed fields only. Merge inside the serialized
+    // mutation, never from a snapshot read before another control saved.
+    proseIllustratorSettings: patch.proseIllustratorSettings
+      ? { ...current.proseIllustratorSettings, ...patch.proseIllustratorSettings }
+      : current.proseIllustratorSettings,
+    settingsRevision: current.settingsRevision + 1,
+  }), userId)
 }
 
 function narrativeUtilityCompatibilityWarnings(name: string, content: string): string[] {
@@ -19637,8 +20393,7 @@ function selectContinuityForJob(
     .filter(name => Boolean(name) && !excludedKeys.has(normalizeIdentityOwner(name)))
     .map(name => boundSubjects.find(subject => [subject.canonicalCharacterId, subject.canonicalCharacterName, ...subject.aliases].some(alias => normalizeIdentityOwner(alias) === normalizeIdentityOwner(name)))?.canonicalCharacterId || name))]
   const sceneBrief = [job.originalSceneBrief, job.prosePromptComposition?.sceneBrief, job.prosePromptComposition?.framing, job.caption, job.alt].map(cleanString).filter(Boolean).join(' ')
-  const framingMode = job.prosePromptComposition?.perspectiveMode
-    || (job.target === 'prose.illustration' ? proseSettingsForChat(state, job.chatId).perspectiveMode : '')
+  const framingMode = effectiveJobFraming(job, state)
   const expectedPeopleCount = expectedPeopleCountOverride ?? Math.max(
     Number(job.prosePromptComposition?.expectedPeopleCount || 0),
     job.cast === 'char+user' ? 2 : job.cast === 'char' || job.cast === 'user' ? 1 : 0,
@@ -19702,9 +20457,19 @@ async function ensureCompletedStateCompacted(chatId: string, userId?: string): P
   const needsCompaction = completedBefore.length > RECENT_COMPLETED_HOT_LIMIT
     || completedBefore.some(completedRecordHasHeavyData)
     || completedBefore.some(record => !before.completedArchive[record.key])
+    || Object.values(before.completedArchive).some(record => record.renderMetadataVersion !== 1 || record.historyCount === undefined)
     || before.logs.length > HOT_LOG_LIMIT
   if (!needsCompaction) return
   await mutateState(chatId, userId, async state => {
+    // Old archives retained pixels but dropped synthetic placement anchors.
+    // Migrate once from the existing diagnostic, without calling a provider.
+    for (const archived of Object.values(state.completedArchive)) {
+      if (archived.renderMetadataVersion === 1 && archived.historyCount !== undefined) continue
+      const full = archived.diagnosticArchiveId ? (await readCompletedDiagnostic(chatId, archived.diagnosticArchiveId, userId))?.record : undefined
+      if (full?.key === archived.key && full.imageId === archived.imageId) Object.assign(archived, compactCompletedRecord(full))
+      archived.renderMetadataVersion = 1
+      archived.historyCount ??= archived.historyVersionIds?.length || 0
+    }
     const oldBytes = serializedBytes({ records: Object.values(state.slots), logs: state.logs })
     const completed = Object.values(state.slots)
       .filter(record => record.status === 'completed' && Boolean(record.imageUrl || record.imageId))
@@ -19713,6 +20478,12 @@ async function ensureCompletedStateCompacted(chatId: string, userId?: string): P
     for (const record of completed) {
       const compact = compactCompletedRecord(record)
       const existing = state.completedArchive[record.key]
+      // Hot summaries intentionally omit the versions. Do not erase their
+      // archive summary when a different completed slot triggers compaction.
+      if (existing?.diagnosticArchiveId === compact.diagnosticArchiveId) {
+        compact.historyCount = Math.max(compact.historyCount || 0, existing.historyCount || 0)
+      }
+      record.historyCount = compact.historyCount
       const heavyData = completedRecordHasHeavyData(record)
       const diagnosticNeedsWrite = completedDiagnosticArchiveNeedsWrite(record, existing, heavyData)
       if (diagnosticNeedsWrite) {
@@ -19726,7 +20497,9 @@ async function ensureCompletedStateCompacted(chatId: string, userId?: string): P
       state.completedArchive[record.key] = {
         ...existing,
         ...compact,
-        historyVersionIds: (record.history || []).map(version => version.versionId).filter((id): id is string => Boolean(id)),
+        historyVersionIds: record.history?.length
+          ? record.history.map(version => version.versionId).filter((id): id is string => Boolean(id))
+          : diagnosticArchiveUnchanged ? existing?.historyVersionIds : [],
         diagnosticArchivedAt: diagnosticNeedsWrite ? Date.now() : diagnosticArchiveUnchanged ? existing?.diagnosticArchivedAt : undefined,
       }
     }
@@ -19748,24 +20521,39 @@ async function ensureCompletedStateCompacted(chatId: string, userId?: string): P
   })
 }
 
+function completedRenderCatalogFingerprint(state: Pick<StateFile, 'completedArchive'>): string {
+  return contentFingerprint(JSON.stringify(Object.values(state.completedArchive).map(row => [row.key, row.imageId, row.imageUrl, row.completedAt, row.renderMetadataVersion])))
+}
+
 function backendBuildInfo(): BackendBuildInfo {
   return { extensionVersion: EXTENSION_VERSION, buildId: BUILD_ID, loadedAt: BACKEND_LOADED_AT, lastResponseAt: lastBackendResponseAt }
 }
 
-async function getState(chatId: string, userId?: string): Promise<StateFile> {
+async function getState(chatId: string, userId?: string, readOnly = false): Promise<StateFile> {
   const raw = await spindle.userStorage.getJson<Partial<StateFile>>(statePath(chatId), { fallback: {}, userId })
   const state = migrateState(raw)
   if (chatId !== UTILITY_STATE_ID) {
     let config = await getConfig(userId)
     const localStudio = normalizeCustomSurfaceStudio(state.customSurfaces || defaultCustomSurfaceStudio())
-    if (!config.surfacePreferencesInitialized) {
-      config = await setConfig({
-        surfaceRendererMode: localStudio.rendererMode,
-        surfaceDefaultShellMode: localStudio.defaultShellMode,
-        surfaceColorMode: localStudio.colorMode,
-        surfaceUtilityInjectionEnabled: localStudio.utilityInjectionEnabled,
-        surfacePreferencesInitialized: true,
-        globalSurfaceStudio: localStudio,
+    if (!readOnly && !config.surfacePreferencesInitialized) {
+      config = await mutateConfigAtomic(current => {
+        // A save may have finished while this chat was loading. Never let
+        // a stale migration overwrite its user-wide Surface selection.
+        if (current.surfacePreferencesInitialized) return current
+        // Only an actual saved legacy studio is a migration source. A new
+        // character's empty state merely contains synthesized all-on defaults.
+        if (!Object.keys(raw?.customSurfaces?.definitions || {}).length) {
+          return { ...current, surfacePreferencesInitialized: true }
+        }
+        return {
+          ...current,
+          surfaceRendererMode: localStudio.rendererMode,
+          surfaceDefaultShellMode: localStudio.defaultShellMode,
+          surfaceColorMode: localStudio.colorMode,
+          surfaceUtilityInjectionEnabled: localStudio.utilityInjectionEnabled,
+          surfacePreferencesInitialized: true,
+          globalSurfaceStudio: localStudio,
+        }
       }, userId)
     }
     const globalStudio = normalizeCustomSurfaceStudio(config.globalSurfaceStudio)
@@ -19790,8 +20578,86 @@ async function getState(chatId: string, userId?: string): Promise<StateFile> {
       paused: localPaused,
     })
   }
+  for (const item of Object.values(state.backgroundQueue.items)) {
+    // A server restart between analysis and reservation must not revive
+    // UI-only cards for work that no longer has a dispatcher.
+    if (item.source === 'analysis' && item.analysisRuntimeId !== RELAY_RUNTIME_SESSION_ID) delete item.planningPreviews
+    if (item.source !== 'analysis' || ['completed', 'failed', 'cancelled'].includes(item.stage)) continue
+    if (item.analysisRuntimeId === RELAY_RUNTIME_SESSION_ID && item.analysisWorkerId
+      && activeRelayAnalyses.get(relayAnalysisScope(chatId, item.id, userId))?.workerId === item.analysisWorkerId) continue
+    // Persisted status is not proof of a living provider call. Do not retry or
+    // invent a timeout: settle only work that has no owner in this backend.
+    updateBackgroundTask(state, item.id, { stage: 'cancelled', statusText: 'Analysis interrupted; no active worker', etaSeconds: null,
+      error: 'The saved analysis no longer has an active backend worker. Run analysis again explicitly if needed.' })
+    appendStateLog(state, { severity: 'warning', stage: 'prose-opportunity-discovery', eventType: 'relay_analysis_interrupted',
+      chatId, messageId: item.requestId, message: 'Recovered an interrupted analysis without starting provider work.' })
+  }
   return state
 }
+
+const forkMediaLoads = new Map<string, Promise<void>>()
+export async function inheritForkCompletedMedia(chatId: string, userId?: string, ancestors: string[] = []): Promise<void> {
+  if (ancestors.includes(chatId) || ancestors.length >= 16) return
+  const scope = `${userId || 'default'}:${chatId}`
+  const pending = forkMediaLoads.get(scope)
+  if (pending) return pending
+  const load = (async () => {
+    const before = await getState(chatId, userId)
+    if (before.inheritedMediaFrom || before.clearedAt) return
+    const chat = await spindle.chats.get(chatId, userId)
+    const metadata = cleanParameters(chat?.metadata)
+    const sourceId = cleanString(metadata.branched_from)
+    if (!sourceId || !cleanString(metadata.branch_at_message) || sourceId === chatId) return
+    // Scope reads to the current user. Never trust a copied marker as ownership.
+    if (!await spindle.chats.get(sourceId, userId)) return
+    await inheritForkCompletedMedia(sourceId, userId, [...ancestors, chatId])
+    await ensureCompletedStateCompacted(sourceId, userId)
+    const source = await getState(sourceId, userId)
+    const [sourceMessages, destinationMessages] = await Promise.all([spindle.chat.getMessages(sourceId), spindle.chat.getMessages(chatId)])
+    const sourceRecords: SlotRecord[] = []
+    for (const record of renderSnapshotRecords(source).filter(row => row.status === 'completed')) {
+      const full = record.diagnosticArchiveId ? (await readCompletedDiagnostic(sourceId, record.diagnosticArchiveId, userId))?.record : undefined
+      sourceRecords.push(full?.key === record.key && full.imageId === record.imageId ? full : record)
+    }
+    const inherited = forkCompletedMedia(sourceMessages as ChatMessage[], destinationMessages as ChatMessage[], sourceRecords, chatId)
+    const sourceIdByIndex = new Map(sourceMessages.map((message, index) => [message.index_in_chat ?? index, message.id]))
+    const sourceIdByDestinationId = new Map(destinationMessages.map((message, index) => [message.id, sourceIdByIndex.get(message.index_in_chat ?? index)]))
+    await mutateState(chatId, userId, async state => {
+      if (state.inheritedMediaFrom || state.clearedAt) return
+      let count = 0
+      for (const record of inherited) {
+        const current = state.slots[record.key]
+        if (state.completedArchive[record.key] || state.suppressedContentFingerprints[`${record.messageId}:${record.swipeId}`]) continue
+        if (current && (current.status !== 'recovered-pending' || current.imageUrl || current.pendingPlacement)) continue
+        state.slots[record.key] = record
+        const sourceRecord = sourceRecords.find(row => row.messageId === sourceIdByDestinationId.get(record.messageId) && row.swipeId === record.swipeId && row.requestId === record.requestId && row.slot === record.slot && row.imageId === record.imageId)
+        if (sourceRecord?.versionTreeId && source.versionTrees[sourceRecord.versionTreeId]) {
+          const tree = cloneValue(source.versionTrees[sourceRecord.versionTreeId])
+          tree.chatId = chatId
+          tree.slotKey = record.key
+          state.versionTrees[tree.treeId] = tree
+        }
+        for (const asset of Object.values(source.assetLibrary.assets)) {
+          if (asset.messageId !== sourceRecord?.messageId || asset.requestId !== record.requestId || asset.slot !== record.slot) continue
+          state.assetLibrary.assets[asset.assetId] ||= { ...cloneValue(asset), chatId, messageId: record.messageId }
+        }
+        count++
+      }
+      state.inheritedMediaFrom = sourceId
+      appendStateLog(state, { severity: 'info', stage: 'fork-media', eventType: 'fork_media_inherited', chatId,
+        message: `Restored ${count} completed images from the parent chat without generating replacements.` })
+    })
+    await ensureCompletedStateCompacted(chatId, userId)
+    invalidateRenderCaches(chatId, userId)
+  })()
+  forkMediaLoads.set(scope, load)
+  try { await load } finally { forkMediaLoads.delete(scope) }
+}
+
+spindle.on('CHAT_FORKED', (payload, userId) => {
+  void inheritForkCompletedMedia(payload.forkedChatId, userId).then(() => sendState(userId, payload.forkedChatId))
+    .catch(error => spindle.log.warn(`[Reverie Relay] Fork image inheritance failed: ${String(error)}`))
+})
 
 async function writeStateUnlocked(chatId: string, state: StateFile, userId?: string): Promise<void> {
   await spindle.userStorage.mkdir('states', userId).catch(() => undefined)
@@ -19846,10 +20712,13 @@ function scheduleStateBroadcast(userId?: string, chatId?: string, delayMs = 16):
   scheduledStateBroadcasts.set(scope, timer)
 }
 
-async function sendState(userId?: string, chatId?: string): Promise<void> {
+const frontendBootstrapReads = new Map<string, Promise<void>>()
+const frontendBootstrapRefreshes = new Map<string, Promise<void>>()
+
+async function sendState(userId?: string, chatId?: string, bootstrap = false): Promise<void> {
   const config = await getConfig(userId)
-  if (chatId) await ensureCompletedStateCompacted(chatId, userId)
-  let state = chatId ? await getState(chatId, userId) : emptyState()
+  if (chatId && !bootstrap) await ensureCompletedStateCompacted(chatId, userId)
+  let state = chatId ? await getState(chatId, userId, bootstrap) : emptyState()
   // A chatless broadcast has no per-chat projection to send.  Its Surface
   // Library must therefore come from the persisted global authority, not
   // emptyState()'s all-enabled defaults.  The frontend accepts chatless state
@@ -19859,29 +20728,34 @@ async function sendState(userId?: string, chatId?: string): Promise<void> {
     ? state.customSurfaces
     : normalizeCustomSurfaceStudio(config.globalSurfaceStudio || defaultCustomSurfaceStudio())
   state.continuityVault.strength = config.vaultStrength
-  if (chatId && Date.now() - state.lastReconciledAt > 5000) {
+  if (chatId && !bootstrap && Date.now() - state.lastReconciledAt > 5000) {
     await reconcileChatState(chatId, userId)
     state = await getState(chatId, userId)
   }
   if (chatId) cacheRenderSnapshot(chatId, userId, state, config)
-  if (chatId) await syncEnabledSurfaceMacro(chatId, state, config, userId).catch(error => {
+  if (chatId && !bootstrap) await syncEnabledSurfaceMacro(chatId, state, config, userId).catch(error => {
     spindle.log.warn(`[Reverie Relay] Resolved-macro sync failed: ${error instanceof Error ? error.message : String(error)}`)
   })
+  // Bootstrap skips durable compaction, but its wire projection still omits
+  // completed prompt/history blobs. Full records remain in saved storage.
   const records = Object.values(state.slots).sort((a, b) => b.updatedAt - a.updatedAt)
+    .map(record => bootstrap && record.status === 'completed' ? stripCompletedRecord(record) : record)
   // Normal drawer state is hot-only. The host Images catalog and completed
   // archive are queried by explicit paged actions, never on every status tick.
   const globalAssets = compactAssetLibraryForState(state.assetLibrary)
   const message: BackendStateMessage = {
     type: 'state',
+    ...(bootstrap ? { bootstrap: true } : {}),
     chatId: chatId ?? null,
     records,
+    renderCatalogFingerprint: completedRenderCatalogFingerprint(state),
     stats: state.stats,
     recentCompleted: state.recentCompleted,
     queueSafety: state.queueSafety,
     config,
-    parserConnections: await getParserConnections(userId),
-    imageConnections: await getImageConnections(userId),
-    imageProviders: await getImageProviders(userId),
+    parserConnections: bootstrap ? parserConnectionListCache.get(userConfigCacheKey(userId))?.value || [] : await getParserConnections(userId),
+    imageConnections: bootstrap ? imageConnectionListCache.get(userConfigCacheKey(userId))?.value || [] : await getImageConnections(userId),
+    imageProviders: bootstrap ? imageProviderListCache.get(userConfigCacheKey(userId))?.value || [] : await getImageProviders(userId),
     logs: [...state.logs].sort((a, b) => b.timestamp - a.timestamp),
     candidateBatches: Object.values(state.candidateBatches || {}).sort((a, b) => b.updatedAt - a.updatedAt),
     queueDirector: state.queueDirector,
@@ -20116,13 +20990,13 @@ async function discoverProviderLoraCatalog(requestId: string, requestedConnectio
   }
 }
 
-async function getRecordByKey(key: string, userId?: string): Promise<{ chatId: string; state: StateFile; record: SlotRecord }> {
+async function getRecordByKey(key: string, userId?: string, requireHistory = false): Promise<{ chatId: string; state: StateFile; record: SlotRecord }> {
   const chatId = key.split(':')[0]
   let state = await getState(chatId, userId)
   let record = state.slots[key]
   if (!record) throw new Error('Slot not found.')
   const archiveId = record.diagnosticArchiveId || state.completedArchive[key]?.diagnosticArchiveId
-  if (record.status === 'completed' && archiveId && !canReparseRecord(record) && !canRegenerateRecord(record)) {
+  if (record.status === 'completed' && archiveId && (requireHistory || !canReparseRecord(record) && !canRegenerateRecord(record))) {
     const archived = (await readCompletedDiagnostic(chatId, archiveId, userId))?.record
     if (archived?.key === key && archived.chatId === chatId && archived.status === 'completed' && (archived.imageUrl || archived.imageId)) {
       await mutateState(chatId, userId, next => {
@@ -20135,6 +21009,7 @@ async function getRecordByKey(key: string, userId?: string): Promise<{ chatId: s
       record = state.slots[key]
     }
   }
+  if (requireHistory && (record.historyCount || 0) > record.history.length) throw new Error('Previous image versions could not be loaded from the archive. No image was changed.')
   return { chatId, state, record }
 }
 
@@ -20235,6 +21110,7 @@ async function patchSwipeContent(chatId: string, message: ChatMessage, swipeId: 
 function applyGeneration(state: StateFile, record: SlotRecord, result: SlotGenerationResult, now: number): void {
   const snapshot = snapshotFromRecord(record, now)
   if (snapshot) record.history.unshift(snapshot)
+  record.historyCount = record.history.length
 
   record.status = 'completed'
   record.pendingPlacement = undefined
@@ -20402,7 +21278,9 @@ function snapshotFromRecord(record: SlotRecord, now: number): GenerationSnapshot
     rootVersionId: record.rootVersionId,
     attemptNumber: record.attemptNumber,
     triggerType: record.triggerType,
-    generatedAt: record.updatedAt || now,
+    // Queue/provider transitions mutate updatedAt while the prior image is
+    // still selected. Archive that image's completion, not its successor's.
+    generatedAt: record.completedAt || record.updatedAt || now,
   }
 }
 
@@ -20611,7 +21489,7 @@ function canRegenerateRecord(record: SlotRecord): boolean {
   return Boolean(record.resolvedPositivePrompt?.trim())
 }
 
-function jobFromRecord(record: SlotRecord): RouterJob {
+export function jobFromRecord(record: SlotRecord): RouterJob {
   const savedAnchor = record.prosePromptComposition?.rawOutput?.illustration as RelayPlannedIllustration | undefined
   const sourceParagraph = record.target === 'prose.illustration'
     ? relayPlannedAuthoritativeParagraph(record.prosePromptComposition, savedAnchor?.anchor?.anchorExcerpt || record.proseAnchor?.selectedExcerpt || '')
@@ -20634,7 +21512,10 @@ function jobFromRecord(record: SlotRecord): RouterJob {
     originalRequestXml: record.originalRequestXml,
     cast: record.cast,
     promptSource: record.promptSource,
-    promptProfileId: record.temporaryPromptProfileId || record.selectedPromptProfileId,
+    // The resolved profile is diagnostic output, not a new explicit override.
+    // In particular, Auto -> Cinematic Scene must remain Auto on regeneration
+    // so generic framing cannot be reintroduced over the authored still.
+    promptProfileId: record.temporaryPromptProfileId || record.promptProfile?.requestedProfileId || record.selectedPromptProfileId,
     regenerationIntent: record.regenerationIntent,
     composedPositivePrompt: record.composedPositivePrompt,
     composedNegativePrompt: record.composedNegativePrompt,
@@ -20997,7 +21878,7 @@ function slotDescription(job: RouterJob, slot: string): string {
   return 'Slot: the single image inside this exact Instagram post.'
 }
 
-export function hasExplicitNoHumanIntent(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'cast'>): boolean {
+export function hasExplicitNoHumanIntent(job: Pick<RouterJob, 'originalSceneBrief' | 'caption' | 'alt' | 'cast' | 'prosePromptComposition'>): boolean {
   const authoritative = imageContentWithoutSurfaceDestination(`${job.originalSceneBrief} ${job.caption || ''} ${job.alt || ''}`)
   // The cast attribute controls only whether the bound chat Character and/or
   // Persona are depicted. Model Planned may still name visible NPCs while
@@ -21005,7 +21886,8 @@ export function hasExplicitNoHumanIntent(job: Pick<RouterJob, 'originalSceneBrie
   // An empty *part* of a scene (for example an empty booth behind a visible
   // Character) must not turn the whole image into a no-human location shot.
   if (job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user'
-    || /\b(?:exactly\s+)?(?:one|1|two|2|three|3)\s+visible\s+(?:people|persons?|characters?|subjects?)\b/i.test(authoritative)) return false
+    || (job.prosePromptComposition?.peoplePolicy === 'required' && Number(job.prosePromptComposition.expectedPeopleCount || 0) > 0)
+    || /\b(?:exactly\s+)?(?:[1-9]\d*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|(?:twenty|thirty|forty|fifty|sixty)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?)\s+visible\s+(?:people|persons?|characters?|subjects?)\b/i.test(authoritative)) return false
   return /\b(?:no people(?: visible)?|no person(?:s)?(?: visible)?|without (?:any )?(?:people|persons|humans|characters)|(?:empty|unoccupied|vacant) (?:room|lounge|office|hallway|classroom|studio|interior|building|street|scene)|environment only|location only|object only|no message)\b/i.test(authoritative)
 }
 
@@ -21019,7 +21901,7 @@ function usesNarrativeSceneProfile(
 ): boolean {
   if ((job.target !== 'prose.illustration' && job.target !== 'custom.artifact-media') || hasExplicitSocialPhotoIntent(authoritative)) return false
   const framingMode = job.prosePromptComposition?.perspectiveMode || 'scene-snapshot'
-  if (!['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene', 'persona-pov', 'storyboard'].includes(framingMode)) return false
+  if (!['scene-snapshot', 'sequence', 'emotional-beat', 'solo-scene', 'persona-pov', 'storyboard', 'blocking-fidelity'].includes(framingMode)) return false
   if (explicitNamedVisibleSubjectCount(authoritative) > 1) return true
   if (job.target === 'custom.artifact-media' && !/\b(?:wide|medium|long|establishing|over[- ]the[- ]shoulder|detail|scene|environment|foreground|background|beside|opposite|across|standing|walking|sitting|seated|lying|sleeping|speaking|arguing|confronting|holding|reaching|turned)\b/i.test(authoritative)) return false
   if (job.cast === 'char' || job.cast === 'user' || job.cast === 'char+user') return true
@@ -21219,6 +22101,9 @@ export function finalizeParsedPositivePrompt(
     : disciplineParsedPositivePrompt(withoutPersonaPovControl, classification, job)
   const surfaceFramedPrompt = enforceDirectSurfaceFraming(disciplinedPrompt, classification)
   const enforcePersonaPovVisibility = (value: string): string => {
+    if (job.target === 'prose.illustration') {
+      value = restoreBlockingFidelityParagraphs(value, imageContentWithoutSurfaceDestination(job.composedPositivePrompt || job.originalSceneBrief))
+    }
     if (perspectiveMode !== 'persona-pov') return value
     // The camera-holder contract belongs in Story/Sidecar instructions and
     // provider negatives, never in the image-positive text. Appending it here
@@ -21384,7 +22269,10 @@ export function applyPromptProfileToPositivePrompt(prompt: string, decision: Pro
   const suppressPeople = decision.suppressedContext.some(item => item.source.includes('character/persona'))
   if (suppressPeople) {
     for (const pattern of [...PORTRAIT_POSITIVE_PATTERNS, ...NON_PERSON_POSITIVE_PATTERNS]) {
-      next = next.replace(pattern, match => {
+      next = next.replace(pattern, (match, offset: number, original: string) => {
+        // An explicit absence is an object-frame constraint, not a request
+        // to add a person. Keep its negation and noun together.
+        if (/\b(?:no|without|not(?: a| any)?)\s*$/i.test(original.slice(0, offset))) return match
         removed.push({ fragment: match, reason: 'Object/environment profile removed portrait-positive language.' })
         return ' '
       })
@@ -21433,11 +22321,17 @@ function completeIllustrationSubjectNames(job: Pick<RouterJob, 'target' | 'origi
   const composition = job.prosePromptComposition
   const planned = [...new Set((composition?.namedSubjects || []).map(cleanString).filter(Boolean))]
   if (planned.length && planned.length === composition?.expectedPeopleCount) return planned
-  const declared = /(?:^|[.;\n]\s*)(?:exactly\s+)?(one|two|three|four|five|six|seven|eight|[1-8])\s+visible\s+(?:people|persons?|characters?|subjects?)\s*:\s*([^;.\n]{1,240})(?=[;.\n]|$)/i.exec(job.originalSceneBrief)
-  if (!declared) return []
+  const declared = /(?:^|[.;\n]\s*)(?:exactly\s+)?(one|two|three|four|five|six|seven|eight|[1-8])\s+visible\s+(?:adult\s+)?(?:people|persons?|characters?|subjects?|adults?)\s*:\s*([^;.\n]{1,240})(?=[;.\n]|$)/i.exec(job.originalSceneBrief)
+  // Counted owner headings are another explicit complete cast, not incidental
+  // story names. Stock framing prompts request these blocks; their names must
+  // narrow legacy cast= bindings just like the compact cast-list spelling.
+  const counted = declared || /\b(one|two|three|four|five|six|seven|eight|[1-8])\s+(?:visible\s+)?(?:(?:fully[- ]clothed|clothed)\s+)?(?:adult\s+)?(?:people|persons?|characters?|subjects?|adults?)\b/i.exec(job.originalSceneBrief)
+  if (!counted) return []
   const counts: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 }
-  const count = counts[declared[1].toLocaleLowerCase()] || Number(declared[1])
-  const names = declared[2].split(/\s*,\s*|\s+(?:and|&)\s+/i).map(cleanString).filter(Boolean)
+  const count = counts[counted[1].toLocaleLowerCase()] || Number(counted[1])
+  const names = declared
+    ? declared[2].split(/\s*,\s*|\s+(?:and|&)\s+/i).map(cleanString).filter(Boolean)
+    : [...job.originalSceneBrief.matchAll(/(?:^|[.;\n]\s*)(?:screen[- ](?:left|right|center)|foreground|background|(?:directly\s+)?behind(?:\s+the\s+(?:chair|bench|bed|sofa))?|center)\s*(?:,\s*([^:;.\n]{1,100})\s*:|:\s*([^,:;.\n]{1,100})\s*,)/gi)].map(match => cleanString(match[1] || match[2]))
   if (names.length !== count || new Set(names.map(normalizeIdentityOwner)).size !== count
     || names.some(name => !/^[\p{Lu}][\p{L}'’.-]*(?:\s+[\p{L}][\p{L}'’.-]*){0,5}$/u.test(name) || !isValidCanonicalCharacterName(name))) return []
   return names
@@ -21562,8 +22456,11 @@ export function completeFallbackVisualIdentity(cardContext: string, facts: Appea
 
 export function sanitizeRecentVisualContext(value: string, maximumCharacters = 700): string {
   if (!value) return ''
-  if (/\b(OOC|integration test|debug export|motive ledger|router logs?|regex|stylesheet|developer handoff)\b/i.test(value)) return ''
-  const clean = value
+  // Historical requests and resolved transport are not evidence of the scene.
+  // Strip them before relevance/OOC checks, using the Story Model firebreak.
+  const history = sanitizeRelayPromptHistoryText(value)
+  if (/\b(OOC|integration test|debug export|motive ledger|router logs?|regex|stylesheet|developer handoff)\b/i.test(history)) return ''
+  const clean = history
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
@@ -21626,11 +22523,14 @@ export function restrictSoloSceneVisualSubjects(
 export function restrictRelayPlannedVisualSubjects(
   subjects: VisualSubjectPrompt[],
   job: Pick<RouterJob, 'target' | 'originalSceneBrief' | 'prosePromptComposition'>,
+  verifiedIdentities: Array<{ id?: string; name: string; aliases?: string[] }> = [],
 ): VisualSubjectPrompt[] {
   if (job.target === 'prose.illustration' && job.prosePromptComposition?.rawOutput?.plannerVersion === RELAY_PLANNED_V2) {
     const visibleNames = (job.prosePromptComposition.namedSubjects || []).map(name => cleanString(name).toLocaleLowerCase()).filter(Boolean)
     return subjects.filter(subject => {
       const name = cleanString(subject.name).toLocaleLowerCase()
+      const identity = verifiedIdentities.find(identity => identity.id && identity.id === subject.id)
+      if (identity && [identity.name, ...(identity.aliases || [])].some(alias => visibleNames.some(visible => normalizeIdentityOwner(alias) === normalizeIdentityOwner(visible)))) return true
       return visibleNames.some(visible => name === visible || name.startsWith(`${visible} `) || visible.startsWith(`${name} `))
     })
   }
@@ -21812,7 +22712,7 @@ function smallestContainingArtifact(source: string, requestStart: number, reques
 }
 
 function sanitizeArtifactWindow(value: string): string {
-  return compact(value
+  return compact(sanitizeRelayPromptHistoryText(value)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')

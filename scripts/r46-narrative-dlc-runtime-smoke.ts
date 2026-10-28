@@ -150,8 +150,8 @@ assert(removed.status === 'removed' && api.rows.length === 0, 'remove must delet
 
 const utility = buildNarrativeUtilityPrompt()
 assert(NARRATIVE_DLC_VERSION === '6.3-final', 'Character Phone gallery contract must ship as Narrative Utility pack 6.3-final')
-assert(utility.utilityNames.length === 15, 'all 15 active Narrative Utilities must be selected by default')
-assert(utility.utilityNames.join('|') === 'Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'active Narrative Utility roster must contain only current names')
+assert(utility.utilityNames.length === 16, 'all 16 active Narrative Utilities must be selected by default')
+assert(utility.utilityNames.join('|') === 'Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe|Building Layout', 'active Narrative Utility roster must contain only current names')
 assert(utility.utilityNames.join('|') === narrativeUtilityNames().join('|'), 'Utility injection order must match the source bundle')
 for (const item of narrativeUtilityItems()) {
   assert(utility.content.includes(applyNarrativeDisplayNames(item.loomContent)), `${item.loomName}: final prompt injection must preserve the complete source Utility instructions under its public label`)
@@ -196,7 +196,7 @@ for (const removed of [
 for (const token of ["<Plot_Sparks>", "<Spark>", "<Text>", "<Media>", "<reverie-illustration ", 'detonation', 'heartknife', 'wrongness', 'crash-in', 'matchstrike', 'reputation-fire', 'wildcard-collision']) {
   assert(plotSparksUtility.content.includes(token), `Plot Sparks bracket renderer/image contract changed: ${token}`)
 }
-for (const exactCount of ['Exactly ten Sparks', "Each <Media> contains exactly one complete Reverie illustration", 'exactly ten complete illustrations']) {
+for (const exactCount of ['Exactly ten Sparks', 'Each <Media> contains exactly one complete current <reverie-illustration request="generate">', 'exactly ten complete illustrations']) {
   assert(plotSparksUtility.content.includes(exactCount), `Plot Sparks must retain its ten-image structural requirement: ${exactCount}`)
 }
 for (const forbidden of ['hook ledger', 'chaos payload', 'chaos_payload', 'chaos hook', 'chaos_hook', 'hook_text', 'hook_media', '<payload>', 'two-ledger']) {
@@ -427,9 +427,9 @@ const settingsStart = frontend.indexOf('function renderSettings()')
 assert(surfaceLibraryStart > -1 && settingsStart > surfaceLibraryStart, 'Surface Library and Settings render boundaries must remain discoverable')
 const librarySource = frontend.slice(surfaceLibraryStart, settingsStart)
 assert(librarySource.includes("panelSection('Narrative Utilities', renderNarrativeUtilityCategory(config))"), 'Narrative Utilities must render inside the Surface Library')
-assert(librarySource.indexOf('for (const category of categoryOrder)') < librarySource.indexOf("panelSection('Narrative Utilities'"), 'Narrative Utilities must appear after all original Surface categories')
-assert(librarySource.indexOf('View Exact Injected Prompt') < librarySource.indexOf('for (const category of categoryOrder)'), 'combined prompt preview must remain above every Surface category')
+assert(librarySource.includes('function renderNarrativeLibrary()') && frontend.includes("['surface-narratives', 'Narratives']"), 'Narratives must have a directly accessible view, not sit beneath the Apps list')
+assert(frontend.includes('function renderSurfaceLibraryHeader(') && frontend.includes('View Exact Injected Prompt'), 'both family views retain the shared exact combined prompt preview')
 assert(!frontend.includes('Inject FINAL Narrative Utilities') && !frontend.includes('complete FINAL Utility contract'), 'user-facing Surface controls must call them Narrative Utilities')
 assert(!frontend.slice(settingsStart).includes("panelSection('Narrative Utilities'"), 'Narrative Utility controls must not remain in Settings')
 
-console.log(`Narrative runtime smoke passed: ${activeScriptCount} disabled imported active scripts, legacy Phone read compatibility, bundled Relay rendering, preview wiring, and 15 active Utility injections.`)
+console.log(`Narrative runtime smoke passed: ${activeScriptCount} disabled imported active scripts, legacy Phone read compatibility, bundled Relay rendering, preview wiring, and 16 active Utility injections.`)

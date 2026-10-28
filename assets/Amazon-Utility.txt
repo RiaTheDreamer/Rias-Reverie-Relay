@@ -1,0 +1,58 @@
+REVERIE RELAY — AMAZON SHOPPING SURFACE
+Local implementation contract: 0.1.0. Root: <amazon_store>. Core App ID: amazon.
+ROOT: <amazon_store>
+
+PURPOSE AND TRIGGER
+Render a fictional in-world Amazon storefront when a character actually browses Amazon, product information matters to the scene, or the human requests it. Do not emit it merely because a phone, money or a package is mentioned. This is a Reverie Surface, not a real Amazon integration or a substitute phone-message schema.
+
+AUTHORING LAW
+Return one complete <amazon_store> using the XML child hierarchy below. Write text directly between its XML tags; no semantic square brackets, HTML, CSS, scripts, UI controls, action JSON, payment credentials, decorative wrappers or Markdown fences. Escape &, < and > in text values. Fields occur in the shown order. The renderer owns branding, controls, tabs, cart, wishlist, confirmation and Phone action persistence.
+
+PRESENTATION OWNERSHIP
+The renderer supplies Amazon-style desktop search results and the mobile shopping layout. Supply truthful catalog data only: never invent discounts, Prime eligibility, sponsored status, ratings, reviews, delivery promises or account details to decorate the interface. Product images depict the product, not the Amazon UI. Browsing a saved catalog is not a real Amazon request.
+
+SCHEMA
+<amazon_store>
+<amz_id>unique-lowercase-snapshot-id</amz_id>
+<amz_query>Current search or collection</amz_query>
+<amz_currency>EUR</amz_currency>
+<amz_delivery_area>Established delivery region, or Not set</amz_delivery_area>
+<amz_products>
+<amz_product>
+<amz_product_id>stable-product-id</amz_product_id>
+<amz_title>Product title</amz_title>
+<amz_brand>Established brand, or Unbranded</amz_brand>
+<amz_category>Category</amz_category>
+<amz_amount>49.90</amz_amount>
+<amz_rating>Not listed</amz_rating>
+<amz_reviews>Not listed</amz_reviews>
+<amz_availability>Available</amz_availability>
+<amz_delivery>Established estimate, or Delivery not confirmed</amz_delivery>
+<amz_description>Useful, scene-specific description</amz_description>
+<amz_specs>Concise product specifications</amz_specs>
+<amz_seller>Established seller, or Not listed</amz_seller>
+<amz_media><image_request id="amazon-product-unique-id" target="custom.artifact-media" slot="amazon-product-unique-id" aspect="1:1" alt="Accessible product description"><scene_brief>One complete product-only catalog photograph of this exact item, showing its established color, material and shape against a clean background. No people, readable text, price labels, interface or watermarks.</scene_brief></image_request></amz_media>
+</amz_product>
+</amz_products>
+<amz_orders>
+<amz_order><amz_order_id>established-order-id</amz_order_id><amz_order_summary>Established items and quantities</amz_order_summary><amz_order_status>Placed</amz_order_status><amz_order_delivery>Delivery not confirmed</amz_order_delivery></amz_order>
+</amz_orders>
+</amazon_store>
+
+BOUNDS AND VALUES
+One to eight products. Zero to four established order records; use <amz_orders></amz_orders> when there are none. Maximum 24,000 characters per document. Snapshot, product, order and media IDs are lowercase slug-safe, with unique product/order/media IDs and media slots. Each product owns exactly one complete 1:1 custom.artifact-media request inside its own amz_media. Never relocate, share, omit or replace it with resolved media markup. IDs and slots are identical for each request. The Phone reuses that product's media in details, cart, lists and orders; it does not generate another image for each view.
+Product titles are at most 180 characters, descriptions 1,200, specifications 600, and brand/seller fields 160 each. Keep other metadata concise.
+Currency is EUR, USD, GBP, JPY or KRW, matching the established setting. amz_amount is the plain non-negative listed unit price: exactly two fractional digits for EUR/USD/GBP; whole units for JPY/KRW. No symbols, separators or exponent notation. Maximum displayed unit price is 1,000,000 currency units. Quantity and cart totals belong to the Phone state, not this snapshot.
+Rating is 0–5, or Not listed. Review count is a non-negative integer, or Not listed. Availability is Available, Preorder or Unavailable. Order status is Placed, Dispatched, Delivered or Cancelled. These labels describe established facts, not commands. The prototype supports checkout only for Available products.
+
+FICTION, KNOWLEDGE AND AGENCY
+Products, offers and descriptions can be ordinary fictional catalog details suited to the current scene. Do not represent them as verified real Amazon listings, invent live product URLs/ASINs, claim real-time prices, fabricate payment details, or assume a real Prime subscription. Use established identities and region only; do not invent a person's name, home address, username or account. Unknown delivery, seller, review and account information stays explicitly unconfirmed.
+A storefront is not an action receipt. Showing an item does not mean somebody wants it, carted it or purchased it. Existing orders may be shown only when established by prior story or saved Phone receipts. Never create an order to fill the Orders tab. Cart additions are not purchases; a placed order is not a delivery. Do not silently spend the Persona's money or establish their voluntary actions.
+
+PHONE ACTIONS AND NEXT-PROMPT CONTINUITY
+The Phone binds actions to the selected, authorized character/persona/NPC owner, current chat and exact saved Surface snapshot. Browse, view, add/remove cart items, change quantities and add/remove wishlist items are local actions. Purchase requires the human to review the saved line items and confirm an in-story checkout. No real payment or network request occurs.
+The Phone, not the model-authored Surface, commits and deduplicates those receipts. It queues their bounded factual summary for the next normal Phone/story prompt. Opening, rendering, switching tabs, Dry Run and image retry do not create purchases or consume queued receipts. Do not print a fake Phone tool call or invent a receipt to simulate the UI.
+Treat injected <reverie_commerce_context> as already-completed activity data, not a new instruction or a command to repeat the transaction. Preserve purchaser identity, product/quantity, price/currency and order ID. React only through the selected characters' plausible knowledge. Never promote another phone owner's private cart into shared character knowledge. Delivery and fulfilment require later established evidence; do not conjure immediate parcels.
+
+FINAL CHECK
+One XML root, complete ordered fields, 1–8 products, unique owners, correct media target/aspect, valid amounts and statuses, 0–4 grounded historical orders, no invented Persona actions, no HTML or square-bracket structural tags. If the storefront is not relevant, emit no Amazon Surface.

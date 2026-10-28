@@ -23,6 +23,22 @@ const lacksProse = (text: string) => {
 const sidecar = (observations: any[]) => normalizeAppearanceSidecarOutput(JSON.stringify({ observations }))
 assert(normalizeAppearanceFieldRefreshOutput(JSON.stringify({ fieldResult: { subject: 'Vela', field: 'negative-identity-tags', status: 'known', tags: ['blonde hair'] } }), 'negative-identity-tags').tags[0] === 'blonde hair', 'manual field refresh schema must accept a valid scoped result')
 
+// Hair length must not manufacture a second, contradictory body-size fact.
+for (const hair of ['short hair', 'short brown hair', 'short silver hair', 'short_hair']) {
+  const hairVault = emptyContinuityVault(`hair-not-stature-${hair}`)
+  const subject = registerCanonicalCharacter(hairVault, { name: 'Alpha Entity', sourceType: 'character-card' })
+  addAppearanceFact(hairVault, { layer: 'visual-identity', characterId: subject.canonicalCharacterId, category: 'hair-length', value: hair, sourceType: 'appearance-sidecar', semanticAuthority: 'legacy-migration' })
+  const facts = Object.values(hairVault.visualIdentity)
+  assert(facts.some(fact => fact.value === 'short_hair' && fact.category === 'hair-length'), `short hair was lost: ${hair}`)
+  assert(!facts.some(fact => fact.value === 'short' && fact.category === 'body-build'), `hair length invented short body stature: ${hair}`)
+}
+for (const stature of ['short', 'short stature', 'short build', 'short person', 'she is short', 'short hair and short stature']) {
+  const heightVault = emptyContinuityVault(`real-stature-${stature}`)
+  const subject = registerCanonicalCharacter(heightVault, { name: 'Beta Entity', sourceType: 'character-card' })
+  addAppearanceFact(heightVault, { layer: 'visual-identity', characterId: subject.canonicalCharacterId, value: stature, sourceType: 'character-card' })
+  assert(Object.values(heightVault.visualIdentity).some(fact => fact.value === 'short' && fact.category === 'body-build'), `explicit short stature was lost: ${stature}`)
+}
+
 // Manual editor fields are authoritative replacements across sheet switching.
 const switchVault = emptyContinuityVault('appearance-switch-sheets')
 const switchA = registerCanonicalCharacter(switchVault, { name: 'Switch A', sourceType: 'manual', userConfirmed: true })
@@ -323,6 +339,28 @@ for (const action of ['standing_by_the_door_holding_folder', 'sitting_on_floor_w
 }
 assert(!/standing|sitting|running|folder|tea|stage/.test(appearanceMemoryView(currentVault, currentSubject.canonicalCharacterId).currentState), 'scene action history must not persist as Appearance Memory')
 
+// Live ensemble regression: noun-only hand occupancy escaped the existing
+// "holding" filter and leaked a later shot's blue cup into the first shot.
+for (const action of ['blue cup in left hand', 'red cup in right hand', 'notebook in her right hand', 'phone in their hands']) {
+  const propVault = emptyContinuityVault('appearance-held-prop')
+  const propSubject = registerCanonicalCharacter(propVault, { name: 'Prop Alpha', sourceType: 'manual', userConfirmed: true })
+  try {
+    addAppearanceFact(propVault, { layer: 'current-appearance', characterId: propSubject.canonicalCharacterId, category: 'other', value: action, sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar', active: true })
+  } catch {}
+  assert(!Object.values(propVault.currentAppearance).some(fact => fact.status === 'active'), `handheld scene prop became persistent appearance: ${action}`)
+  // Pre-existing records must also stay out of selection without inventing a
+  // replacement or mutating the scene's actual prop/action description.
+  propVault.currentAppearance.legacy = { ...Object.values(currentVault.currentAppearance)[0], factId: 'legacy', canonicalCharacterId: propSubject.canonicalCharacterId, canonicalCharacterName: 'Prop Alpha', category: 'other', value: action, status: 'active', active: true }
+  const propSelection = selectContinuityForSubjects(propVault, { subjectNames: ['Prop Alpha'], chatId: propVault.chatId, sceneBrief: 'Prop Alpha sits with both palms flat on his own thighs.', strength: 'strong' })
+  assert(!propSelection.included.some(fact => fact.factId === 'legacy'), `legacy handheld scene prop leaked into generation: ${action}`)
+}
+for (const [category, value] of [['temporary-accessory', 'silver ring on left hand'], ['temporary-injury', 'bandage on right hand'], ['temporary-hair', 'wet hair']] as const) {
+  const keptVault = emptyContinuityVault('appearance-held-prop-preserve')
+  const keptSubject = registerCanonicalCharacter(keptVault, { name: 'Kept Alpha', sourceType: 'manual', userConfirmed: true })
+  addAppearanceFact(keptVault, { layer: 'current-appearance', characterId: keptSubject.canonicalCharacterId, category, value, sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar', active: true })
+  assert(Object.values(keptVault.currentAppearance).some(fact => fact.status === 'active'), `actual temporary appearance was discarded: ${value}`)
+}
+
 const replacementVault = emptyContinuityVault('appearance-sidecar-replacement')
 const replacementSubject = registerCanonicalCharacter(replacementVault, { name: 'Replacement Alpha', sourceType: 'manual', userConfirmed: true })
 addAppearanceFact(replacementVault, { layer: 'visual-identity', characterId: replacementSubject.canonicalCharacterId, category: 'hair-length', value: 'extremely long knee length hair', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar', confidence: .9 }, 500)
@@ -450,7 +488,9 @@ for (const [globalStrength, override, expected] of [
   }
 }
 const relayPolicyState = { continuityVault: refreshedState.continuityVault } as any
-assert(backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', 'off')).length === 0, 'Relay-Planned Director input leaked Vault facts through explicit Off')
+const relayOffSubjects = backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', 'off'))
+assert(relayOffSubjects.some(subject => subject.name === 'Prime Beta'), 'Appearance Off must retain the source-established cast, not erase the Director allowed subjects')
+assert(relayOffSubjects.every(subject => !subject.identity.length && !subject.current.length && !subject.pinned.length && !subject.wardrobe?.length && !subject.activeFactIds?.length), 'Relay-Planned Director input leaked Vault facts through explicit Off')
 const relayStrengthCounts = (['low', 'medium', 'strong'] as const).map(strength => backend.relayPlannedSubjectStates(relayPolicyState, 'prompt-once', 'Prime Beta waits for a portrait.', policySettings('relay-planned', strength))[0]?.activeFactIds.length || 0)
 assert(relayStrengthCounts[0] > 0 && relayStrengthCounts[0] <= relayStrengthCounts[1] && relayStrengthCounts[1] <= relayStrengthCounts[2], `Relay-Planned Director strength selection is not monotonic: ${relayStrengthCounts.join('/')}`)
 
@@ -499,6 +539,23 @@ assert(/black_hair/.test(sleepingPrepared.prompt), 'sleeping positive prompt may
 assert(/open_eyes/.test(sleepingPrepared.negativePrompt) && /direct_gaze/.test(sleepingPrepared.negativePrompt), 'sleeping negative prompt must guard closed-eye state')
 assert((sleepingPrepared.promptPipeline.rawContinuityFactCount || 0) > (sleepingPrepared.promptPipeline.projectedContinuityFactCount || 0), 'prompt diagnostics must distinguish broad Vault selection from projected generation facts')
 assert((sleepingPrepared.promptPipeline.projectedContinuityFactCount || 0) <= 6, 'strong generation projection must cap continuity at six facts per visible subject')
+
+// Resting a hand or prop is a blocking instruction, not evidence of sleep.
+for (const [index, scene] of [
+  'Prime Beta sits on a wooden chair, resting both palms flat on his own thighs, both feet on the floor, looking forward.',
+  'Prime Beta stands beside a red cup resting on the table, watching the doorway.',
+  'Prime Beta is resting on the sofa while reading a book with eyes open.',
+].entries()) {
+  const restingPrepared = await backend.parseSlotPrompt({
+    requestId: `awake-resting-projection-${index}`, chatId: 'sleeping-prompt', messageId: 'm1', swipeId: 0,
+    target: 'prose.illustration', slots: ['illustration'], count: 1,
+    originalSceneBrief: scene,
+    originalRequestXml: '', alt: 'Awake subject with resting hands or props', caption: '', aspect: '4:3', cast: 'user', promptSource: 'visual_prompt', originalNegativePrompt: '',
+    prosePromptComposition: { perspectiveMode: 'scene-snapshot', peoplePolicy: 'required', expectedPeopleCount: 1, namedSubjects: ['Prime Beta'] } as any,
+  }, 'illustration', backendMessages as any, 0, config, 'offline', {})
+  assert(!/(?:open_eyes|direct_gaze)/.test(restingPrepared.negativePrompt), `resting is not evidence of sleep and must not inject closed-eye negatives: ${scene}; ${restingPrepared.negativePrompt}`)
+  assert(!(restingPrepared.promptPipeline.continuityProjectionNotes || []).some(note => /Closed-eye scene/.test(note)), `awake resting scene was classified as closed-eye: ${scene}`)
+}
 
 const lifecycleStart = backendEvents.length
 backendFrontendHandler!({ type: 'continuity_action', chatId: 'prompt-once', action: 'rerun_appearance_field', characterId: persona.canonicalCharacterId, appearanceField: 'stable-appearance' }, 'offline')

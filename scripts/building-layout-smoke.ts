@@ -10,6 +10,11 @@ import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
 import { validateAssistedSurfaceRepair } from '../src/assistedSurfaceRepair'
 import { normalizeSurfaceBlock } from '../src/surfaceXml'
+import { buildNarrativeUtilityPrompt } from '../src/narrativeDlcRuntime'
+import { narrativeUtilityNames, renderNarrativeRegex, containsNarrativeRegexMarkup } from '../src/narrativeRegexAssets'
+import { SURFACE_ICON_REGISTRY } from '../src/surfaceIcons'
+import { parseImageRequests } from '../src/contracts'
+import { APP_SURFACE_GROUPS, appSurfaceGroups, surfaceLibraryName } from '../src/surfaceLibrary'
 
 const legacy = readFileSync(new URL('./fixtures/building-layout-legacy.txt', import.meta.url), 'utf8')
 const xml = legacy.replace(/\[(\/?)([a-z_]+)\]/g, '<$1$2>').replace(/<move_text>[\s\S]*?<\/move_text>/g, '')
@@ -31,7 +36,25 @@ const bad = [
   xml.replace(/<media>[\s\S]*?<\/media>/, '<media></media>'), xml.replace('<floor_name>', '<floor_name><room_id>bad</room_id>'),
   xml.replace('<title>Haneul House</title>', '<title>Haneul House</title><title>Duplicate</title>'),
 ]
-for (const source of bad) assert(!parseBuildingLayout(source).layout, 'malformed or ambiguous owner must fail closed')
+for (const source of bad) assert(!parseBuildingLayout(source, 'authoring').layout, 'malformed or ambiguous authoring must fail closed')
+assert(narrativeUtilityNames().includes('Building Layout'))
+const utilityPrompt = buildNarrativeUtilityPrompt(['Building Layout'])
+assert.deepEqual(utilityPrompt.utilityNames, ['Building Layout'])
+assert(utilityPrompt.content.includes('ROOT: <building_layout>') && utilityPrompt.content.includes('automatically links'))
+assert(!buildNarrativeUtilityPrompt([]).content.includes('building_layout'), 'off toggle removes the Utility')
+const textOnlyPrompt = buildNarrativeUtilityPrompt(['Building Layout'], {}, { 'Building Layout': false }).content
+assert(textOnlyPrompt.includes('<media></media>') && !/<(?:image_request|reverie-illustration)\b/.test(textOnlyPrompt))
+const textOnlyXml = xml.replace(/<image_request\b[^>]*>[\s\S]*?<\/image_request>/g, '')
+assert(parseBuildingLayout(textOnlyXml).layout, 'images-off layout remains a valid display/export source')
+assert(!parseBuildingLayout(textOnlyXml, 'authoring').layout, 'image-capable authoring still requires owned images')
+const blocksIcon = SURFACE_ICON_REGISTRY['narrative:Building Layout']
+assert(blocksIcon.svg.includes('M10 22V7a1 1 0 0 0-1-1') && blocksIcon.svg.includes('<rect x="14" y="2" width="8" height="8" rx="1"/>'))
+assert.equal(blocksIcon.svg, SURFACE_ICON_REGISTRY['core:building-layout'].svg)
+assert(containsNarrativeRegexMarkup(xml), 'Narrative discovery recognizes the atlas')
+for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass', 'plain-glass']) {
+  const literalXml = xml.replace('Elegant, quiet', '[literal] Elegant, quiet $&')
+  assert.equal(renderNarrativeRegex(literalXml, variant), literalXml, 'legacy regex cannot rewrite native XML or literal text')
+}
 const firstFloor = xml.match(/<floor>[\s\S]*?<\/floor>/)[0]
 const fourFloors = xml.replace(/<floor>[\s\S]*<\/floor>/, Array.from({ length: 4 }, (_, index) => firstFloor.replace(/(ground-floor|grand-foyer|sunken-lounge|formal-dining|garden-conservatory)/g, '$1-' + index)).join(''))
 assert(parseBuildingLayout(fourFloors).layout, 'four floors / sixteen rooms supported')
@@ -42,9 +65,26 @@ assert.equal(buildingLayoutBlocks(xml.replace('Wide interior architectural photo
 assert(parseBuildingLayout(xml.replace('Wide interior architectural photograph', '[smart_phone] Literal words in a visual brief')).layout)
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
-assert.equal(definitions.length, 47)
+assert.equal(definitions.length, 48)
+const catalogBeforeGrouping = JSON.stringify(definitions)
+const groupedApps = appSurfaceGroups(definitions)
+const groupedIds = groupedApps.flatMap(group => group.definitions.map(definition => definition.baseSurfaceId))
+assert.equal(groupedIds.length, 45, 'every App/UI has one home; three native identities are Narrative-owned')
+assert.equal(new Set(groupedIds).size, 45)
+assert.equal(JSON.stringify(definitions), catalogBeforeGrouping, 'display groups never rewrite stored categories or selections')
+for (const group of APP_SURFACE_GROUPS) assert.deepEqual(groupedApps.find(row => row.id === group.id).definitions.map(row => row.baseSurfaceId), [...group.ids])
+assert.equal(surfaceLibraryName({ baseSurfaceId: 'codex-entry', displayName: 'Reference Article' }), 'Wikipedia')
+assert.equal(surfaceLibraryName({ baseSurfaceId: 'codex-entry', displayName: 'My Reference' }), 'My Reference')
 const studio = { definitions: Object.fromEntries(definitions.map(def => [def.surfaceId, def])), activePresetIds: {}, collectionPresets: {}, rendererMode: 'relay', defaultShellMode: 'plain', colorMode: 'realistic' }
 const context = { chatId: 'layout-chat', messageId: 'layout-message', swipeId: 0, autoGenerate: false }
+const textOnlyRendered = renderNativeSurfaceMarkup(textOnlyXml, studio, context)
+assert(textOnlyRendered.renderedSurfaceIds.includes('building-layout'))
+assert.equal(new JSDOM(textOnlyRendered.content).window.document.querySelectorAll('[data-rrn-action="building-lorebook"]').length, 8)
+for (const variant of ['inline', 'plain-button', 'sparkle-button', 'glass', 'plain-glass']) {
+  const throughNarrative = renderNarrativeRegex(xml, variant, context.messageId, context)
+  const rendered = renderNativeSurfaceMarkup(throughNarrative, studio, context)
+  assert.equal(new JSDOM(rendered.content).window.document.querySelectorAll('.bl-atlas').length, 1, 'one native renderer, not a duplicate fixed regex')
+}
 const longRoomName = 'Conservatory and Botanical Reading Gallery with an ExceptionallyLongUnbrokenArchitecturalName'
 const longRoomXml = BUILDING_LAYOUT_SAMPLE.replace('<room_name>Entrance</room_name>', `<room_name>${longRoomName}</room_name>`)
 assert(parseBuildingLayout(longRoomXml).layout, 'long names remain complete semantic values')
@@ -138,19 +178,50 @@ failBinding = true
 await assert.rejects(exportBuildingRoomToLorebook({ ...exportInput, chat: chats.get('failure-chat') }))
 assert.equal(books.length, 2); assert.equal(entries.length, 3, 'failed binding rolls back its new entry/book')
 failBinding = false
+// Book identity is per source chat/building, not per message or room ID.
+const later = await exportBuildingRoomToLorebook({ ...exportInput, messageId: 'later-message', roomId: 'formal-dining' })
+assert.equal(later.bookId, concurrent[0].bookId, 'later messages for the same building reuse its book')
+const otherLayout = structuredClone(parsed.layout)
+otherLayout.id = 'another-building'
+otherLayout.context.name = 'Another Building'
+const other = await exportBuildingRoomToLorebook({ ...exportInput, layout: otherLayout, messageId: 'another-building-message' })
+assert.notEqual(other.bookId, concurrent[0].bookId)
+assert.equal(books.find(book => book.id === other.bookId).name, otherLayout.context.name)
+assert.deepEqual(chats.get(context.chatId).metadata.chat_world_book_ids, ['user-book', concurrent[0].bookId, other.bookId])
+const reused = await exportBuildingRoomToLorebook({ ...exportInput, layout: otherLayout, messageId: 'later-other-building-message', roomId: 'library' })
+assert.equal(reused.bookId, other.bookId)
+const collisionLayout = structuredClone(parsed.layout)
+collisionLayout.context.name = 'Different Building With Reused ID'
+const collision = await exportBuildingRoomToLorebook({ ...exportInput, layout: collisionLayout, messageId: 'bad-model-reused-id' })
+assert.notEqual(collision.bookId, concurrent[0].bookId, 'recycled model ID must never merge different named buildings')
+const originalBook = books.find(book => book.id === concurrent[0].bookId)
+assert.equal(originalBook.name, parsed.layout.context.name, 'book initially named for the building')
+originalBook.name = 'Human renamed the book'
+assert.equal((await exportBuildingRoomToLorebook({ ...exportInput, messageId: 'after-book-rename' })).bookId, originalBook.id, 'stored building identity survives manual book rename')
 
 // Exercise the production frontend-message route, not only the export helper.
 let receive, permission = true
 const responses = []
-globalThis.spindle = { ...api, chat: { getMessages: async () => [{ id: context.messageId, content: xml, role: 'assistant', swipe_id: 0, swipes: [xml] }] },
+const otherXml = xml.replace('<id>' + parsed.layout.id + '</id>', '<id>' + otherLayout.id + '</id>').replace('<name>' + parsed.layout.context.name + '</name>', '<name>' + otherLayout.context.name + '</name>')
+const savedMessages = [
+  { id: context.messageId, content: xml, role: 'assistant', swipe_id: 0, swipes: [xml] },
+  { id: 'another-building-message', content: otherXml, role: 'assistant', swipe_id: 0, swipes: [otherXml] },
+]
+globalThis.spindle = { ...api, chat: { getMessages: async () => savedMessages },
   on() {}, onFrontendMessage(callback) { receive = callback }, registerInterceptor() {}, registerMacro() {}, registerMessageContentProcessor() {},
   sendToFrontend(message) { responses.push(message) }, permissions: { has: () => permission }, log: { info() {}, warn() {}, error() {} },
   ui: { getDrawerTabs: async () => [{ id: 'lorebooks', tabName: 'Lorebook' }], openDrawerTab: async () => {} },
   userStorage: { async getJson(_path, { fallback } = {}) { return structuredClone(fallback ?? {}) }, async setJson() {}, async mkdir() {} },
 }
-const { buildEnabledSurfaceUtility } = await import('../src/backend')
+const { buildEnabledSurfaceUtility, buildResolvedNarrativeUtilityPrompt, suppressTextOnlyNarrativeRequests, getConfig, applyRelaySettingsPatchToConfig } = await import('../src/backend')
 const prompt = buildEnabledSurfaceUtility({ ...studio, utilityInjectionEnabled: true }).content
-assert(prompt.includes('ROOT: <building_layout>') && !prompt.includes('[building_layout]'), 'final injected prompt uses XML')
+assert(!prompt.includes('ROOT: <building_layout>'), 'regular Surface injection no longer duplicates Narrative-owned authoring')
+const narrativePrompt = buildResolvedNarrativeUtilityPrompt({ narrativeDlcEnabled: true, narrativeDlcUtilityNames: ['Building Layout'], characterPhoneDefaultApps: [] }).content
+assert(narrativePrompt.includes('ROOT: <building_layout>') && !narrativePrompt.includes('[building_layout]'), 'final Narrative injection uses XML')
+const roomRequests = parseImageRequests(xml)
+assert.equal(roomRequests.length, 8)
+assert.equal(suppressTextOnlyNarrativeRequests(xml, roomRequests, { 'Building Layout': false }).length, 0)
+assert.equal(suppressTextOnlyNarrativeRequests(xml, roomRequests, {}).length, 8)
 async function action(extra = {}) {
   const requestId = `test-${++serial}`
   receive({ type: 'export_building_lorebook', requestId, ...context, layoutId: parsed.layout.id, roomId: 'sunken-lounge', ...extra }, 'test-user')
@@ -158,6 +229,9 @@ async function action(extra = {}) {
   return responses.find(response => response.requestId === requestId)
 }
 assert((await action()).ok, 'saved-message source resolves through real backend route')
+const secondMessageAction = await action({ messageId: 'another-building-message', layoutId: otherLayout.id })
+assert(secondMessageAction.ok && secondMessageAction.bookId === other.bookId, 'second message exports to its own building book through the real backend route')
+assert(!(await action({ messageId: 'another-building-message', layoutId: parsed.layout.id })).ok, 'cannot borrow a layout ID from a sibling message')
 const before = entries.length
 assert(!(await action({ roomId: 'foreign-room' })).ok)
 assert(!(await action({ swipeId: 99 })).ok)
@@ -177,13 +251,15 @@ win.requestAnimationFrame = () => ++timer; win.cancelAnimationFrame = () => {}
 globalThis.requestAnimationFrame = win.requestAnimationFrame; globalThis.cancelAnimationFrame = () => {}
 globalThis.fetch = async () => ({ ok: false, status: 404, json: async () => ({}) })
 const drawerRoot = document.createElement('div'); document.body.append(drawerRoot)
+const styleSources = []
 let frontendReceiver
 const sent = []
+const actionClicks = new Map()
 const frontendCtx = {
-  dom: { addStyle: () => () => {}, findMessageElement: () => undefined, cleanup() {} },
+  dom: { addStyle: css => { styleSources.push(css); return () => {} }, findMessageElement: () => undefined, cleanup() {} },
   ui: {
     registerDrawerTab: () => ({ root: drawerRoot, setTitle() {}, setShortName() {}, setBadge() {}, activate() {}, onActivate: () => () => {}, destroy() {} }),
-    registerInputBarAction: () => ({ setLabel() {}, setSubtitle() {}, setEnabled() {}, onClick: () => () => {}, destroy() {} }),
+    registerInputBarAction: options => ({ setLabel() {}, setSubtitle() {}, setEnabled() {}, onClick: handler => { actionClicks.set(options.id, handler); return () => {} }, destroy() {} }),
     showModal: () => { const root = document.createElement('div'); document.body.append(root); return { root, dismiss: () => root.remove() } },
   },
   events: { on: () => () => {}, emit() {} }, display: { invalidate() {} },
@@ -193,6 +269,57 @@ const frontendCtx = {
 }
 const { setup } = await import('../src/frontend')
 const cleanup = setup(frontendCtx)
+let uiConfig = { ...await getConfig('test-user'), enabled: true, enableRelayOrb: false, autoRescanOnChatOpen: false, narrativeDlcEnabled: false, narrativeDlcUtilityNames: [] }
+frontendReceiver({ type: 'state', chatId: context.chatId, records: [], revision: 1,
+  config: uiConfig,
+  parserConnections: [], imageConnections: [], imageProviders: [], logs: [], candidateBatches: [], galleryLinks: [], versionTrees: [], customSurfaces: uiConfig.globalSurfaceStudio })
+actionClicks.get('open-private-relay-surfaces')()
+assert.deepEqual([...drawerRoot.querySelectorAll('.dg-suite-secondary-tab')].map(button => button.textContent), ['Apps & UIs', 'Narratives', 'Advanced'])
+assert.equal(drawerRoot.querySelectorAll('[data-surface-library-id]').length, 45)
+assert.equal(drawerRoot.querySelectorAll('[data-surface-library-id] .rr-surface-svg-icon svg').length, 45, 'all App rows retain their registered SVG')
+assert.equal(drawerRoot.querySelectorAll('.dg-narrative-utility-row').length, 0, 'Narratives are not buried underneath Apps')
+assert(drawerRoot.querySelector('[data-surface-library-id="codex-entry"]').textContent.includes('Wikipedia'))
+assert(!drawerRoot.textContent.includes('Narrative Visuals'))
+assert(drawerRoot.querySelector('[data-surface-library-id="mission-board"]').dataset.surfacePromptCategory === 'misc')
+const uiSnapshots = {}
+uiSnapshots.apps = drawerRoot.innerHTML
+const shopping = drawerRoot.querySelector('.dg-toggle[data-surface-prompt-category="shopping"] input')
+shopping.checked = false; shopping.dispatchEvent(new Event('input', { bubbles: true }))
+const groupPatch = sent.find(payload => payload.type === 'relay_settings_patch' && payload.patch?.categoryId === 'shopping')
+assert(groupPatch)
+assert.deepEqual(Object.keys(groupPatch.patch.values).sort(), Object.values(uiConfig.globalSurfaceStudio.definitions).filter(row => ['amazon', 'market-listing', 'property-listing'].includes(row.baseSurfaceId)).map(row => row.surfaceId).sort())
+const beforeGroupPatch = uiConfig
+uiConfig = applyRelaySettingsPatchToConfig(uiConfig, groupPatch.patch)
+for (const definition of Object.values(uiConfig.globalSurfaceStudio.definitions)) {
+  if (definition.surfaceId in groupPatch.patch.values) assert.equal(definition.promptEnabled, false)
+  else assert.equal(definition.promptEnabled, beforeGroupPatch.globalSurfaceStudio.definitions[definition.surfaceId].promptEnabled, 'group switch cannot change unrelated selections')
+}
+frontendReceiver({ type: 'relay_settings_patch_result', operationId: groupPatch.operationId, status: 'success', settingsRevision: uiConfig.settingsRevision, config: uiConfig, customSurfaces: uiConfig.globalSurfaceStudio, warnings: [] })
+const goView = label => {
+  const control = [...drawerRoot.querySelectorAll('.dg-suite-secondary-tab')].find(button => button.textContent === label)
+  assert(control, 'direct view: ' + label); control.click()
+}
+goView('Advanced')
+assert(drawerRoot.querySelector('[data-surface-library-view="advanced"]'))
+assert(drawerRoot.textContent.includes('Surface Defaults'))
+for (const tool of ['Presets', 'Injection', 'Creator']) {
+  const control = [...drawerRoot.querySelectorAll('.dg-surface-advanced-nav button')].find(button => button.textContent === tool)
+  assert(control); control.click()
+  assert(drawerRoot.querySelector('.dg-suite-secondary-tab.is-active').textContent === 'Advanced')
+}
+uiSnapshots.advanced = drawerRoot.innerHTML
+const libraryTab = [...drawerRoot.querySelectorAll('.dg-suite-secondary-tab')].find(button => button.textContent === 'Narratives')
+assert(libraryTab, 'mounted Surfaces navigation exposes Narratives directly')
+libraryTab.click()
+const utilityRow = [...drawerRoot.querySelectorAll('.dg-narrative-utility-row')].find(row => row.textContent.includes('Building Layout'))
+assert(utilityRow, 'mounted Narrative Utilities exposes the new Building Layout row')
+assert(utilityRow.querySelector('[data-rr-surface-icon="narrative:Building Layout"] svg'), 'actual dashboard uses the supplied SVG')
+assert(utilityRow.querySelector('[aria-label^="Building Layout images"]'), 'new Utility has its own Images On/Text Only control')
+assert.equal(drawerRoot.querySelectorAll('[data-surface-library-id]').length, 0, 'Apps never leak into the Narratives view')
+uiSnapshots.narratives = drawerRoot.innerHTML
+goView('Apps & UIs')
+assert([...drawerRoot.querySelectorAll('[data-surface-prompt-category="shopping"] input')].every(input => !input.checked), 'group selection survives view changes and backend acknowledgement')
+await Bun.write('artifacts/building-layout-narrative-20261017/dashboard-snapshots.json', JSON.stringify({ css: styleSources.join('\n'), views: uiSnapshots }))
 const messageHost = document.createElement('div'); document.body.append(messageHost)
 const shadow = messageHost.attachShadow({ mode: 'open' })
 shadow.innerHTML = renderNativeSurfaceMarkup(xml, studio, context).content

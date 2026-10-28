@@ -26,8 +26,8 @@ export const PHONE_TOOL_DEFINITIONS: ToolRegistrationDTO[] = [PHONE_TEXT_TOOL, P
     properties: {
       session: { type: 'string', description: 'Copy the current session token from the Reverie Phone protocol exactly.' },
       event_id: { type: 'string', description: 'A short unique identifier for this text in this response; reuse it if retrying the SAME text.' },
-      from: { type: 'string', description: 'character or an exact registered npc:id from the current protocol.' },
-      to: { type: 'string', description: 'persona, character, or an exact registered npc:id from the current protocol.' },
+      from: { type: 'string', description: 'character or an exact registered character:id or npc:id from the current protocol.' },
+      to: { type: 'string', description: 'persona, character, or an exact registered character:id or npc:id from the current protocol.' },
       body: { type: 'string', description: 'Only the delivered text/caption, 1–2000 characters.' },
       ...(name === PHONE_PHOTO_TOOL ? { image_prompt: { type: 'string', description: 'Visible photo content, 1–6000 characters; no UI or generation instructions.' } } : {}),
     },
@@ -61,7 +61,8 @@ export function appendPhoneToolEvents(source: string, session: PhoneToolSession)
 }
 
 export function phoneToolProtocol(session: PhoneToolSession): string {
-  const participants = session.identities.map(({ id, name, kind }) => ({ id: kind === 'npc' ? id : kind, name }))
+  const group = session.identities.filter(person => person.kind === 'character').length > 1
+  const participants = session.identities.map(({ id, name, kind }) => ({ id: kind === 'npc' || group && kind === 'character' ? id : kind, name }))
   return `<reverie_phone_protocol>\nOutput incoming in-world texts from characters or registered NPC contacts when relevant to the current scene. Participants: ${JSON.stringify(participants)}.\nWhen native functions are available, use the declared incoming-text function whose name ends with __${PHONE_TEXT_TOOL}, or the photo-draft function whose name ends with __${PHONE_PHOTO_TOOL}. Use the exact function name from the available declarations; its installation prefix is host-owned, not private_relay. Copy session ${JSON.stringify(session.token)} exactly. Use only these participant IDs, a stable event_id, and the actual message as body. At most three incoming messages per response. A successful tool result stages the text until the story is saved; do not repeat it in XML or call again with a new event_id. Photo descriptions create drafts, not automatic generation.\nIf these functions are NOT available, use standalone <reverie-phone from="character" to="persona" scope="${xml(session.scope)}">The actual text.</reverie-phone> instead, with the appropriate participant IDs. Escape XML text/attributes. Never use both transports for the same message.\n</reverie_phone_protocol>`
 }
 
@@ -121,7 +122,9 @@ export function createPhoneToolBridge(deps: {
       const from = plain(payload.args.from, 150), to = plain(payload.args.to, 150)
       const sender = resolvePhoneParticipant(from, session.identities), recipient = resolvePhoneParticipant(to, session.identities)
       if (!sender || !recipient || sender.kind === 'persona' || sender.id === recipient.id) throw new Error('Choose distinct established phone participants and an incoming sender.')
-      const event: PhoneToolEvent = { eventId, from: sender.kind === 'npc' ? sender.id : sender.kind, to: recipient.kind === 'npc' ? recipient.id : recipient.kind, body: plain(payload.args.body, 2000), ...(payload.toolName === PHONE_PHOTO_TOOL ? { imagePrompt: plain(payload.args.image_prompt, 6000) } : {}) }
+      const group = session.identities.filter(person => person.kind === 'character').length > 1
+      const participantRef = (person: PhoneIdentity) => person.kind === 'npc' || group && person.kind === 'character' ? person.id : person.kind
+      const event: PhoneToolEvent = { eventId, from: participantRef(sender), to: participantRef(recipient), body: plain(payload.args.body, 2000), ...(payload.toolName === PHONE_PHOTO_TOOL ? { imagePrompt: plain(payload.args.image_prompt, 6000) } : {}) }
       const previous = session.events.find(entry => entry.eventId === eventId)
       if (previous && JSON.stringify(previous) !== JSON.stringify(event)) throw new Error('That event_id already belongs to a different message. No replacement was made.')
       const duplicate = previous || session.events.find(entry => entry.from === event.from && entry.to === event.to && entry.body === event.body && entry.imagePrompt === event.imagePrompt)

@@ -1,5 +1,7 @@
 import {normalizePhoneImage,type PhoneImage} from './phoneMedia'
 import { normalizePhoneIncoming, type PhoneIncomingSettings } from './phoneIncomingSettings'
+import {normalizeCommerce} from './amazonCommerce'
+import type {CommerceState,CommerceConfirmation} from './amazon-phone-state.mjs'
 /** Durable phone conversations are separate from message-rendered Surface snapshots. */
 export type PhoneIdentity = { id: string; name: string; kind: 'character' | 'persona' | 'npc'; description?: string; aliases?: string[];avatarUrl?:string }
 export type PhoneGeneration={connectionId:string;createdAt:number;durationMs:number;operationId?:string;prompt:Array<{role:'system'|'user'|'assistant';content:string}>}
@@ -25,10 +27,13 @@ export type PhoneDeviceState = {
   autoReply?:boolean
   contextRequest?: { id:string; from?:string; to?:string }
   incoming?: PhoneIncomingSettings
+  commerce?:CommerceState[]
+  commerceRequest?:{id:string;ownerId:string}
 }
 export type PhoneCommand = {
   type: 'reverie_phone_command'; chatId: string; operationId: string;
-  action: 'load' | 'send' | 'reply' | 'regenerate' | 'read' | 'settings' | 'continue' | 'app' | 'app-create' | 'app-image' | 'image' | 'portrait' | 'app-post' | 'app-reply' | 'app-regenerate' | 'contact' | 'transport';
+  action: 'load' | 'send' | 'reply' | 'regenerate' | 'read' | 'settings' | 'continue' | 'app' | 'app-create' | 'app-image' | 'image' | 'portrait' | 'app-post' | 'app-reply' | 'app-regenerate' | 'contact' | 'transport' | 'commerce';
+  commerceAction?:string;commerceScope?:string;productId?:string;quantity?:number;confirmation?:CommerceConfirmation
   incomingTransport?: 'native' | 'xml'
   incoming?: PhoneIncomingSettings
   from?: string; to?: string; text?: string; messageId?: string;
@@ -75,11 +80,15 @@ export function normalizePhoneDevice(value: unknown): PhoneDeviceState {
   if(row.npcContacts!==undefined&&(!Array.isArray(row.npcContacts)||row.npcContacts.length>40||row.npcContacts.some((entry:any)=>!/^npc:manual-[\w.-]+$/.test(entry.id||'')||!text(entry.name)||entry.name.length>80||entry.kind!=='npc'||typeof entry.description!=='string'||entry.description.length>3000)))throw new Error('Phone contact storage is damaged. No contacts were overwritten.')
   if(row.contextMode!==undefined&&!['automatic','manual'].includes(row.contextMode))throw new Error('Phone context mode is unsupported. No settings were overwritten.')
   if(row.portraits!==undefined&&(!row.portraits||typeof row.portraits!=='object'||Array.isArray(row.portraits)||Object.keys(row.portraits).length>100))throw new Error('Phone portrait storage is damaged. Existing pictures were preserved.')
+  const commerce=normalizeCommerce(row.commerce)
+  if(row.commerceRequest!==undefined&&(!text(row.commerceRequest?.id)||!text(row.commerceRequest?.ownerId)))throw new Error('Shopping prompt request is damaged. Existing data was preserved.')
   return { schemaVersion: 1, revision: Math.max(0, Number(row.revision) || 0), messages,...(row.appInteractions?{appInteractions:row.appInteractions.map((entry:any)=>({id:entry.id,recordId:entry.recordId,appId:entry.appId,from:entry.from,body:entry.body,createdAt:entry.createdAt,...(text(entry.replyTo)?{replyTo:entry.replyTo}:{}),...(text(entry.targetId)?{targetId:entry.targetId}:{}),...(text(entry.sourceBubbleId)?{sourceBubbleId:entry.sourceBubbleId}:{}),...(entry.autoReplyAttempted?{autoReplyAttempted:true}:{}),...generationFields(entry)}))}:{}),
     ...(row.npcContacts?{npcContacts:row.npcContacts.map((entry:any)=>({id:entry.id,name:entry.name,kind:'npc' as const,description:entry.description}))}:{}),
     ...(row.localApps?{localApps:row.localApps.map((entry:any)=>({id:entry.id,appId:entry.appId,ownerId:entry.ownerId,title:entry.title,markup:entry.markup,createdAt:entry.createdAt,generation:generationFields(entry).generation!,...(entry.media?{media:entry.media.map((media:any)=>({id:media.id,requestId:media.requestId,target:media.target,...(text(media.slot)?{slot:media.slot}:{}),...(text(media.alt)?{alt:media.alt}:{}),...(text(media.aspect)?{aspect:media.aspect}:{}),image:normalizePhoneImage(media.image)!}))}:{})}))}:{}),
     ...(row.portraits?{portraits:Object.fromEntries(Object.entries(row.portraits).map(([id,image])=>[id,normalizePhoneImage(image)!]))}:{}),
     contextMode:row.contextMode==='manual'?'manual':'automatic',
+    ...(commerce.length?{commerce}:{}),
+    ...(row.commerceRequest?{commerceRequest:{id:row.commerceRequest.id,ownerId:row.commerceRequest.ownerId}}:{}),
     autoReply:row.autoReply!==false,
     incoming:normalizePhoneIncoming(row.incoming),
     ...(text(row.contextRequest?.id)?{contextRequest:{id:row.contextRequest.id,...(text(row.contextRequest.from)?{from:row.contextRequest.from}:{}),...(text(row.contextRequest.to)?{to:row.contextRequest.to}:{})}}:{}),

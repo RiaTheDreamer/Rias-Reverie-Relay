@@ -11,7 +11,7 @@ function match(actual: string, expected: RegExp, reason: string): void { if (!ex
 function deepEqual(actual: unknown, expected: unknown, reason: string): void { if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(reason) }
 
 // Building Layout's strict mixed XML/legacy-bracket repair gate is tested separately.
-const specs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).filter(row => row.id !== 'building-layout')
+const specs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).filter(row => !['building-layout','amazon'].includes(row.id))
 equal(specs.length, 46, 'repair registry must cover all shipped Core Surface contracts')
 
 const normalizationBlocked: string[] = []

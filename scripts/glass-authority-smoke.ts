@@ -23,8 +23,8 @@ const GLASS_ROOT = 'data-reverie-glass-authority='
 const GLASS_VISUAL = /<style\b/i
 
 assert(R45_ACTIVE_ROOTS.length === 46, 'the 138-script authority path must retain 46 shipped Surfaces')
-assert(Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length === 16, 'the standalone authority path must retain 16 Narrative Utilities')
-assert(R45_ACTIVE_ROOTS.length + Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length === 62, 'Glass coverage must total all 62 Core and Narrative mappings')
+assert(Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length === 17, 'the authority inventory includes 16 historical Utilities plus native Building Layout')
+assert(R45_ACTIVE_ROOTS.length + Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length === 63, 'Glass coverage must total all 63 legacy Core and registered Narrative mappings')
 assert(NARRATIVE_REGEX_VARIANTS.includes('glass'), 'Glass must be first-class in the presentation variant inventory')
 assert(narrativeVariantForSurfaceShellMode('glass') === 'glass' && surfaceShellModeForNarrativeVariant('glass') === 'glass', 'the one global Glass preference must map both directions')
 assert(NARRATIVE_BLOCK_SPACING_STYLE.includes('{margin:6px auto!important}'), 'Narrative compact launchers must preserve one compact, uniform gutter between adjacent Surface cards')
@@ -157,4 +157,4 @@ for (const [presentation, presentationClass] of [['inline', 'rr-surface-presenta
   assert(!rendered.includes('[Plot_Sparks]'), `Plot Sparks/${presentation}: Glass Mode left the source block unrendered`)
 }
 
-console.log(`Glass authority smoke passed: ${R45_ACTIVE_ROOTS.length} Core renderers + ${Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length} Narrative Utilities = 62 mappings, R4.5 138/138/138, standalone active ${activeNarrativeGlass.length}, no Sparkling runtime fallback.`)
+console.log(`Glass authority smoke passed: ${R45_ACTIVE_ROOTS.length} legacy Core renderers + ${Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length} Narrative Utilities = ${R45_ACTIVE_ROOTS.length + Object.keys(NARRATIVE_UTILITY_FORMAT_CONTRACTS).length} mappings, R4.5 138/138/138, standalone active ${activeNarrativeGlass.length}, no Sparkling runtime fallback.`)

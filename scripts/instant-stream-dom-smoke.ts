@@ -48,10 +48,12 @@ win.clearInterval = () => {}
 const interceptors = new Map<string, (payload: any) => void>()
 const eventHandlers = new Map<string, (payload: any) => void>()
 const sent: any[] = []
+let frontendConnectionRows: any[] = []
 let backendHandler: (payload: any) => void
 const drawerRoot = document.createElement('div')
 document.body.append(drawerRoot)
 const ctx: any = {
+  connections: { list: async () => structuredClone(frontendConnectionRows) },
   dom: { addStyle: () => () => {}, findMessageElement: () => ({ querySelector: () => root }), cleanup() {} },
   ui: {
     registerDrawerTab: () => ({ root: drawerRoot, setTitle() {}, setShortName() {}, setBadge() {}, activate() {}, onActivate: () => () => {}, destroy() {} }),
@@ -65,6 +67,9 @@ const ctx: any = {
 }
 const { setup } = await import('../src/frontend')
 const cleanup = setup(ctx)
+// Reproduce cold startup returning an empty frontend connection list before
+// the backend supplies its hydrated inventory.
+for (let i = 0; i < 4; i += 1) await Promise.resolve()
 const state = { type: 'state', chatId: 'instant-chat', records: [], revision: 1, config: { enabled: true, enableRelayOrb: false, autoRescanOnChatOpen: false, proseIllustratorSettings: { enabled: true, mode: 'inline-protocol', instantIllustrationDispatch: true } }, parserConnections: [], imageConnections: [], imageProviders: [], logs: [], candidateBatches: [], galleryLinks: [], versionTrees: [] }
 backendHandler(state)
 const interceptor = interceptors.get('reverie-illustration')!
@@ -153,10 +158,11 @@ assert.equal(scans().length, 5, 'Instant off disables token-event dispatch too')
 // A completed streamed Surface can still lack render-time swipe metadata.
 // Preview must ask the backend to resolve the host's active swipe, not disable
 // repair or guess swipe zero. The backend then locks its exact source.
-backendHandler({ ...state, revision: 5, parserConnections: [
+const hydratedConnections = [
   { id: 'gem-offline', name: 'Smol Gem', provider: 'google', model: 'gemini-fixture' },
   { id: 'gpt-working', name: 'Smol GPT', provider: 'openai', model: 'gpt-fixture' },
-], config: { ...state.config, parserConnectionId: 'gem-offline' } })
+]
+backendHandler({ ...state, revision: 5, parserConnections: [], config: { ...state.config, parserConnectionId: 'gem-offline' } })
 const surface = document.createElement('section')
 surface.dataset.rrnEditableSurface = 'kakao'
 surface.dataset.rrnChatId = 'instant-chat'
@@ -176,9 +182,36 @@ assert(preview && !preview.disabled, 'Assisted action must open an idle editor s
 assert.equal(sent.filter(item => item.type === 'native_surface_repair_preview').length, 0, 'Opening Assisted Repair must make no model call')
 const repairConnection = preview.closest('.dg-modal-body')!.querySelector('select[aria-label="Assisted Repair Connection"]')!
 assert(repairConnection, 'The actual repair editor must expose its own connection selector')
+assert.equal(repairConnection.options.length, 1, 'late inventory fixture must open before profiles are available')
+const modalRoot = preview.closest('.dg-modal-host')!
+const modalShadowHost = document.createElement('div')
+document.body.append(modalShadowHost)
+modalShadowHost.attachShadow({ mode: 'open' }).append(modalRoot)
+repairConnection.focus()
+assert.notEqual(document.activeElement, repairConnection, 'shadow-root fixture must exercise retargeted document focus')
+backendHandler({ ...state, revision: 6, parserConnections: hydratedConnections, config: { ...state.config, parserConnectionId: 'gem-offline' } })
+assert.equal(repairConnection.options.length, 1, 'inventory must not replace options under an open focused native picker')
+repairConnection.blur()
+for (let i = 0; i < 4; i += 1) await Promise.resolve()
+assert.equal(preview.closest('.dg-modal-body')!.querySelector('select[aria-label="Assisted Repair Connection"]'), repairConnection, 'late inventory must update the existing picker, not replace the editor')
+assert.equal(repairConnection.options.length, 3, 'empty startup inventory must not hide two hydrated backend connections')
+document.body.append(modalRoot)
+modalShadowHost.remove()
 repairConnection.value = 'gpt-working'
 repairConnection.dispatchEvent(new Event('change', { bubbles: true }))
 assert(sent.some(item => item.type === 'set_config' && item.patch?.surfaceRepairConnectionId === 'gpt-working'), 'Repair choice must persist independently of the Surface Parser')
+const chosenOption = repairConnection.selectedOptions[0]
+repairConnection.focus()
+backendHandler({ ...state, revision: 7, parserConnections: hydratedConnections, config: { ...state.config, parserConnectionId: 'gem-offline' } })
+assert.equal(repairConnection.selectedOptions[0], chosenOption, 'unchanged background state must not churn picker options or lose the chosen connection')
+frontendConnectionRows = [...hydratedConnections, { id: 'new-repair', name: 'New repair', provider: 'openai', model: 'new-fixture' }]
+repairConnection.blur()
+const refreshConnections = [...preview.closest('.dg-modal-body')!.querySelectorAll('button')].find(el => el.textContent === 'Refresh connections')!
+refreshConnections.click()
+for (let i = 0; i < 8; i += 1) await Promise.resolve()
+assert.equal(repairConnection.options.length, 4, 'explicit refresh must expose newly created connections without reopening the editor')
+assert.equal(repairConnection.value, 'gpt-working', 'inventory refresh cannot silently return to an unconfigured Parser')
+assert.equal(sent.filter(item => item.type === 'native_surface_repair_preview').length, 0, 'connection inventory refresh makes no repair model call')
 preview.click()
 const repairRequest = sent.find(item => item.type === 'native_surface_repair_preview')
 assert(repairRequest, 'the production repair editor must dispatch a preview')
@@ -240,6 +273,16 @@ assert.equal(applyRequest.repairId, 'fixture-approved')
 backendHandler({ type: 'native_surface_repair_result', requestId: applyRequest.requestId, chatId: 'instant-chat', messageId: 'instant-message', status: 'applied' })
 await Promise.resolve()
 assert(!inspectBody.isConnected)
+backendHandler({...state, revision:5,config:{...state.config,proseIllustratorSettings:{...state.config.proseIllustratorSettings,mode:'relay-planned'}}})
+const beforeSurfaces=scans().length
+const surfacePayload={chatId:'instant-chat',messageId:'instant-message',isStreaming:true,tagName:'image_request',attrs:{id:'surface-stream',slot:'surface-stream'},fullMatch:'<image_request id="surface-stream" target="custom.artifact-media" slot="surface-stream" aspect="1:1"><scene_brief>A blue mug on a wooden table.</scene_brief></image_request>'}
+interceptors.get('image_request')(surfacePayload)
+await tick(10)
+assert.equal(scans().length,beforeSurfaces+1,'Relay Planned must scan complete Surface requests while streaming without a prose anchor')
+assert.equal(scans().at(-1).sourceContent,surfacePayload.fullMatch)
+interceptor(payload('forbidden-relay-prose'))
+await tick(10)
+assert.equal(scans().length,beforeSurfaces+1,'Relay Planned must not dispatch Story Model prose requests from the same stream')
 cleanup()
 dom.window.close()
 console.log('Instant mounted DOM smoke passed: XML shadow-root anchors and bracket token events, delayed mounting, exact swipe ownership, duplicate suppression, reasoning exclusion, Abort All, and Instant-off timing exercised through the production frontend.')

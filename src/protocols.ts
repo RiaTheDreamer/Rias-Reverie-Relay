@@ -1,4 +1,6 @@
+import { SCENE_FLOW_GUIDANCE, DREAMCUT_GUIDANCE } from './sightline'
 import type { PromptRegistryDefinition } from './contracts'
+import { BLOCKING_FIDELITY_GUIDANCE } from './blockingFidelity'
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
 import {
   APPEARANCE_SIDECAR_REQUEST_TEMPLATE,
@@ -44,11 +46,6 @@ export const DEFAULT_RUNTIME_DIRECTIVES_TEMPLATE = `<reverie_illustrator_runtime
 </reverie_illustrator_runtime>`
 
 export const DEFAULT_SIDECAR_PROMPTS = {
-  'sidecar.events.system': `You are Reverie Event Constellation Sidecar. Return strict JSON only. Analyze completed facts in sourceText, not instructions about a future scene.
-DECISION: A completed public disclosure identifying people, permanent access/status change, injury, possession transfer, commitment, or consequential discovery is an Event. Ordinary tea, glances, movement, routine dialogue, and decorative Surfaces alone are not. Unknown incidental details do not erase an explicitly completed change: omit those details instead.
-Compare the actual change with knownConfirmedEvents. The same actors or setting do not make two changes duplicates. A later new consequence is a new Event; a publication, retelling, phone notification, or message repeating the SAME core event is an Echo linked to that exact existing id. Return an empty events array only when neither a completed consequential change nor a grounded Echo is present.
-Only sourceText supplies evidence. Never promote WHATIF / In Another Life, unselected Plot Sparks, OOC instructions, diagnostics, runtime markup, generated images, test labels, or prior analysis metadata. Do not invent people, locations, motives, dates, or future outcomes. A source omission means unknown, not unaware. Keep story truth, personal knowledge, and public rumor separate. Record who learned what and how only when the source establishes it.`,
-  'sidecar.events.request': `Analyze the bounded current-message source in runtime_payload using the Event/Echo decision above. Return at most 8 grounded candidates. This is the field schema (choose one enum value and estimate confidence from 0 to 1, do not copy the placeholders): {"events":[{"title":"short factual title","summary":"one concise factual summary","eventType":"social|relationship|public|conflict|discovery|milestone|location|media|injury|possession|promise|status-change|other","importance":"background|notable|major|arc-defining","confidence":0.0,"anchor":"exact short substring from sourceText","storyTimeLabel":"only explicit time, else empty","location":"only source-supported location, else empty","participants":[{"name":"exact source-supported name","role":"subject|participant|witness|instigator|affected|source|recipient|other"}],"knowledge":[{"actor":"name","beliefState":"knows|suspects|rumor|misinformed|unaware|unknown","acquisitionMode":"involved|witnessed|told|evidence|inferred|public-broadcast|manual","sourceActor":"optional name","confidence":0.0}],"echoes":[{"kind":"phone-message|phone-notification|phone-call|phone-photo|kakao|instagram|twitter|news|discord|email|voice-memo|surface|scene-reference|manual|other","channel":"optional","summary":"exactly grounded manifestation","confidence":0.0}],"likelyDuplicateEventId":"only an exact matching known event id or empty"}]}. Do not add fields or Markdown. For a manifestation of a known event (for example, the same photo appearing in a news article or being sent in a phone message), return a candidate describing only this new manifestation and set likelyDuplicateEventId to the exact matching knownConfirmedEvents id. Do not create a second Event Node for the repeated core event. Put each manifestation in echoes with the correct channel/type and a summary quoted or closely paraphrased from sourceText. The anchor must be an exact short source substring that proves the manifestation. For Character Phone content, use explicit cp_* text as evidence; the mere presence of a phone block is not an Event or Echo. Only include participants actually named in sourceText. Knowledge array must be empty unless the source clearly establishes who learned what and how. Predictions, intentions, hypotheticals, and imagined futures are not completed Events.\n\n<runtime_payload>\n{{runtime_payload}}\n</runtime_payload>`,
   'sidecar.appearance.system': `You are Reverie Relay Appearance Sidecar. Return strict JSON only. You maintain visual continuity from the supplied bounded visual excerpts: active Character card, active Persona card, activated lorebook entries, current scene, selected recent history, and Appearance Memory. Read active Character and Persona even when their appearance is not restated in chat. User-confirmed/pinned facts have highest priority. For durable identity prefer direct Character/Persona/established lorebook evidence over inferred chat details; current explicit scene evidence governs outfit and temporary appearance. Native ImageGen presets are direct generation anchors handled separately by Relay; never split preset prompts into memory facts. Missing excerpts mean unknown, not absent, and are not permission to invent facts. Decide semantic identity, wardrobe, current-scene appearance categories, and unusual-trait replacement domains yourself; do not ask Relay to infer prose with regexes. Never invent facts or promote generic descriptions to people. A named NPC is trustworthy only when either it is recurring with sufficient concrete identity/appearance evidence, or trustworthy structured context (especially an activated lorebook/world-info entry) strongly establishes its identity and appearance before its first relevant prose appearance. Reject unnamed extras, generic roles, ambiguous pronouns, places, objects, random capitalized words, and one-off names without trustworthy identity evidence.`,
   'sidecar.appearance.request': `Return {"observations":[...]} only. Each observation has subject:{name,aliases,role:"character"|"persona"|"npc",trustworthy}, confidence, and facts:[{layer:"visual-identity"|"wardrobe"|"current-appearance",category,value,conflictDomain?,provenance:"chat-history"|"current-assistant-message"|"character-card"|"persona-card"|"lorebook"|"prior-appearance-state"}]. Keep base identity separate from wardrobe and current-scene state. Use direct Character/Persona/lorebook evidence for durable facts, current scene for outfit/temporary state, and preserve user-confirmed memory. Never parse a native preset into facts. For unusual or category="other" facts, provide conflictDomain only when the fact semantically replaces values in one Sidecar-owned domain; use a bounded lowercase slug or one colon-qualified slug such as "skin-color", "tail", "wing-state", "horns", "limb-state", or "species-trait:complexion". Do not invent a domain from Relay rules: you decide it from supplied context. For an NPC, trustworthy=true is allowed for a named recurring participant with concrete identity evidence OR a named NPC strongly established by activated structured/lorebook context with concrete identity and appearance. Do not return style, camera, pose, location, or generic scene facts.\n\n<runtime_payload>\n{{runtime_payload}}\n</runtime_payload>`,
   'sidecar.appearance.field-refresh': `Refresh only the requested Appearance Memory field for focusCharacter. Return {"fieldResult":{"subject":"exact focusCharacter name","field":"stable-appearance"|"current-outfit"|"negative-identity-tags","status":"known"|"unknown","tags":["tag or concise visual fragment",...]}} only.
@@ -143,6 +140,9 @@ export const PROSE_ILLUSTRATOR_PERSPECTIVE_MODE_ALIASES = {
   'solo-scene': 'solo-scene',
   'persona-pov': 'persona-pov',
   storyboard: 'storyboard',
+  'blocking-fidelity': 'blocking-fidelity',
+  'scene-flow': 'scene-flow',
+  dreamcut: 'dreamcut',
 } as const
 
 export const ILLUSTRATOR_FRAMING_REGISTRY_ALIASES = {
@@ -153,12 +153,15 @@ export const ILLUSTRATOR_FRAMING_REGISTRY_ALIASES = {
 } as const
 
 export const ILLUSTRATOR_FRAMING_METADATA = {
+  'scene-flow': { displayName: 'Framing: Scene Flow', description: 'Choose a source-faithful treatment independently for each image.' },
+  dreamcut: { displayName: 'Framing: Dreamcut', description: 'A source-grounded object, environment or limited-detail cutaway.' },
   'scene-snapshot': { displayName: 'Framing: Scene Snapshot', description: 'Candid, composition-led narrative event.' },
   sequence: { displayName: 'Framing: Sequence', description: 'Continue established screen direction, geography, and action.' },
   'emotional-beat': { displayName: 'Framing: Emotional Beat', description: 'Frame a story-supported reaction or turning point.' },
   'solo-scene': { displayName: 'Framing: Char only', description: 'Exactly one visible character in the actual scene.' },
   'persona-pov': { displayName: 'Framing: Persona POV', description: 'The resolved active Persona owns the in-world viewpoint.' },
   storyboard: { displayName: 'Framing: Storyboard', description: 'Depict the exact anchored story action, not just its characters.' },
+  'blocking-fidelity': { displayName: 'Framing: Blocking Fidelity (Experimental)', description: 'Prioritize source-faithful postures, contacts and consecutive subject-owned descriptions.' },
 } as const
 
 export const STORYBOARD_VIEW_GUIDANCE = `FRAMING VOCABULARY: Describe the view, angle and crop (for example, "low-angle view" or "view from above"), not imaging equipment. Use "View:" rather than "Camera:" in the image prompt; this overrides generic camera-position wording elsewhere. Keep schema keys such as cameraAngle unchanged, but put view wording in their values. In Booru mode use established viewpoint tags such as from_above, from_below or from_side, without prose labels or invented camera_angle tags. Mention a physical camera only when it is an actual, source-established object in the depicted scene.`
@@ -180,6 +183,8 @@ OBJECTS AND SETTING: Include enough environment/depth to locate the beat. Preser
 export const STORYBOARD_TAG_GUIDANCE = `BOORU EXPRESSION: Put count/view and the central action plus its plain target/object tags early, then keep each subject's distinctive appearance, complete outfit, expression, pose/action and owned prop tags consecutive. Finish with necessary setting/light tags. Use established Danbooru-style concepts, no headings, name: labels, disguised underscore sentences or invented relationship compounds. Every comma item is a concise visual concept of at most four underscore-separated words. Ordinary character names are not trained character tags unless an exact supported tag was supplied. A vague standing or looking_at_object tag alone does not depict a specific event. Express an unsupported relation with separate short action, body-position and object tags; do not invent contact tags to fill a gap. Preserve the same source facts as Natural Language, without pretending a flat tag list guarantees actor binding.`
 
 export const DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS = {
+  'scene-flow': SCENE_FLOW_GUIDANCE,
+  dreamcut: DREAMCUT_GUIDANCE,
   'scene-snapshot': `SCENE SNAPSHOT FRAMING
 
 Treat the image as a captured moment inside the story.
@@ -230,6 +235,7 @@ Show only what the Persona can see from that position. Never depict any part of 
 
 Other visible characters may meet the lens only when the scene establishes that they are speaking to, recognizing, confronting, or intentionally addressing the Persona. Otherwise, their gaze must follow the person, object, movement, or environment that holds their attention. Never turn this first-person view into a selfie or an outside-observer shot.`,
   storyboard: STORYBOARD_SCENE_GUIDANCE + '\n\n' + STORYBOARD_TAG_GUIDANCE,
+  'blocking-fidelity': BLOCKING_FIDELITY_GUIDANCE,
 } as const
 
 export const STORYBOARD_DIRECTOR_GUIDANCE = STORYBOARD_SCENE_GUIDANCE + `\n\nPLANNER CONTRACT: Preserve expectedPeopleCount, namedSubjects and each actor's own action/contact/prop in the existing plan schema. Use names for cast and blocking, not a second anonymous observer. Keep the required negativeCore field empty; Reverie assembles configured provider negatives separately. Select an action-faithful source anchor or omit the shot.`
@@ -542,12 +548,21 @@ Use the current scene/message for names, places, timing, route information, text
 export const REVERIE_SURFACE_APP_SCHEMA_FIREBREAK = `APP SURFACE SHAPE FIREBREAK
 Use only the enabled module's exact registered root and exact child hierarchy. Never emit <igfeed>, <igstory>, <igpost>, <tw_profile>, <reddit_thread>, <reddit_comment>, or <discord_message>. A <tw_post> is valid only inside <twitter_app>. A Discord Server uses <discord_server> with the module's exact four <server_channel> children; do not flatten its messages beside the channels. If the requested platform module is not enabled, omit that Surface instead of inventing a substitute schema.`
 
+export const REVERIE_SURFACE_ROOT_SCOPE = 'This root registry applies only to the App/UI modules in this wrapper. Separately enabled Narrative Utility roots follow their own current selection and schemas; this App/UI registry does not disable them.'
+
+/** Scope earlier stock registry wording at injection time. Saved templates and
+ * custom authoring modules remain intact; only these shipped sentences change. */
+export function scopeSurfaceRootRegistry(content: string): string {
+  return content.replace(/Only (?:the exact roots below|these exact roots) are valid\./g,
+    'For the App/UI modules in this wrapper, only the listed exact roots are valid.')
+}
+
 export const REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACES
 
 {{reverie_enabled_surface_modules}}
 
 STRICT ENABLED ROOT REGISTRY
-Only the exact roots below are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
+For the App/UI modules in this wrapper, only the listed exact roots are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
 {{reverie_enabled_surface_roots}}
 
 ${REVERIE_SURFACE_APP_SCHEMA_FIREBREAK}
@@ -740,8 +755,8 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     description: ILLUSTRATOR_FRAMING_METADATA[id as keyof typeof ILLUSTRATOR_FRAMING_METADATA].description,
     category: 'story-model' as const,
     defaultTemplate,
-    version: id === 'persona-pov' ? 6 : id === 'sequence' ? 5 : id === 'storyboard' ? 14 : 4,
-    status: 'stable' as const,
+    version: id === 'blocking-fidelity' ? 1 : id === 'persona-pov' ? 6 : id === 'sequence' ? 5 : id === 'storyboard' ? 14 : 4,
+    status: ['blocking-fidelity', 'scene-flow', 'dreamcut'].includes(id) ? 'provisional' as const : 'stable' as const,
   })),
   {
     id: 'appearance.sidecar.system',
@@ -814,7 +829,7 @@ export const PROMPT_REGISTRY_DEFINITIONS: PromptRegistryDefinition[] = [
     description: 'Editable Sidecar workflow prompt.',
     category: 'sidecars' as const,
     defaultTemplate,
-    version: id === 'sidecar.composer.request' ? 5 : id === 'sidecar.parser.request' ? 3 : id === 'sidecar.parser.repair' ? 2 : id === 'sidecar.appearance.field-refresh' ? 3 : id.startsWith('sidecar.appearance.') ? 2 : id.startsWith('sidecar.events.') ? 3 : 1,
+    version: id === 'sidecar.composer.request' ? 5 : id === 'sidecar.parser.request' ? 3 : id === 'sidecar.parser.repair' ? 2 : id === 'sidecar.appearance.field-refresh' ? 3 : id.startsWith('sidecar.appearance.') ? 2 : 1,
     })),
 ]
 

@@ -17,8 +17,11 @@ import { PLOT_SPARK_VECTOR_BY_KEY, type PlotSparkKey, type SurfaceColorMode } fr
 import { SHIPPED_SURFACE_BY_ID } from './shippedSurfaceDefinitions'
 import { r45SupplementalSurfaceDefinitions } from './r45SurfaceCatalog'
 import { PERSONA_WARDROBE_UTILITY_PROMPT, renderPersonaWardrobeMarkup } from './personaWardrobe'
+import { plotSparksUtilityPrompt } from './plotSparksUtility'
+import { BUILDING_LAYOUT_CONTRACT } from './buildingLayoutContract'
+import { buildingLayoutBlocks } from './buildingLayout'
 import { renderSurfaceContractRecovery } from './nativeSurfaces'
-import { PLOT_SPARKS_ROOT, PLOT_SPARKS_SURFACE_ID, plotSparksContractDiagnostic, isRenderablePlotSparkCount, normalizePlotSparksLifecycleCloser } from './plotSparksContract'
+import { PLOT_SPARKS_ROOT, PLOT_SPARKS_SURFACE_ID, plotSparksContractDiagnostic, isRenderablePlotSparkCount, normalizePlotSparksLifecycleCloser, normalizePlotSparksXmlClosingTags } from './plotSparksContract'
 import { plotSparksPresentationScripts, PLOT_SPARKS_SCRIPT_ID, PLOT_SPARKS_LEGACY_SCRIPT_ID } from './plotSparksPresentation'
 
 export type NarrativeRegexVariant = NarrativeSurfacePresentationVariant
@@ -173,8 +176,20 @@ const NARRATIVE_ICON_BY_SCRIPT_ID: Readonly<Record<string, string>> = {
   relay_unified_archive_card_v66: 'Archive Entry',
 }
 
+// These owners can replace an identity-bearing phrase in the story. Their
+// generic launcher labels are not that phrase: keep the captured text outside
+// the collapsible body, including for imported Lumiverse display Regexes.
+const NARRATIVE_IDENTITY_BY_SCRIPT_ID: Readonly<Record<string, { kind: string; capture: string }>> = {
+  reverie_npc_intro_images_v1: { kind: 'cast-introduction', capture: 'name' },
+  reverie_npc_upgrade_images_v1: { kind: 'cast-introduction', capture: 'name' },
+  reverie_npc_ref_v1: { kind: 'cast-introduction', capture: 'name' },
+  reverie_npc_relationship_v1: { kind: 'cast-introduction', capture: 'name' },
+  relay_shenanigans_dossier_images_sparkle_v1: { kind: 'character-dossier', capture: 'visible' },
+  relay_shenanigans_location_images_sparkle_v1: { kind: 'location-file', capture: 'visible' },
+}
+
 const safeMessageId = (value: string): string => String(value || 'narrative').replace(/[^A-Za-z0-9_-]+/g, '-') || 'narrative'
-const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|persona_wardrobe|relationship_map|character_profile|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:Plot_Sparks|SCENE|PARALLEL|NPC|NPC_REF|NPC_REL|SECRET|WORLD|WHATIF|else|npc|place|character_phone|private_phone|dossier_ui|dramatic_parallel|persona_wardrobe)\b/i
+const NARRATIVE_MARKUP = /\[(?:Plot_Sparks\]|SCENE(?:\||\])|PARALLEL\||NPC:|SECRET\||WORLD\||WHATIF\||character_phone|private_phone|dossier_ui|dramatic_parallel|building_layout|persona_wardrobe|relationship_map|character_profile|pp_|cp_)|\[\[(?:else|npc|place)\s|<(?:Plot_Sparks|SCENE|PARALLEL|NPC|NPC_REF|NPC_REL|SECRET|WORLD|WHATIF|else|npc|place|character_phone|private_phone|dossier_ui|dramatic_parallel|building_layout|persona_wardrobe)\b/i
 
 const RELATIONSHIP_MAP_PROMPT = SHIPPED_SURFACE_BY_ID.get('relationship-map')?.promptModule || ''
 const CAST_SHEET_PROMPT = r45SupplementalSurfaceDefinitions().find(row => row.baseSurfaceId === 'character-profile')?.promptModule || ''
@@ -182,10 +197,13 @@ if (!RELATIONSHIP_MAP_PROMPT || !CAST_SHEET_PROMPT) throw new Error('Moved Narra
 export const NARRATIVE_UTILITY_PACK: NarrativeUtilityPack = {
   ...(utilityPack as NarrativeUtilityPack),
   loomItems: [
-    ...(utilityPack as NarrativeUtilityPack).loomItems,
+    ...(utilityPack as NarrativeUtilityPack).loomItems.map(item => item.loomName === 'Plot Sparks'
+      ? { ...item, loomContent: plotSparksUtilityPrompt(true) }
+      : item),
     { loomName: 'Relationship Map', loomContent: RELATIONSHIP_MAP_PROMPT },
     { loomName: 'Cast Sheet', loomContent: CAST_SHEET_PROMPT },
     { loomName: 'Persona Wardrobe', loomContent: PERSONA_WARDROBE_UTILITY_PROMPT },
+    { loomName: 'Building Layout', loomContent: BUILDING_LAYOUT_CONTRACT },
   ],
 }
 export const NARRATIVE_REGEX_VARIANTS: NarrativeRegexVariant[] = ['sparkle-button', 'plain-button', 'inline', 'glass', 'plain-glass']
@@ -208,6 +226,7 @@ export const NARRATIVE_UTILITY_FORMAT_CONTRACTS: Readonly<Record<string, readonl
   'Relationship Map': ['[relationship_map]', '[character_one]', '[character_two]', '[character_three]', '[connections]', '[/relationship_map]'],
   'Cast Sheet': ['[character_profile]', '[portrait]', '[name]', '[role]', '[hook]', '[trait]', '[/character_profile]'],
   'Persona Wardrobe': ['[persona_wardrobe]', '[wardrobe_context]', '[outfit_option]', '[pieces]', '[wear_text]', '[media]', '[/persona_wardrobe]'],
+  'Building Layout': ['<building_layout>', '<building_context>', '<floor>', '<room>', '<media>', '</building_layout>'],
 }
 
 // Keep the registry's historical field inventory while exposing only the XML
@@ -223,7 +242,7 @@ for (const [name, markers] of Object.entries(NARRATIVE_UTILITY_FORMAT_CONTRACTS)
 export const NARRATIVE_SURFACE_ROOT_TAGS = [
   'character_phone', 'private_phone', 'dramatic_parallel', 'plot_sparks',
   'scene', 'parallel', 'npc', 'secret', 'world', 'else', 'place',
-  'whatif', 'dossier_ui', 'relationship_map', 'character_profile', 'persona_wardrobe',
+  'whatif', 'dossier_ui', 'relationship_map', 'character_profile', 'persona_wardrobe', 'building_layout',
 ] as const
 
 let narrativeSurfaceBracketTagCache: Set<string> | null = null
@@ -717,7 +736,8 @@ function normalizeLegacyNarrativeMarkupForRendering(markup: string): string {
 }
 
 export function normalizeNarrativeMarkupForRendering(markup: string): string {
-  const legacy = normalizeLegacyNarrativeMarkupForRendering(markup)
+  const xmlWithSafePlotClosers = normalizePlotSparksXmlClosingTags(markup)
+  const legacy = normalizeLegacyNarrativeMarkupForRendering(xmlWithSafePlotClosers)
   // Display projection only, bounded to complete legacy owners. Literal prose
   // outside a Surface and the actual persisted message remain unchanged.
   return legacy.replace(/\[(Plot_Sparks|character_phone|private_phone|dramatic_parallel|persona_wardrobe|dossier_ui|relationship_map|character_profile)\]([\s\S]*?)\[\/\1\]|\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|[^\]\r\n]*\][\s\S]*?\[\/\3\]|\[NPC:(?:MAJOR|SUPPORT|MINOR|UP)\|[^\]\r\n]*\][\s\S]*?\[\/NPC\]|\[NPC:(?:REF|REL)\|[^\]\r\n]*\]|\[\[(else|npc|place)\s[^\]\r\n]*\]\][\s\S]*?\[\[\/\4\]\]/gi, full => xmlSurfaceExamples(full))
@@ -734,7 +754,6 @@ function narrativeRegexSourcePack(variant: NarrativeRegexSourceVariant): Narrati
   const pin = pack.scripts.find(script => script.script_id === 'rrcp_final_presentation_pin')
   const expectedPin = variant === 'glass-button' ? EXPECTED_PIN.glass : EXPECTED_PIN[variant]
   if (!pin?.replace_string?.includes(expectedPin)) throw new Error(`Narrative Character Phone presentation pin mismatch: ${variant}`)
-  if (/<scenecard\b|\[scenecard\]/i.test(JSON.stringify(pack))) throw new Error(`Stella Scene Card contract present in ${variant}`)
   return pack
 }
 
@@ -796,6 +815,10 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
         : labeledReplacement
       const isPhoneApp = script.script_id === 'rrpp_proto_app_v3'
       const phoneTonePattern = '(green|black|red|yellow|orange|blue|slate|photos|purple)'
+      const identity = NARRATIVE_IDENTITY_BY_SCRIPT_ID[script.script_id]
+      const identityText = identity
+        ? `<span data-reverie-narrative-identity="${identity.kind}">$<${identity.capture}></span>`
+        : ''
       return {
         ...script,
         name: applyNarrativeDisplayNames(String(script.name || script.script_id)).replace(/ - (?:Inline|Button)$/, '') + ` - ${variant === 'inline' ? 'Inline' : 'Button'}`,
@@ -807,9 +830,9 @@ export function narrativeRegexScripts(variant: NarrativeRegexVariant, colorMode:
             // admit only CSS-class-safe slugs, never arbitrary markup.
             ? script.find_regex.replace(phoneTonePattern, '([a-z][a-z0-9-]{0,31})')
             : script.find_regex,
-        replace_string: NARRATIVE_MEDIA_OWNER_CLASS.test(iconizedReplacement)
+        replace_string: identityText + (NARRATIVE_MEDIA_OWNER_CLASS.test(iconizedReplacement)
           ? `${NARRATIVE_MEDIA_COMPATIBILITY_STYLE}${iconizedReplacement}`
-          : iconizedReplacement,
+          : iconizedReplacement),
       }
     })
     .sort((left, right) => Number(left.sort_order) - Number(right.sort_order))
@@ -914,10 +937,21 @@ function withLorebookExportAction(
 ): string {
   const swipe = Number.isFinite(Number(context.swipeId)) ? String(Math.max(0, Number(context.swipeId))) : ''
   const action = `<div class="r65-section"><button type="button" class="r65-fork" data-rrn-action="export-lorebook" data-rrn-lorebook-kind="${kind}" data-rrn-lorebook-index="${occurrence}" data-rrn-chat-id="${safeDataAttribute(context.chatId || '')}" data-rrn-message-id="${safeDataAttribute(messageId)}" data-rrn-swipe-id="${swipe}">Send to Lorebook</button></div>`
-  return rendered.replace(/<\/section>\s*<\/details>\s*$/i, `${action}</section></details>`)
+  // Glass shells append their presentation stylesheet after the owner. It is
+  // still the same card; do not silently drop its export action at that suffix.
+  return rendered.replace(/<\/section>\s*<\/details>(?=(?:\s|<style\b[^>]*>[\s\S]*?<\/style>)*$)/i, `${action}</section></details>`)
 }
 
 export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVariant, messageId = 'narrative', context: NarrativeRenderContext = {}, colorMode: SurfaceColorMode = 'realistic'): string {
+  // Native atlas ownership is opaque to the legacy Narrative regex adapter,
+  // including malformed layouts and literal bracket tokens in room text.
+  const buildings = new Map<string, string>()
+  for (const block of buildingLayoutBlocks(markup, NARRATIVE_SURFACE_ROOT_TAGS).reverse()) {
+    let token = `\u0000reverie-building-${buildings.size}\u0000`
+    while (markup.includes(token)) token += '-next'
+    buildings.set(token, block.source)
+    markup = markup.slice(0, block.start) + token + markup.slice(block.end)
+  }
   const authoredImageControls = bracketImageControls(markup)
   markup = projectBracketImageControlsToXml(markup)
   // Claim failed boards before any regex or native image-control pass can
@@ -948,6 +982,7 @@ export function renderNarrativeRegex(markup: string, variant: NarrativeRegexVari
   })
   let rendered = renderNarrativeRegexContent(protectedMarkup, variant, messageId, context, colorMode)
   for (const [token, card] of recoveries) rendered = rendered.replace(token, card)
+  for (const [token, source] of buildings) rendered = rendered.replace(token, () => source)
   return rendered
 }
 

@@ -36,20 +36,17 @@ let lastParserRequest: any = null
 }
 
 const backend = await import('../src/backend')
-// These are the exact defaults registered by the runtime; avoid shipping a
-// second, version-stamped fixture copy of private prompt source in the repo.
-const runtimePromptAssets = [
-  ['Appearance Sidecar system prompt', APPEARANCE_SIDECAR_SYSTEM_PROMPT],
-  ['Appearance Sidecar request template', APPEARANCE_SIDECAR_REQUEST_TEMPLATE],
-  ['Relay-Planned Director system prompt', RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT],
-  ['Relay-Planned Director request template', RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE],
-  ['Relay-Planned repair parser system prompt', RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT],
-  ['Relay-Planned repair parser request template', RELAY_PLANNED_REPAIR_PARSER_REQUEST_TEMPLATE],
+const assetRoot = new URL('../test-fixtures/prompt-registry-assets-0.2.8/', import.meta.url)
+const authoredAssets = [
+  ['Appearance-Sidecar-System-Prompt.txt', APPEARANCE_SIDECAR_SYSTEM_PROMPT],
+  ['Appearance-Sidecar-Request-Template.txt', APPEARANCE_SIDECAR_REQUEST_TEMPLATE],
+  ['Relay-Planned-Director-System-Prompt.txt', RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT],
+  ['Relay-Planned-Director-Request-Template.txt', RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE],
+  ['Relay-Planned-Repair-Parser-System-Prompt.txt', RELAY_PLANNED_REPAIR_PARSER_SYSTEM_PROMPT],
+  ['Relay-Planned-Repair-Parser-Request-Template.txt', RELAY_PLANNED_REPAIR_PARSER_REQUEST_TEMPLATE],
 ] as const
-for (const [label, content] of runtimePromptAssets) {
-  assert.equal(typeof content, 'string', `${label} is not available to the runtime`)
-  assert(content.trim().length >= 128, `${label} is unexpectedly empty or truncated`)
-}
+// Git's Windows checkout can change line endings; all authored content remains exact.
+for (const [filename, compiled] of authoredAssets) assert.equal(compiled.replace(/\r\n/g, '\n'), readFileSync(new URL(filename, assetRoot), 'utf8').replace(/\r\n/g, '\n'), `${filename} was not installed verbatim apart from checkout line endings`)
 
 const requiredIds = [
   'appearance.sidecar.system', 'appearance.sidecar.request',
@@ -151,7 +148,9 @@ const booruStoryPrompt = backend.resolveIllustratorStoryPrompt({ ...booruSetting
 assert(booruStoryPrompt.includes('Danbooru-style visual tags') && booruStoryPrompt.includes('sentence with its spaces replaced by underscores'), 'Story Model prompt did not receive the real Booru tag-authoring contract')
 assert(!booruStoryPrompt.includes('In natural, concise image language'), 'Booru inline protocol retained conflicting natural-language prompt instructions')
 const booruRelayStoryPrompt = backend.resolveIllustratorStoryPrompt({ ...booruSettings, mode: 'relay-planned' }, [])
-assert(booruRelayStoryPrompt.includes(RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE) && booruRelayStoryPrompt.includes('ordinary narrative prose'), 'Relay Planned Story Model prompt did not separate story prose from Booru image prompts')
+const scopedBooruGuidance = RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE.replace('The Story Model still writes ordinary narrative prose with no illustration markup.', 'The Story Model writes narrative prose without standalone Illustrator-owned illustration markup; enabled Surface and Narrative Utility media still follow their own authoring contracts.')
+assert(booruRelayStoryPrompt.includes(scopedBooruGuidance) && booruRelayStoryPrompt.includes(backend.RELAY_PLANNED_SURFACE_MEDIA_SCOPE), 'Relay Planned Story Model prompt did not separate standalone Illustrator prose from enabled Surface media')
+assert(!booruRelayStoryPrompt.includes('ordinary narrative prose with no illustration markup'), 'Relay Planned Booru guidance must not suppress Surface-owned illustrations')
 assert(REVERIE_BOORU_INLINE_PROTOCOL.includes('<reverie-illustration') && REVERIE_BOORU_INLINE_PROTOCOL.includes('Danbooru-style visual tags'), 'Booru mode is missing its complete inline request contract')
 
 parserConfig = await backend.setConfig({ proseIllustratorSettings: booruSettings, parserConnectionId: 'mock-parser', parserRetries: 0 }, 'phase5')
@@ -162,14 +161,38 @@ assert(booruDirect.prompt.includes('leather_shoes'), 'Story Model direct prompt 
 assert.match(booruDirect.promptPipeline.parserDecision, /tags validated and known tag spellings normalized/, 'Booru direct-path diagnostic should describe deterministic normalization, not claim byte-for-byte pass-through')
 const mixedBooruJob = { ...booruJob, originalSceneBrief: '1boy, solo, alpha, black_hair, he reaches for the red letter beside the window, leather_shoes, sitting, window, holding, red_letter' }
 const mixedBooruDirect = await backend.parseSlotPrompt({ ...mixedBooruJob, requestId: 'model-planned-booru-stray-prose' }, 'illustration', [], 0, parserConfig, 'phase5', {})
-assert(!mixedBooruDirect.prompt.includes('he reaches for the red letter'), 'Story Model Booru direct path should discard a stray prose clause without rejecting valid tags')
+assert(mixedBooruDirect.prompt.includes('he reaches for the red letter'), 'Story Model Booru direct path must preserve a bounded visual clause')
 assert(mixedBooruDirect.prompt.includes('red_letter') && mixedBooruDirect.prompt.includes('leather_shoes'), 'Story Model Booru direct path lost valid action/object/appearance tags around stray prose')
-await assert.rejects(backend.parseSlotPrompt({ ...job, requestId: 'model-planned-booru-prose' }, 'illustration', [], 0, parserConfig, 'phase5', {}), /prose-shaped|sentence/, 'Booru mode laundered a prose visual_prompt into underscore strings')
+const visualProseCalls = parserCalls
+const visualProseDirect = await backend.parseSlotPrompt({ ...job, requestId: 'model-planned-booru-prose' }, 'illustration', [], 0, parserConfig, 'phase5', {})
+assert.equal(parserCalls, visualProseCalls, 'usable authored visual prose does not need an automatic model repair merely for Booru format')
+assert(visualProseDirect.prompt.includes(job.originalSceneBrief), 'Booru mode retains the authored image description without inventing underscore tags')
+parserOutput = JSON.stringify({ prompt: '1boy, solo, alpha, black_hair, leather_shoes, sitting, window, holding, red_letter', negativeAdditions: '' })
+const callsBeforeFailedBooruReparse = parserCalls
+const repairedFailedBooru = await backend.parseSlotPrompt({ ...job, requestId: 'model-planned-booru-prose-reparse' }, 'illustration', [], 0, parserConfig, 'phase5', {}, false, true)
+assert.equal(parserCalls, callsBeforeFailedBooruReparse + 1, 'explicit Reparse of mixed-format authored Booru must invoke the configured Parser once')
+assert(repairedFailedBooru.parserUsed && !repairedFailedBooru.promptPipeline.parserFallbackUsed, 'explicit Booru Reparse did not use constrained Parser rewriting')
+assert(repairedFailedBooru.prompt.includes('holding') && repairedFailedBooru.prompt.includes('red_letter') && repairedFailedBooru.prompt.includes('leather_shoes'), 'Booru repair changed the scene or current outfit')
+assert(!repairedFailedBooru.prompt.includes('leather shoes'), 'semantic comparison must not rewrite the provider-bound tag spelling')
+parserOutput = JSON.stringify({ prompt: '1boy, solo, alpha, black_hair, portrait', negativeAdditions: '' })
+const booruDriftFallback = await backend.parseSlotPrompt({ ...job, requestId: 'model-planned-booru-prose-reparse-drift' }, 'illustration', [], 0, parserConfig, 'phase5', {}, false, true)
+assert(booruDriftFallback.promptPipeline.parserFallbackUsed, 'a drifting Booru Reparse must fall back to its authored image description')
+assert(booruDriftFallback.prompt.includes(job.originalSceneBrief) && !booruDriftFallback.prompt.includes('portrait'), 'fallback must retain the authored action and outfit, not dispatch the unrelated Parser portrait')
 parserOutput = JSON.stringify({ prompt: '1boy, solo, alpha, black_hair, he reaches for the red letter beside the window, leather_shoes, sitting, window, holding, red_letter', negativeAdditions: '' })
 const booruParserResult = await backend.parseSlotPrompt({ ...booruJob, requestId: 'model-planned-booru-reparse' }, 'illustration', [], 0, parserConfig, 'phase5', {}, false, true)
 assert(booruParserResult.parserUsed && !booruParserResult.promptPipeline.parserFallbackUsed, 'Booru reparse did not use the Relay Parser successfully')
-assert(booruParserResult.prompt.split(/,\s*/).every((tag: string) => !/\s/.test(tag)), 'Relay Parser output did not preserve its authored Danbooru-style tags')
-assert(!booruParserResult.prompt.includes('he reaches for the red letter'), 'Relay Parser Booru path should discard a stray prose clause while retaining the tag list')
+assert(booruParserResult.prompt.includes('leather_shoes') && booruParserResult.prompt.includes('red_letter'), 'Relay Parser output must preserve its valid tags')
+assert(booruParserResult.prompt.includes('he reaches for the red letter'), 'Relay Parser Booru path must retain bounded visual prose, not erase the action')
+const reportedMixedScene = '1boy, 1girl, young adult, male idol, tall, broad shoulders, messy light brown hair, soft exhausted smile, dark suit jacket discarded, female heiress, blonde hair, tweed cardigan, sitting together on deep cream sectional sofa, low oak coffee table, floor-to-ceiling glass windows, night city lights of Seoul in background, warm interior lighting, intimate and calm mood, realistic, cinematic lighting'
+for (const route of ['model', 'relay'] as const) {
+  const prepared = await backend.parseSlotPrompt({ ...booruJob, requestId: `live-mixed-sofa-${route}`, originalSceneBrief: reportedMixedScene,
+    ...(route === 'relay' ? { promptSource: 'structured' as const, composedPositivePrompt: reportedMixedScene, prosePromptComposition: { namedSubjects: ['Alpha'], expectedPeopleCount: 1, rawOutput: { plannerVersion: RELAY_PLANNED_V2 } } } : {}),
+  }, 'illustration', [], 0, parserConfig, 'phase5', {})
+  for (const fact of ['sitting together on deep cream sectional sofa', 'dark suit jacket discarded', 'tweed cardigan', 'soft exhausted smile', 'low oak coffee table', 'night city lights of Seoul in background']) {
+    assert(prepared.prompt.includes(fact), `${route}: live Booru scene detail silently dropped: ${fact}`)
+    assert(backend.assemblePreparedProviderPrompts({ effectiveBaseTags: '', userPositivePromptPrefix: '', userNegativePromptPrefix: '' }, prepared).prompt.includes(fact), `${route}: final assembly dropped ${fact}`)
+  }
+}
 assert(lastParserRequest?.messages?.some((message: any) => message.content.includes('DANBOORU TAG MODE — PROVIDER PROMPT CONTRACT')), 'Relay Parser did not receive the Danbooru tag-only protocol')
 const booruLocalRelayResult = await backend.parseSlotPrompt({
   ...booruJob,

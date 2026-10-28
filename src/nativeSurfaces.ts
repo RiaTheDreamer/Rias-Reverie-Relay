@@ -14,6 +14,10 @@ import { SURFACE_MEDIA_GEOMETRY_STYLE } from './surfaceMediaGeometry'
 import { validateDeclarativeSurfaceCss } from './surfaceCssSafety'
 import type { SurfaceNormalizationSpec } from './c5bReliability'
 import { buildingLayoutBlocks, parseBuildingLayout, renderBuildingLayout } from './buildingLayout'
+import { SURFACE_RENDER_FAILURE_MESSAGE } from './uxCopy'
+import { protectInlineCodeSpans } from './inlineCodeBoundary'
+import {renderAmazonSurface,amazonSurfacePresentation} from './amazonSurface'
+import {xmlSurfaceExamples} from './xmlSurfaceFormat'
 
 export type NativeSurfaceRenderContext = {
   chatId: string
@@ -48,9 +52,9 @@ export type NativeSurfaceRenderContext = {
     caption?: string
     time?: string
     requestAspect?: string
-    aspectRatio?: string
     proseImageAlignment?: 'left' | 'center' | 'right'
     proseImageSize?: 'small' | 'medium' | 'large' | 'full'
+    proseAnchor?: { insertionSide: string }
     updatedAt?: number
     attemptNumber?: number
   }>
@@ -84,7 +88,7 @@ const LIFECYCLE_CARD_CSS = `<style data-reverie-lifecycle-style="release">
 </style>`
 
 const STABLE_MEDIA_SLOT_CSS = `${SURFACE_MEDIA_GEOMETRY_STYLE}<style data-reverie-stable-media-slot="2">
-.rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media],.dgir-prose-lifecycle-projection{overflow-anchor:none}.dgir-prose-lifecycle-projection{display:flex;width:100%;max-width:100%;justify-content:var(--dgir-prose-image-justify,center);margin:10px 0;box-sizing:border-box}.dgir-prose-lifecycle-projection>.rrl-island{flex:0 1 var(--dgir-prose-image-width,66%);width:var(--dgir-prose-image-width,66%);max-width:var(--dgir-prose-image-max-width,720px);margin:8px 0}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.dgir-prose-lifecycle-projection>.rrl-island{width:min(100%,var(--dgir-prose-image-width,66%));max-width:min(100%,var(--dgir-prose-image-max-width,720px))}.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
+.rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media],.dgir-prose-lifecycle-projection{overflow-anchor:none}.dgir-prose-lifecycle-projection{display:flex;width:100%;max-width:100%;justify-content:var(--dgir-prose-image-justify,center);margin:10px 0;box-sizing:border-box}.dgir-prose-lifecycle-projection>.rrl-island{flex:0 1 var(--dgir-prose-image-width,66%);width:var(--dgir-prose-image-width,66%);max-width:var(--dgir-prose-image-max-width,720px);margin:8px 0}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{position:relative;display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.dgir-prose-lifecycle-projection>.rrl-island{width:min(100%,var(--dgir-prose-image-width,66%));max-width:min(100%,var(--dgir-prose-image-max-width,720px))}.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
 .rrn-editable-surface>.rrn-contract-recovery{--rrr-accent:var(--lumiverse-primary,#c24b78);--rrr-panel:var(--lumiverse-bg-elevated,#24131d);--rrr-deep:var(--lumiverse-bg-deep,#150a11);--rrr-border:var(--lumiverse-border,rgba(194,75,120,.34));--rrr-text:var(--lumiverse-text-primary,var(--lumiverse-text,#f7eaf0));--rrr-muted:var(--lumiverse-text-secondary,var(--lumiverse-text-muted,#c8aeb9));box-sizing:border-box;display:grid;gap:7px;width:min(100%,680px);margin:10px auto;padding:14px 15px;border:1px solid color-mix(in srgb,var(--rrr-accent) 42%,var(--rrr-border));border-left:3px solid var(--rrr-accent);border-radius:16px;background:radial-gradient(circle at 0 0,color-mix(in srgb,var(--rrr-accent) 14%,transparent),transparent 48%),linear-gradient(145deg,color-mix(in srgb,var(--rrr-panel) 94%,transparent),color-mix(in srgb,var(--rrr-deep) 98%,transparent));color:var(--rrr-text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);box-shadow:0 10px 28px rgba(0,0,0,.24),inset 0 1px rgba(255,255,255,.045)}.rrn-contract-recovery>b{font:800 13px/1.25 var(--lumiverse-font-family,system-ui,sans-serif);letter-spacing:.01em}.rrn-contract-recovery>span{color:var(--rrr-text);font-size:12px;line-height:1.45}.rrn-contract-recovery>small{color:var(--rrr-muted);font-size:10px;line-height:1.4}.rrn-contract-recovery>div{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}.rrn-contract-recovery button[data-rrn-action]{appearance:none;min-height:31px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--rrr-accent) 34%,var(--rrr-border));border-radius:9px;background:color-mix(in srgb,var(--rrr-panel) 88%,transparent);color:var(--rrr-text);font:750 10px/1 var(--lumiverse-font-family,system-ui,sans-serif);cursor:pointer;touch-action:manipulation;pointer-events:auto}.rrn-contract-recovery button[data-rrn-action]:hover,.rrn-contract-recovery button[data-rrn-action]:focus-visible{border-color:color-mix(in srgb,var(--rrr-accent) 72%,var(--rrr-border));background:color-mix(in srgb,var(--rrr-accent) 20%,var(--rrr-panel));outline:none}.rrn-contract-recovery button[data-rrn-action="edit-surface"]{background:color-mix(in srgb,var(--rrr-accent) 27%,var(--rrr-panel));border-color:color-mix(in srgb,var(--rrr-accent) 62%,var(--rrr-border))}@media(max-width:560px){.rrn-editable-surface>.rrn-contract-recovery{margin:8px 0;padding:12px}.rrn-contract-recovery>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.rrn-contract-recovery button[data-rrn-action]{width:100%}}
 .rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal 1.35s cubic-bezier(.22,.61,.36,1) both;will-change:filter,opacity,transform}@keyframes rrlFinalReveal{from{opacity:.42;transform:scale(1.006);filter:blur(14px) brightness(.96)}to{opacity:1;transform:none;filter:none}}
 .rrl-generation-placeholder .rr-spinner{width:19px;height:19px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:var(--rr-primary);border-right-color:var(--rr-secondary);animation:rr-spin 1.15s linear infinite}@keyframes rr-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
@@ -135,7 +139,14 @@ function proseLifecycleProjection(record: NonNullable<NativeSurfaceRenderContext
   // Image Size and alignment are live presentation preferences, not immutable
   // generation metadata. Inherit the document-level 0.2.8.6.4 variables so
   // active Status Cards and completed images update together immediately.
-  return `<div class="dgir-prose-lifecycle-projection"${key}>${lifecycleCardIsland(card)}</div>`
+  const opening = record?.proseAnchor?.insertionSide === 'opening'
+  const cover = opening ? `<style>
+.rr-opening-cover{position:relative;overflow:hidden;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,transparent);border-radius:18px;background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(10,8,14,.7));box-shadow:0 8px 30px rgba(0,0,0,.14)}
+.rr-opening-cover>header{padding:clamp(18px,4vw,32px);text-align:center;background:radial-gradient(ellipse at top,color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 12%,transparent),transparent 75%)}
+.rr-opening-cover header>h2{margin:0;font:500 clamp(22px,4vw,36px)/1.18 Georgia,serif;color:var(--lumiverse-text-color,#f4eef5);text-wrap:balance;overflow-wrap:anywhere}
+.rr-opening-cover>.rrl-card{margin:0!important;border:0!important;border-radius:0!important}.rr-opening-cover .rrl-media-slot{border-radius:0!important;border:0!important}
+</style><section class="rr-opening-cover" data-rr-opening-cover="1"><header><h2>${escapeHtml((record?.caption || record?.alt || 'A new chapter').slice(0, 180))}</h2></header>${card}</section>` : card
+  return `<div class="dgir-prose-lifecycle-projection"${key}>${lifecycleCardIsland(cover)}</div>`
 }
 
 export function renderCompletedProseLifecycleProjection(
@@ -146,7 +157,7 @@ export function renderCompletedProseLifecycleProjection(
   const completedContext = { ...context, records: [record] }
   const card = renderRequestCard({
     title: 'Illustration requested', brief: '', requestId: record.requestId,
-    aspect: record.aspectRatio || record.requestAspect || '4:3', rootTag: 'image_request',
+    aspect: record.requestAspect || '4:3', rootTag: 'image_request',
     baseSurfaceId: 'prose-illustration', context: completedContext,
   }, true)
   return proseLifecycleProjection(record, card)
@@ -193,7 +204,7 @@ function renderShippedSurface(spec: ShippedSurfaceSpec, _attrs: Record<string, s
   // All approved roots are consumed by the FINAL R4.5 authority before this
   // legacy compatibility function can be reached. Do not substitute an older
   // renderer if that authority cannot consume a root.
-  return reviewedContractError(spec.id, 'The FINAL R4.5 renderer did not consume this approved Surface.')
+  return reviewedContractError(spec.id, SURFACE_RENDER_FAILURE_MESSAGE)
 }
 
 function renderCaseFileDossier(attrs: Record<string, string>, body: string, preset: CustomSurfaceDefinition | undefined, context: NativeSurfaceRenderContext): string {
@@ -540,32 +551,32 @@ export function surfaceStreamIslandKey(messageId: string | undefined, swipeId: n
 
 const REVIEWED_STALE_CONTRACT_PATTERNS: Record<string, Array<[RegExp, string]>> = {
   'email-thread': [
-    [/<\/?email_inbox\b/i, 'Retired Email Thread root <email_inbox> is not valid R4.5 XML.'],
-    [/<\/?em_message\b/i, 'Retired Email Thread child <em_message> is not valid R4.5 XML.'],
+    [/<\/?email_inbox\b/i, 'Email Thread root <email_inbox> is no longer supported.'],
+    [/<\/?em_message\b/i, 'Email Thread child <em_message> is no longer supported.'],
   ],
   'dating-profile': [
-    [/<\/?dating_profile\b/i, 'Retired Dating Profile root <dating_profile> is not valid R4.5 XML.'],
-    [/<profile\b(?=[^>]*\bid=)/i, 'Retired Dating Profile profile id attribute is not valid R4.5 XML.'],
-    [/<profile\b(?=[^>]*\bname=)/i, 'Retired Dating Profile profile name attribute is not valid R4.5 XML.'],
-    [/<profile\b(?=[^>]*\bage=)/i, 'Retired Dating Profile profile age attribute is not valid R4.5 XML.'],
+    [/<\/?dating_profile\b/i, 'Dating Profile root <dating_profile> is no longer supported.'],
+    [/<profile\b(?=[^>]*\bid=)/i, 'Dating Profile attribute profile id is no longer supported.'],
+    [/<profile\b(?=[^>]*\bname=)/i, 'Dating Profile attribute profile name is no longer supported.'],
+    [/<profile\b(?=[^>]*\bage=)/i, 'Dating Profile attribute profile age is no longer supported.'],
   ],
   livestream: [
-    [/<\/?twitch_stream\b/i, 'Retired Livestream root <twitch_stream> is not valid R4.5 XML.'],
-    [/<\/?stream_media\b/i, 'Retired Livestream child <stream_media> is not valid R4.5 XML.'],
+    [/<\/?twitch_stream\b/i, 'Livestream root <twitch_stream> is no longer supported.'],
+    [/<\/?stream_media\b/i, 'Livestream child <stream_media> is no longer supported.'],
   ],
   'discord-server': [
-    [/<\/?channels\b/i, 'Retired Discord Server <channels> wrapper is not valid R4.5 XML.'],
-    [/<\/?channel\b/i, 'Retired Discord Server <channel> child is not valid R4.5 XML.'],
-    [/<\/?message\b/i, 'Retired Discord Server <message> child is not valid R4.5 XML.'],
-    [/<\/?users\b/i, 'Retired Discord Server <users> wrapper is not valid R4.5 XML.'],
+    [/<\/?channels\b/i, 'Discord Server wrapper <channels> is no longer supported.'],
+    [/<\/?channel\b/i, 'Discord Server child <channel> is no longer supported.'],
+    [/<\/?message\b/i, 'Discord Server child <message> is no longer supported.'],
+    [/<\/?users\b/i, 'Discord Server wrapper <users> is no longer supported.'],
   ],
   'google-images': [
-    [/<result\b(?=[^>]*\bindex=)/i, 'Retired Google Images result index contract is not valid R4.5 XML.'],
-    [/<\/?gallery_item\b/i, 'Retired Google Images <gallery_item> child is not valid R4.5 XML.'],
+    [/<result\b(?=[^>]*\bindex=)/i, 'Google Images attribute result index is no longer supported.'],
+    [/<\/?gallery_item\b/i, 'Google Images child <gallery_item> is no longer supported.'],
   ],
   'phone-gallery': [
-    [/<photo\b(?=[^>]*\bid=)/i, 'Retired Phone Gallery photo id contract is not valid R4.5 XML.'],
-    [/<photo\b(?=[^>]*\bcaption=)/i, 'Retired Phone Gallery photo caption contract is not valid R4.5 XML.'],
+    [/<photo\b(?=[^>]*\bid=)/i, 'Phone Gallery attribute photo id is no longer supported.'],
+    [/<photo\b(?=[^>]*\bcaption=)/i, 'Phone Gallery attribute photo caption is no longer supported.'],
   ],
 }
 
@@ -663,7 +674,7 @@ function preserveKakaoColorAttributes(rendered: string): string {
   })
 }
 
-function reviewedContractError(surfaceId: string, reason: string, displayName = surfaceId, guidance = ''): string {
+function reviewedContractError(surfaceId: string, reason: string, displayName = titleCase(surfaceId.replace(/-/g, ' ')), guidance = ''): string {
   reviewedSurfaceDiagnostics.set(surfaceId, reason)
   recordSurfacePipelineDiagnostic(surfaceId, 'final', `repair fallback: ${reason}`)
   while (reviewedSurfaceDiagnostics.size > 128) reviewedSurfaceDiagnostics.delete(reviewedSurfaceDiagnostics.keys().next().value!)
@@ -674,7 +685,7 @@ function reviewedContractError(surfaceId: string, reason: string, displayName = 
 }
 
 /** Narrative owners use the same diagnostic card and exact-source editor as Core. */
-export function renderSurfaceContractRecovery(surfaceId: string, rootTag: string, original: string, reason: string, context: NativeSurfaceRenderContext, displayName = surfaceId, guidance = ''): string {
+export function renderSurfaceContractRecovery(surfaceId: string, rootTag: string, original: string, reason: string, context: NativeSurfaceRenderContext, displayName = titleCase(surfaceId.replace(/-/g, ' ')), guidance = ''): string {
   const card = reviewedContractError(surfaceId, reason, displayName, guidance)
   if (!context.chatId || !context.messageId) return `<section class="rrn-editable-surface">${STABLE_MEDIA_SLOT_CSS}${card}</section>`
   return editableRelaySurface(card, original, rootTag, surfaceId, context, original)
@@ -685,10 +696,24 @@ function renderParityOwnedSurface(
   fullMarkup: string,
   preset: CustomSurfaceDefinition | undefined,
   context: NativeSurfaceRenderContext,
+  originalMarkup = fullMarkup,
 ): string {
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'detected-root', `<${rootTag}>`)
+  if(baseSurfaceId==='amazon'){
+    try{
+      const rendered=renderAmazonSurface(fullMarkup,raw=>hydrateParityRequests(raw,baseSurfaceId,context))
+      const shellMode=context.defaultShellMode||preset?.shellMode||defaultShellMode(baseSurfaceId)
+      const mode=shellMode==='collapsible'?'plain':shellMode
+      const shell=amazonSurfacePresentation(rendered,preset?.launcherLabel||'Open Amazon',mode,preset?.defaultOpen,context.colorMode)
+      recordSurfacePipelineDiagnostic(baseSurfaceId,'resolved-surface',baseSurfaceId)
+      recordSurfacePipelineDiagnostic(baseSurfaceId,'selected-renderer','Amazon catalog')
+      recordSurfacePipelineDiagnostic(baseSurfaceId,'validator','passed ordered Amazon contract')
+      recordSurfacePipelineDiagnostic(baseSurfaceId,'final','rendered')
+      return editableRelaySurface(decorateParityImages(decorateSurfaceLauncherMarkup(shell,'core',baseSurfaceId,mode),context),fullMarkup,rootTag,baseSurfaceId,context,originalMarkup)
+    }catch(error){return editableRelaySurface(reviewedContractError(baseSurfaceId,error instanceof Error?error.message:String(error)),fullMarkup,rootTag,baseSurfaceId,context,originalMarkup)}
+  }
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'resolved-surface', baseSurfaceId)
-  recordSurfacePipelineDiagnostic(baseSurfaceId, 'selected-renderer', `R4.5 regex parity (${parityModeForSurface(baseSurfaceId, preset, context)})`)
+  recordSurfacePipelineDiagnostic(baseSurfaceId, 'selected-renderer', `Surface renderer (${parityModeForSurface(baseSurfaceId, preset, context)})`)
   const canonicalMarkup = baseSurfaceId === 'twitter'
     ? normalizeTwitterContract(fullMarkup)
     : baseSurfaceId === 'smartphone'
@@ -709,18 +734,18 @@ function renderParityOwnedSurface(
   const residual = contract ? residualSurfaceTags(rendered, contract) : []
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'selected-contract', contract ? `${contract.id} <${contract.wrapper}>` : 'missing')
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'validator', residual.length ? `failed residual root: ${residual.join(', ')}` : 'passed root-consumption check')
-  if (residual.length && containsRenderedRegexSurface(rendered)) return editableRelaySurface(reviewedContractError(baseSurfaceId, `The renderer left unconsumed Surface elements: ${residual.join(', ')}.`), canonicalMarkup, rootTag, baseSurfaceId, context, fullMarkup)
+  if (residual.length && containsRenderedRegexSurface(rendered)) return editableRelaySurface(reviewedContractError(baseSurfaceId, `The renderer left unconsumed Surface elements: ${residual.join(', ')}.`), canonicalMarkup, rootTag, baseSurfaceId, context, originalMarkup)
   if (!containsRenderedRegexSurface(rendered)) return editableRelaySurface(
-    reviewedContractError(baseSurfaceId, 'The FINAL R4.5 renderer did not consume this approved Surface.'),
+    reviewedContractError(baseSurfaceId, SURFACE_RENDER_FAILURE_MESSAGE),
     canonicalMarkup,
     rootTag,
     baseSurfaceId,
     context,
-    fullMarkup,
+    originalMarkup,
   )
   rendered = decorateParityImages(decorateSurfaceLauncherMarkup(rendered, 'core', baseSurfaceId, shellMode === 'collapsible' ? 'plain' : shellMode), context)
   recordSurfacePipelineDiagnostic(baseSurfaceId, 'final', 'rendered')
-  return editableRelaySurface(rendered, canonicalMarkup, rootTag, baseSurfaceId, context, fullMarkup)
+  return editableRelaySurface(rendered, canonicalMarkup, rootTag, baseSurfaceId, context, originalMarkup)
 }
 
 export function renderNativeSurfaceMarkup(
@@ -728,6 +753,8 @@ export function renderNativeSurfaceMarkup(
   studio: CustomSurfaceStudioState,
   context: NativeSurfaceRenderContext,
 ): NativeSurfaceRenderResult {
+  const literalCode = protectInlineCodeSpans(input)
+  input = literalCode.markup
   // Claim this native owner before generic XML/bracket compatibility passes.
   // A malformed layout cannot consume a neighboring Surface or expose briefs.
   const buildingBlocks = buildingLayoutBlocks(input, NATIVE_SURFACE_ROOT_TAGS)
@@ -754,7 +781,7 @@ export function renderNativeSurfaceMarkup(
     const instanceContext = { ...renderContext, streamIslandOrdinal: index }
     const parsed = parseBuildingLayout(block.source)
     const preset = activePreset(studio, 'building-layout')
-    const configuredMode = preset?.shellMode || renderContext.defaultShellMode || 'plain'
+    const configuredMode = renderContext.defaultShellMode || preset?.shellMode || 'plain'
     const mode = configuredMode === 'collapsible' ? 'plain' : configuredMode
     const rendered = parsed.layout
       ? decorateSurfaceLauncherMarkup(renderBuildingLayout(parsed.layout, media => hydrateParityRequests(media, 'building-layout', instanceContext).replace(/<details\b[^>]*class="rrl-detail"[^>]*>[\s\S]*?<\/details>/gi, ''), mode), 'core', 'building-layout', mode)
@@ -799,6 +826,7 @@ export function renderNativeSurfaceMarkup(
     bracketBlocks.push(block)
     const instanceContext = { ...renderContext, streamIslandOrdinal: bracketBlocks.length }
     if (block.diagnostics.length) return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
+    if(block.spec.id==='amazon')return renderParityOwnedSurface('amazon','amazon_store',xmlSurfaceExamples(block.markup),activePreset(studio,'amazon'),instanceContext,block.original)
     const hydrated = hydrateParityRequests(block.markup, block.spec.id, renderContext)
     const preset = customRuntimeIds.has(block.spec.id)
       ? studio.definitions[studio.activePresetIds?.[block.spec.id] || ''] || customByBase.get(block.spec.id)
@@ -813,7 +841,7 @@ export function renderNativeSurfaceMarkup(
     const residualRoot = new RegExp(`\\[${escapeRegExp(block.spec.wrapper)}(?:\\s+[^\\]]*)?\\]`, 'i').test(rendered)
     const rendererFailedClosed = /data-reverie-surface-contract=["']failed["']|Relay Surface needs repair/i.test(rendered)
     if (residualRoot || rendererFailedClosed) {
-      const reason = 'The FINAL R4.5 renderer did not consume this approved Surface shape.'
+      const reason = SURFACE_RENDER_FAILURE_MESSAGE
       block.diagnostics.push(`${block.spec.id}: ${reason}`)
       return editableRelaySurface(reviewedContractError(block.spec.id, reason), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original)
     }
@@ -827,7 +855,7 @@ export function renderNativeSurfaceMarkup(
       recordSurfacePipelineDiagnostic(block.spec.id, 'detected-root', `[${block.spec.wrapper}]`)
       recordSurfacePipelineDiagnostic(block.spec.id, 'resolved-surface', block.spec.id)
       recordSurfacePipelineDiagnostic(block.spec.id, 'normalization', block.diagnostics.length ? `failed: ${block.diagnostics.join('; ')}` : (block.original === block.markup ? 'bypassed: canonical bracket' : `repaired: bracket drift${block.warnings.length ? ` (${block.warnings.join('; ')})` : ''}`))
-      recordSurfacePipelineDiagnostic(block.spec.id, 'selected-renderer', `R4.5 bracket regex parity (${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`)
+      recordSurfacePipelineDiagnostic(block.spec.id, 'selected-renderer', `Surface renderer (bracket, ${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`)
       recordSurfacePipelineDiagnostic(block.spec.id, 'final', block.diagnostics.length ? 'repair fallback' : 'rendered')
     }
     // Hydration is deliberately scoped in the normalizer callback above. A
@@ -849,6 +877,7 @@ export function renderNativeSurfaceMarkup(
   // One shared, conservative normalization pass runs before either the Relay
   // renderer or the Regex-parity path sees an active shipped Surface.
   const normalizationFailures: string[] = []
+  const repairedTinderSources = new Map<string, string[]>()
   const normalizedSurface = normalizeSurfaceDocument(input, SHIPPED_SURFACE_SPECS, block => {
     recordSurfacePipelineDiagnostic(block.spec.id, 'detected-root', `<${block.spec.wrapper}>`)
     recordSurfacePipelineDiagnostic(block.spec.id, 'resolved-surface', block.spec.id)
@@ -857,7 +886,14 @@ export function renderNativeSurfaceMarkup(
     if (block.driftDiagnostics?.length) recordSurfacePipelineDiagnostic(block.spec.id, 'attribute-child-drift', block.driftDiagnostics.join('; '))
     if (block.spec.id === 'kakao') recordKakaoNormalizationTrace(block.original, block.markup)
     if (renderContext.rendererMode === 'legacy-regex') return block.original
-    if (!block.diagnostics.length) return block.markup
+    if (!block.diagnostics.length) {
+      if (block.spec.id === 'dating-profile' && block.original !== block.markup) {
+        const originals = repairedTinderSources.get(block.markup) || []
+        originals.push(block.original)
+        repairedTinderSources.set(block.markup, originals)
+      }
+      return block.markup
+    }
     normalizationFailures.push(block.spec.id)
     recordSurfacePipelineDiagnostic(block.spec.id, 'repair', 'invoked: unrecoverable normalization failure')
     return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join('; ')), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: normalizationFailures.length })
@@ -891,6 +927,10 @@ export function renderNativeSurfaceMarkup(
         ? studio.definitions[studio.activePresetIds?.[baseSurfaceId] || ''] || customByBase.get(baseSurfaceId)
         : activePreset(studio, baseSurfaceId)
       if (!customRuntimeIds.has(baseSurfaceId) && preset?.enabled === false) return fullMatch
+      if(baseSurfaceId==='amazon'){
+        renderedCount++;renderedSurfaceIds.push(baseSurfaceId)
+        return renderParityOwnedSurface(baseSurfaceId,tagName,String(fullMatch||''),preset,{...renderContext,streamIslandOrdinal:renderedCount})
+      }
       if (renderContext.rendererMode === 'legacy-regex') {
         const token = `<!--rrl-protected-regex:${protectedRegexSurfaces.size}-->`
         protectedRegexSurfaces.set(token, hydrateParityRequests(String(fullMatch || ''), baseSurfaceId, renderContext))
@@ -905,7 +945,8 @@ export function renderNativeSurfaceMarkup(
         return editableRelaySurface(renderCustomSurface(String(fullMatch || ''), preset, instanceContext), String(fullMatch || ''), tagName, baseSurfaceId, instanceContext, String(fullMatch || ''))
       }
       if (REGEX_PARITY_SURFACE_IDS.has(baseSurfaceId)) {
-        return renderParityOwnedSurface(baseSurfaceId, tagName, String(fullMatch || ''), preset, instanceContext)
+        const original = baseSurfaceId === 'dating-profile' ? repairedTinderSources.get(String(fullMatch || ''))?.shift() : undefined
+        return renderParityOwnedSurface(baseSurfaceId, tagName, String(fullMatch || ''), preset, instanceContext, original)
       }
       const originalMarkup = String(fullMatch || '')
       const canonicalMarkup = baseSurfaceId === 'character-profile'
@@ -1040,7 +1081,7 @@ export function renderNativeSurfaceMarkup(
     content = preserveKakaoColorAttributes(content)
   }
   buildingMarkup.forEach((html, index) => { content = content.replace(`<!--rrl-building-owner:${index}-->`, html) })
-  return { content, renderedCount, renderedSurfaceIds }
+  return { content: literalCode.restore(content), renderedCount, renderedSurfaceIds }
 }
 
 
@@ -1091,6 +1132,8 @@ export function renderLegacyLifecycleMarkup(
   input: string,
   context: NativeSurfaceRenderContext,
 ): NativeSurfaceRenderResult {
+  const literalCode = protectInlineCodeSpans(input)
+  input = literalCode.markup
   input = projectBracketImageControlsToXml(input)
   let renderedCount = 0
   const renderedSurfaceIds: string[] = []
@@ -1154,7 +1197,7 @@ export function renderLegacyLifecycleMarkup(
     }, true))
   })
 
-  return { content, renderedCount, renderedSurfaceIds }
+  return { content: literalCode.restore(content), renderedCount, renderedSurfaceIds }
 }
 
 function baseSurfaceIdForTarget(target: string): string {
@@ -1588,7 +1631,7 @@ function renderRequestCard(input: {
   const liveStatus = record?.status || (input.failed ? 'failed' : fallbackStatus)
   const readyToInsert = liveStatus === 'placement-pending' && Boolean(record?.pendingPlacement)
   const statusLabels: Record<string, string> = {
-    'recovered-pending': 'Discovered', preparing: 'Preparing', queued: 'Queued', 'awaiting-native-settings': 'Waiting for settings', 'paused-backlog': 'Pending review', superseded: 'Superseded', parsing: 'Parsing', 'provider-waiting': 'Waiting for image worker', generating: 'Generating', previewing: 'Previewing',
+    'recovered-pending': 'Not generated', preparing: 'Preparing', queued: 'Queued', 'awaiting-native-settings': 'Waiting for settings', 'paused-backlog': 'Pending review', superseded: 'Superseded', parsing: 'Parsing', 'provider-waiting': 'Waiting for image worker', generating: 'Generating', previewing: 'Previewing',
     'placement-pending': readyToInsert ? 'Ready' : 'Inserting', 'placement-repair-needed': 'Repair needed', completed: 'Completed', 'image-unavailable': 'Unavailable',
     failed: 'Failed', cancelled: 'Stopped',
   }

@@ -15,6 +15,7 @@ export type PhoneServiceDependencies = {
   projection(chatId: string, userId?: string, snapshot?: { state: PhoneDeviceState; identities: PhoneIdentity[] }): Promise<Record<string, unknown>>;
   rpContext?(chatId:string,userId?:string):Promise<string>;
   appView?(command:PhoneCommand,userId?:string):Promise<Record<string,unknown>>;
+  commerce?(command:PhoneCommand,userId:string|undefined,authorized:()=>boolean):Promise<void>;
   generateImage?(command:PhoneCommand,userId?:string):Promise<{imageId:string;imageUrl:string}>;
   generate(connectionId: string, messages: ReturnType<typeof phoneReplyPrompt>, userId?: string, maxTokens?:number): Promise<string>;
   captureAuthorization?(userId?: string): () => boolean;
@@ -39,6 +40,11 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
     if(!['load','settings'].includes(command.action)&&!authorized())throw new Error('Phone operation cancelled. Your saved data was preserved.')
     if(!['load','settings'].includes(command.action)&&deps.enabled&&!(await deps.enabled(userId)))throw new Error('Reverie Phone is disabled. Enable it in the Phone tab; your saved data is unchanged.')
     const identities = await deps.identities(command.chatId, userId)
+    if(command.action==='commerce'){
+      if(command.appId!=='amazon'||!identities.some(person=>person.id===command.from)||!deps.commerce)throw new Error('Choose a current Amazon Phone owner.')
+      if(!authorized())throw new Error('Shopping action cancelled. Your saved data was preserved.')
+      await deps.commerce(command,userId,authorized);await project(command,userId);return
+    }
     if(command.action==='app'){
       if(!deps.appView)throw new Error('This build does not support Core phone apps.')
       deps.send({type:'phone_app',chatId:command.chatId,operationId:command.operationId,...await deps.appView(command,userId)},userId)
@@ -55,7 +61,7 @@ export function createPhoneService(deps: PhoneServiceDependencies) {
       if((state.localApps?.length||0)>=100)throw new Error('This phone archive has reached its local app limit. Existing records were preserved.')
       const prompt=phoneLocalAppPrompt(command.appId||'',owner,identities,brief,await deps.rpContext?.(command.chatId,userId)||'')
       if(!authorized())throw new Error('App setup cancelled before dispatch.')
-      const started=Date.now(),markup=validatePhoneLocalApp(await deps.generate(state.connectionId,prompt,userId,3500),command.appId!),requests=phoneLocalAppImageRequests(markup)
+      const started=Date.now(),markup=validatePhoneLocalApp(await deps.generate(state.connectionId,prompt,userId,command.appId==='amazon'?6500:3500),command.appId!),requests=phoneLocalAppImageRequests(markup)
       if(!authorized()||!(await deps.identities(command.chatId,userId)).some(person=>person.id===owner.id))throw new Error('App setup cancelled or its owner changed. Nothing was saved.')
       const generation:PhoneGeneration={connectionId:state.connectionId,prompt,operationId:command.operationId,createdAt:Date.now(),durationMs:Date.now()-started}
       const media=requests.map(request=>({id:request.id,requestId:request.requestId,target:request.target,...(request.slot?{slot:request.slot}:{}),...(request.alt?{alt:request.alt}:{}),...(request.aspect?{aspect:request.aspect}:{}),image:normalizePhoneImage({status:'pending',prompt:request.prompt,framing:'auto',connectionId:''})!}))

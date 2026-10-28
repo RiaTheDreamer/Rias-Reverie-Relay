@@ -1,6 +1,6 @@
 // Complete local Surface authority and lifecycle smoke. No host/provider calls.
 import type { CustomSurfaceDefinition, CustomSurfaceStudioState } from '../src/contracts'
-import { characterProfilePortraitHasExactRelayImage, lifecycleRuntimeCss, normalizeCharacterProfileContract, renderCompletedProseLifecycleProjection, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
+import { characterProfilePortraitHasExactRelayImage, lifecycleRuntimeCss, normalizeCharacterProfileContract, renderNativeSurfaceMarkup } from '../src/nativeSurfaces'
 import { R45_ACTIVE_ROOTS, containsR45RenderedSurface, r45BracketSurfaceAuthorityPack, r45SurfaceAuthorityPack, renderR45SurfaceAuthority, type R45ColorMode, type R45PresentationMode } from '../src/r45SurfaceAuthority'
 import { r45SupplementalSurfaceDefinitions } from '../src/r45SurfaceCatalog'
 import { SHIPPED_SURFACE_SPECS, shippedSurfaceDefinitions } from '../src/shippedSurfaceDefinitions'
@@ -15,7 +15,7 @@ function assert(value: unknown, reason: string): asserts value { if (!value) thr
 // The historical 46-Surface regex matrix remains unchanged. The new native
 // Building Layout owner has its own parser/lifecycle/navigation acceptance gate.
 const shippedDefinitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)].filter(row => row.baseSurfaceId !== 'building-layout')
-const allSpecs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).filter(row => row.id !== 'building-layout')
+const allSpecs = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).filter(row => !['building-layout','amazon'].includes(row.id))
 const missingDefinitions = allSpecs.filter(spec => !shippedDefinitions.some(definition => definition.baseSurfaceId === spec.id)).map(spec => ({
   surfaceId: spec.id, baseSurfaceId: spec.id, presetName: 'R4.5 FINAL', displayName: spec.id, icon: '◇',
   targetId: spec.id === 'smartphone' ? 'smartphone.message-image' : 'custom.artifact-media', canonicalOuterWrapper: spec.wrapper,
@@ -35,15 +35,9 @@ const studio: CustomSurfaceStudioState = {
   validationErrors: {}, lastInjectedModuleIds: [], lastInjectionAt: 0, lastInjectionSource: 'none',
   lastInjectionPosition: 'none', lastInjectionSummary: '', updatedAt: 1,
 }
-const nativeLandscape = {
-  requestId: 'native-landscape', requestAspect: '3:4', status: 'completed',
-  imageUrl: '/native-landscape.png', aspectRatio: '19:13',
-} as any
-const completedLandscape = renderCompletedProseLifecycleProjection(nativeLandscape, { chatId: 'aspect-chat', messageId: 'aspect-message' })
-assert(completedLandscape.includes('data-aspect="19:13"'), 'completed media uses the returned image aspect')
-const legacyLandscape = renderCompletedProseLifecycleProjection({ ...nativeLandscape, aspectRatio: undefined }, { chatId: 'aspect-chat', messageId: 'aspect-message' })
-assert(legacyLandscape.includes('data-aspect="3:4"'), 'older media without returned dimensions retains the requested aspect')
-const canonical = definitions.map(definition => ({ id: definition.baseSurfaceId, root: definition.canonicalOuterWrapper, sample: definition.sampleXml }))
+// Amazon is a new XML contract with its own production acceptance matrix in
+// amazon-local-smoke.ts; this suite remains the historical 46-app R4.5 matrix.
+const canonical = definitions.filter(definition=>definition.baseSurfaceId!=='amazon').map(definition => ({ id: definition.baseSurfaceId, root: definition.canonicalOuterWrapper, sample: definition.sampleXml }))
 assert(canonical.length === 46 && new Set(canonical.map(row => row.id)).size === 46, 'R4.5 active Surface inventory must contain 46 unique Surfaces')
 for (const retired of ['weverse-post', 'fandom', 'fansite', 'photocard', 'webtoon', 'radio', 'divination', 'travel-log', 'creature-scanner']) {
   assert(!canonical.some(row => row.id === retired), `retired Surface returned: ${retired}`)

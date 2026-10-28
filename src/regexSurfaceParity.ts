@@ -1,6 +1,7 @@
 import { SHIPPED_SURFACE_SPECS } from './shippedSurfaceDefinitions'
 import { normalizeBracketSurfaceDocument } from './bracketSurfaceBridge'
 import { normalizeSurfaceDocument } from './surfaceXml'
+import { protectInlineCodeSpans } from './inlineCodeBoundary'
 import {
   containsR45RenderedSurface,
   renderR45BracketSurfaceAuthority,
@@ -96,7 +97,19 @@ ${palette}
 }
 
 function polishRenderedSurface(rendered: string): string {
-  return styleInstagramMessageBubbles(fitRelationshipMapToHostWidth(compactTextOnlyRelationshipMap(expandTextOnlyCastSheet(removeEmptyEmailAttachmentChrome(rendered)))))
+  return fitMusicPlayerToHostWidth(styleInstagramMessageBubbles(fitRelationshipMapToHostWidth(compactTextOnlyRelationshipMap(expandTextOnlyCastSheet(removeEmptyEmailAttachmentChrome(rendered))))))
+}
+
+function fitMusicPlayerToHostWidth(rendered: string): string {
+  if (!rendered.includes('rrsp-card') || rendered.includes('data-reverie-player-layout')) return rendered
+  return `${rendered}<style data-reverie-player-layout>
+.rrsp-card{container-type:inline-size;container-name:reverie-player;box-sizing:border-box;width:100%;max-width:100%;min-width:0}
+.rrsp-top{grid-template-columns:180px minmax(0,1fr);min-width:0}
+.rrsp-meta{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.rrsp-meta h2,.rrsp-meta p,.rrsp-meta small{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.rrsp-actions,.rrsp-tabs{flex-wrap:wrap}
+@container reverie-player (max-width:480px){.rrsp-top{grid-template-columns:minmax(0,1fr);padding:16px;gap:16px}.rrsp-cover{width:min(180px,100%);justify-self:center}.rrsp-meta h2{font-size:24px}.rrsp-tabs{padding-inline:16px}}
+</style>`
 }
 
 export function regexSurfaceParityScripts(
@@ -110,7 +123,7 @@ export function regexSurfaceParityScripts(
     scriptId: script.script_id,
     name: script.name,
     find: script.find_regex,
-    replace: script.replace_string,
+    replace: fitMusicPlayerToHostWidth(script.replace_string),
     flags: script.flags,
     order: Number(script.sort_order),
   }))
@@ -123,7 +136,8 @@ export function renderRegexSurfaceParity(
   color: RegexSurfaceColorMode = 'realistic',
   overrides: R45ScriptOverrides = {},
 ): string {
-  let output = String(markup || '')
+  const literalCode = protectInlineCodeSpans(String(markup || ''))
+  let output = literalCode.markup
   let sawBracketSurface = false
   const presentation = mode === 'collapsible' ? 'plain' : mode
   const bracket = normalizeBracketSurfaceDocument(output, SHIPPED_SURFACE_SPECS, block => {
@@ -135,13 +149,13 @@ export function renderRegexSurfaceParity(
       // fields such as [media], because Narrative Utilities own their ranges.
       : polishRenderedSurface(renderR45BracketSurfaceAuthority(block.markup, presentation, messageId, color, overrides))
   })
-  if (sawBracketSurface) return bracket.markup
+  if (sawBracketSurface) return literalCode.restore(bracket.markup)
   if (!/(?:rrl-card|rrl-resolved|data-rrn-native-request)/.test(output)) {
     output = normalizeSurfaceDocument(output, SHIPPED_SURFACE_SPECS, block => block.diagnostics.length
       ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>'
       : block.markup).markup
   }
-  return polishRenderedSurface(renderR45SurfaceAuthority(output, presentation, color, messageId, overrides))
+  return literalCode.restore(polishRenderedSurface(renderR45SurfaceAuthority(output, presentation, color, messageId, overrides)))
 }
 
 export function containsRenderedRegexSurface(markup: string): boolean {

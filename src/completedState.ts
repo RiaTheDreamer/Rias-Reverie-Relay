@@ -29,6 +29,21 @@ export type CompactCompletedRecord = {
   highResMode?: boolean
   completedAt: number
   diagnosticArchiveId?: string
+  renderMetadataVersion?: number
+  historyCount?: number
+  alt?: string
+  caption?: string
+  count?: number
+  requestAspect?: string
+  imageWidth?: number | null
+  imageHeight?: number | null
+  aspectRatio?: string
+  proseAnchor?: SlotRecord['proseAnchor']
+  proseSynthetic?: boolean
+  proseIllustrationId?: string
+  prosePlanId?: string
+  proseImageAlignment?: SlotRecord['proseImageAlignment']
+  proseImageSize?: SlotRecord['proseImageSize']
 }
 
 export type CompletedArchiveRecord = CompactCompletedRecord & {
@@ -76,6 +91,21 @@ export function compactCompletedRecord(record: SlotRecord): CompactCompletedReco
     highResMode: record.highResMode,
     completedAt: record.completedAt || record.updatedAt,
     diagnosticArchiveId: completedArchiveId(record),
+    renderMetadataVersion: 1,
+    historyCount: Math.max(record.history?.length || 0, record.historyCount || 0),
+    alt: record.alt,
+    caption: record.caption,
+    count: record.count,
+    requestAspect: record.requestAspect,
+    imageWidth: record.imageWidth,
+    imageHeight: record.imageHeight,
+    aspectRatio: record.aspectRatio,
+    proseAnchor: record.proseAnchor,
+    proseSynthetic: record.proseSynthetic,
+    proseIllustrationId: record.proseIllustrationId,
+    prosePlanId: record.prosePlanId,
+    proseImageAlignment: record.proseImageAlignment,
+    proseImageSize: record.proseImageSize,
   }
 }
 
@@ -128,6 +158,7 @@ export function stripCompletedRecord(record: SlotRecord): SlotRecord {
     galleryItemId: record.galleryItemId,
     galleryLinkedAt: record.galleryLinkedAt,
     history: [],
+    historyCount: compact.historyCount,
   }
 }
 

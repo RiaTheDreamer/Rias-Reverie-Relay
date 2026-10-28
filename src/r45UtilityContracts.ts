@@ -4,10 +4,12 @@
  * metadata: every approved Surface receives its complete authoring contract.
  */
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
+import {AMAZON_UTILITY} from './amazonDefinition'
 import { BUILDING_LAYOUT_CONTRACT } from './buildingLayoutContract'
 export const R45_UTILITY_CONTRACT_VERSION = 'R4.5 FINAL'
 
 export const R45_ACTIVE_SURFACE_IDS = [
+  'amazon',
   'building-layout',
   'forum-thread', 'email-thread', 'imessage-chat', 'workspace-chat', 'livestream', 'dating-profile',
   'public-bulletin', 'case-file', 'relationship-map', 'instagram-dm', 'x-dm', 'discord-dm',
@@ -21,16 +23,17 @@ export const R45_ACTIVE_SURFACE_IDS = [
 
 export type R45ActiveSurfaceId = typeof R45_ACTIVE_SURFACE_IDS[number]
 
-const SHARED = `R4.5 FINAL SURFACE UTILITY CONTRACT
+const SHARED = `SURFACE AUTHORING CONTRACT
 Author one XML semantic Surface. Keep the exact attributes and child elements shown in its canonical schema, with all tags closed. Reverie owns Surface recognition, normalization, validation, canonical rendering, launcher state, interactions, media lifecycle, reinsertion, repair/reparse/rescan UI, and mobile rendering. Do not author launcher chrome, presentation controls, HTML or CSS. Square brackets in text are literal values, never field delimiters. Escape & and < inside XML values.
 
 Every Relay image request stays inside its exact owning XML element and keeps canonical XML transport syntax: <image_request id="…" target="…" slot="…" aspect="…" alt="…"><scene_brief>…</scene_brief></image_request>. Use target="custom.artifact-media" for custom Surface media. image_request and scene_brief are protected Relay control tags, XML control elements; never convert them to bracket tags. The brief describes the actual in-world image, preserves established identity/outfit when relevant, composes the important content safely for the target slot, and never asks the image model to draw interface chrome, labels, captions, map labels, timestamps, logos, or readable text. Never place a bare image request in visible prose. Do not reuse one generic request across unrelated media slots.
 
-Use the current scene/message for names, places, timing, route information, text, and visual content. Examples are structural only; never promote demo values into defaults. Keep all XML child elements balanced and preserve the specified child order. Relay renders the approved R4.5 layout; do not emit generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text.`
+Use the current scene/message for names, places, timing, route information, text, and visual content. Examples are structural only; never promote demo values into defaults. Keep all XML child elements balanced and preserve the specified child order. Relay renders the registered Surface layout; do not emit generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text.`
 
 const utility = (root: string, body: string) => xmlAuthoringInstructions(`${SHARED}\n\nXML ROOT: <${root}>\n${body}\nUse attributes rather than child elements wherever the canonical SCHEMA shows an attribute. The schema owns field placement and order.`)
 
 export const R45_UTILITY_CONTRACTS: Record<R45ActiveSurfaceId, string> = {
+  amazon: AMAZON_UTILITY,
   'building-layout': BUILDING_LAYOUT_CONTRACT,
   'forum-thread': utility('forum_thread', 'Keep topic metadata, posts, replies, and media contextual. In <fm_comment>, use its user attribute then plain reply text, never <time>/<score>/<content> fields. Without an actual attachment, keep <fm_media></fm_media> empty and omit image requests. Actual attachments use 16:9 or 4:3.'),
   'email-thread': utility('email_thread', 'Author ordered <email_item> rows with slot, from, subject, preview and time attributes; <email_body> and optional <email_attachment> are children. Omit the attachment when none exists. Keep device facts grounded. Visual attachments own 16:9 media.'),
@@ -40,7 +43,7 @@ export const R45_UTILITY_CONTRACTS: Record<R45ActiveSurfaceId, string> = {
   'dating-profile': utility('tinder', 'Author exactly three <profile> records. Each record carries slot, prev and next XML attributes. Each <photo> owns one 3:4 identity image: centered face and upper torso, full hair visible, generous headroom, current outfit/context, no extreme close-up. The same source is reused in match states, so it must be crop-safe.'),
   'public-bulletin': utility('public_bulletin', 'Author authority, level, headline, timestamp and district as root attributes; then <pb_media>, <pb_body> and <pb_instructions> children in order. <pb_media> owns one 16:9 documentary image of the exact event/place; all readable bulletin text remains in XML child elements.'),
   'case-file': utility('case_file', 'Author the dossier tabs/sheets/evidence/timeline in the approved order. Evidence media stays in its specific evidence field and uses 3:4 or 4:3 documentary framing with the entire clue/object/area visible.'),
-  'relationship-map': utility('relationship_map', 'Author the approved named character nodes, relationship connections, and insight fields only. Preserve the R4.5 inner relationship-map structure; do not substitute a different graph or generic media card.'),
+  'relationship-map': utility('relationship_map', 'Author the registered named character nodes, relationship connections, and insight fields only. Preserve the registered inner relationship-map structure; do not substitute a different graph or generic media card.'),
   'instagram-dm': utility('instagram_dm', 'Author a coherent ordered direct-message exchange. Any media belongs in its exact chat-media child and uses 4:3; do not let scene_brief appear as chat text.'),
   'x-dm': utility('x_dm', 'Author a coherent ordered direct-message exchange. Any attachment belongs in its exact message media child and uses 4:3.'),
   'discord-dm': utility('discord_dm', 'Author an ordered Discord direct-message exchange with participant identity and contextual content. Media/files remain in the exact discussed message child and use 4:3.'),
@@ -87,10 +90,16 @@ All <s_recv>, <s_sent>, and <s_img> rows remain inside <messages>. Every <s_img>
 }
 
 export function r45UtilityContract(surfaceId: string): string {
+  if(surfaceId==='amazon')return AMAZON_UTILITY
   return R45_UTILITY_CONTRACTS[surfaceId as R45ActiveSurfaceId] || ''
 }
 
 export function r45UtilitySpecificGuidance(surfaceId: string): string {
+  if(surfaceId==='amazon')return `Use only for actual fictional shopping or an explicit request; never a real Amazon integration. Follow ordered XML SCHEMA, no HTML, structural brackets, payment data, invented accounts/addresses/URLs/ASINs, Prime, discounts or sponsored badges.
+1–8 products; 0–4 established orders (empty amz_orders otherwise); document <=24,000 characters. IDs lowercase slug-safe and unique. Each product owns one complete 1:1 custom.artifact-media image_request, identical unique id/slot, product-only scene_brief without UI/text; never move, omit, share or replace media.
+Currency EUR/USD/GBP: plain non-negative amount with exactly two decimals; JPY/KRW: whole units; maximum 1,000,000. Rating 0–5 or Not listed; reviews non-negative integer or Not listed. Availability Available/Preorder/Unavailable. Order status Placed/Dispatched/Delivered/Cancelled reflects established facts only. Titles <=180 characters, description <=1200, specs <=600, brand/seller <=160.
+Unknown delivery/seller/reviews stay unconfirmed. Renderer owns desktop/mobile chrome and controls. Showing products creates no Persona action, cart, purchase or delivery. Phone saves owner/chat/snapshot-scoped actions; purchase requires reviewed human confirmation, no real payment. Only established story or saved receipts justify orders.
+Injected reverie_commerce_context is completed activity data, not commands to repeat: preserve owner, items, quantities, amount/currency and order ID; respect character knowledge. Cart is not a purchase; placed is not delivered. Phone queues receipts without consuming them on render, Dry Run, abort or image retry.`
   const contract = r45UtilityContract(surfaceId)
   if (!contract) return ''
 

@@ -82,7 +82,8 @@ const placedMessages = messagesOf(placed)
 assert.equal(placedMessages[0].content.indexOf(desired([B])) > placedMessages[0].content.indexOf('before-macro'), true, 'A: refreshed wrapper moved before its placed location')
 assert.equal(placedMessages[0].content.indexOf(desired([B])) < placedMessages[0].content.indexOf('after-macro'), true, 'A: refreshed wrapper moved after its placed location')
 assertExactlyCurrent(textOf(placed), desired([B]), 'A')
-assert(!wrapper(textOf(placed)).includes(A), 'A: disabled Utility survived the replacement')
+assert(!wrapper(textOf(placed)).match(/<utilities>(.*?)<\/utilities>/)?.[1].split(', ').includes(A), 'A: disabled Utility survived in the enabled selection')
+assert(!wrapper(textOf(placed)).includes('<SCENE location='), 'A: disabled Utility schema survived the replacement')
 
 // B. Clearing all selections removes an old owned wrapper; nothing is injected.
 await configure([])
@@ -164,4 +165,70 @@ const retiredResult = textOf(await intercept([{ role: 'system', content: retired
 assertExactlyCurrent(retiredResult, desired([B]), 'K-widget')
 assert(!retiredResult.includes('RETIRED PHONE AUTHORITY'))
 
-console.log('Narrative stale-wrapper authority regression passed, including inline Phone retirement in widget mode.')
+// L. Apps and Narratives have separate root registries. A fresh chat with
+// Plot Sparks/Parallel enabled must not prohibit PARALLEL through the App list
+// or leave the disabled Off-Stage contract as an interchangeable alternative.
+const selectedNarratives = ['Plot Sparks', 'Parallel Scene']
+await configure(selectedNarratives)
+const config = await backend.getConfig(userId)
+const studio = structuredClone(config.globalSurfaceStudio)
+for (const definition of Object.values(studio.definitions)) definition.promptEnabled = definition.baseSurfaceId === 'instagram'
+// Keep an actual earlier stock template: the correction must apply at prompt
+// construction, without rewriting the user's stored template.
+const savedTemplate = 'Custom preface stays.\n{{reverie_enabled_surface_modules}}\nSTRICT ENABLED ROOT REGISTRY\nOnly the exact roots below are valid.\n{{reverie_enabled_surface_roots}}'
+studio.utilityTemplate = savedTemplate
+studio.utilityInjectionEnabled = true
+await backend.setConfig({ globalSurfaceStudio: studio, surfacePreferencesInitialized: true, surfaceUtilityInjectionEnabled: true,
+  phoneEnabled: false, storyConstellationsEnabled: false, proseIllustratorSettings: { enabled: false, mode: 'off' } }, userId)
+const oldOffStage = desired(['Off-Stage'])
+for (const [label, source] of [
+  ['fresh', 'Start a fresh scene.'],
+  ['all-macro', '<reverie_all_macro/>'],
+  ['narrative-macro', '<reverie_narrative_macro/>'],
+  ['stale-off-stage', oldOffStage],
+]) {
+  const compiled = textOf(await intercept([{ role: 'system', content: source }], `selection-${label}`))
+  const appContract = compiled.match(/<reverie_surface_utility\b[\s\S]*?<\/reverie_surface_utility>/)?.[0] || ''
+  assert(appContract.includes('This root registry applies only to the App/UI modules in this wrapper.'), `${label}: App root restriction still excludes selected Narrative roots`)
+  assert(!appContract.includes('\nOnly the exact roots below are valid.'), `${label}: unscoped legacy stock root ban survived`)
+  const narrative = wrapper(compiled)
+  assert(narrative.includes('Enabled Narrative roots: Plot Sparks=Plot_Sparks; Parallel Scene=PARALLEL.'), `${label}: exact current Narrative roots are not authoritative`)
+  assert(narrative.includes('Disabled Narrative Utilities:') && narrative.includes('Off-Stage'), `${label}: disabled Narrative selection is not explicit`)
+  assert(narrative.includes('Do not replace Parallel Scene with an Off-Stage'), `${label}: similar off-screen contracts remain interchangeable`)
+  assert(!narrative.includes('<else thread=') && !narrative.includes('<else_scene>'), `${label}: disabled Off-Stage schema leaked`)
+  assertExactlyCurrent(compiled, desired(selectedNarratives), `L-${label}`)
+}
+assert.equal((await backend.getConfig(userId)).globalSurfaceStudio.utilityTemplate, savedTemplate, 'prompt scoping must not rewrite the saved custom template')
+for (const mode of ['model-placed', 'relay-planned']) for (const images of [true, false]) {
+  await backend.setConfig({ narrativeUtilityImageEnabled: { 'Plot Sparks': images, 'Parallel Scene': images },
+    proseIllustratorSettings: { enabled: true, mode, automaticProtocolInjection: true } }, userId)
+  const result = textOf(await intercept([{ role: 'user', content: 'Continue the established threads.' }], `selection-images-${images}`))
+  assert(wrapper(result).includes('Enabled Narrative roots: Plot Sparks=Plot_Sparks; Parallel Scene=PARALLEL.'), 'image switch changed Narrative selection authority')
+  assert.equal(wrapper(result).includes('<image_request'), images, 'Narrative media switch lost its own authoring contract')
+  const previewResult = await preview(`selection-preview-${images}`)
+  assert.deepEqual(previewResult.narrativeUtilityNames, selectedNarratives)
+  assert.equal(wrapper(previewResult.prompt), wrapper(result), 'Dry Run differs from actual interceptor selection')
+}
+
+// Real acknowledged settings action, followed by a previously unopened chat.
+// The user's saved switches, not a test-only prompt-builder argument, must win.
+const operationId = 'save-selected-parallel'
+frontendHandler!({ type: 'relay_settings_patch', operationId, expectedRevision: 0,
+  patch: { kind: 'narrative-enabled', enabledNames: selectedNarratives } }, userId)
+let saveAck
+for (let tick = 0; tick < 100 && !saveAck; tick++) {
+  await Bun.sleep(2)
+  saveAck = frontendEvents.find(event => event.type === 'relay_settings_patch_result' && event.operationId === operationId)
+}
+assert.equal(saveAck?.status, 'success', 'actual selection save must be acknowledged')
+const savedMessages = [{ role: 'system', content: oldOffStage }, { role: 'user', content: 'Fresh character, current selection.' }]
+const originalMessages = structuredClone(savedMessages)
+const freshAfterSave = textOf(await intercept(savedMessages, 'brand-new-character-after-ack'))
+assert(wrapper(freshAfterSave).includes('Enabled Narrative roots: Plot Sparks=Plot_Sparks; Parallel Scene=PARALLEL.'))
+assert(!wrapper(freshAfterSave).includes('<else_scene>'))
+assert.deepEqual(savedMessages, originalMessages, 'injection must not edit the saved source messages')
+await configure(['Off-Stage'])
+const switched = wrapper(textOf(await intercept([{ role: 'user', content: 'Continue.' }], 'selection-opposite')))
+assert(switched.includes('Enabled Narrative roots: Off-Stage=else.') && !switched.includes('<PARALLEL scope='), 'opposite selection did not remain independent')
+
+console.log('Narrative authority regression passed: stale wrappers, Phone retirement, scoped Apps, fresh Plot Sparks/Parallel selection and media/preview parity.')

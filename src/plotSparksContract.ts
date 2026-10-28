@@ -1,4 +1,4 @@
-import { PLOT_SPARK_VECTOR_BY_KEY } from './contracts'
+import { PLOT_SPARK_VECTOR_BY_KEY, inspectStoryModelOutputContracts } from './contracts'
 import { bracketNodeText, parseBracketDocument, type BracketNode } from './bracketParser'
 import { bracketImageControls, projectBracketImageControlsToXml } from './imageControlMarkup'
 import { parseSurfaceXml } from './surfaceXml'
@@ -12,6 +12,140 @@ export function isRenderablePlotSparkCount(count: number): boolean {
 }
 export const PLOT_SPARKS_REPAIR_EXAMPLE = `[Plot_Sparks][ID]spark-board[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Possible branch ${key.toUpperCase()}.[/Text][Media][/Media][/Spark]`).join('')}[/Plot_Sparks]`
 export const PLOT_SPARKS_XML_REPAIR_EXAMPLE = xmlSurfaceExamples(PLOT_SPARKS_REPAIR_EXAMPLE)
+
+type PlotSparksXmlFrame = { tag: string; childIndex: number; sparkCount: number }
+const PLOT_SPARKS_XML_CHILDREN: Readonly<Record<string, readonly string[]>> = {
+  plot_sparks: ['id', 'lifecycle', 'spark'],
+  spark: ['key', 'vector', 'text', 'media'],
+  media: ['reverie-illustration'],
+  'reverie-illustration': ['visual_prompt'],
+}
+const PLOT_SPARKS_XML_CANONICAL_TAG: Readonly<Record<string, string>> = {
+  plot_sparks: 'Plot_Sparks', id: 'ID', lifecycle: 'Lifecycle', spark: 'Spark',
+  key: 'Key', vector: 'Vector', text: 'Text', media: 'Media',
+  'reverie-illustration': 'reverie-illustration', visual_prompt: 'visual_prompt',
+}
+
+function plotSparksXmlCanAccept(parent: PlotSparksXmlFrame, child: string): boolean {
+  if (parent.tag === 'plot_sparks') {
+    if (child === 'id') return parent.childIndex === -1
+    if (child === 'lifecycle') return parent.childIndex === 0
+    if (child === 'spark') return parent.childIndex >= 1
+  }
+  const children = PLOT_SPARKS_XML_CHILDREN[parent.tag] || []
+  const index = children.indexOf(child)
+  return index >= 0 && index === parent.childIndex + 1
+}
+
+function plotSparksXmlCanClose(frame: PlotSparksXmlFrame): boolean {
+  if (frame.tag === 'plot_sparks') return frame.childIndex === 2 && frame.sparkCount >= 7
+  if (frame.tag === 'spark') return frame.childIndex >= 2
+  if (frame.tag === 'media') return frame.childIndex === -1 || frame.childIndex === 0
+  if (frame.tag === 'reverie-illustration') return frame.childIndex === 0
+  return ['id', 'lifecycle', 'key', 'vector', 'text', 'visual_prompt'].includes(frame.tag)
+}
+
+function plotSparksXmlMediaIsCurrent(media: string): boolean {
+  const openings = [...media.matchAll(/<reverie-illustration\b([^>]*)>/gi)]
+  if (openings.length !== 1 || (media.match(/<\/reverie-illustration\s*>/gi) || []).length !== 1) return false
+  if (!/\brequest\s*=\s*(["'])generate\1/i.test(openings[0][1])) return false
+  const illustration = /<reverie-illustration\b[^>]*>([\s\S]*?)<\/reverie-illustration\s*>/i.exec(media)?.[1]
+  if (!illustration || (illustration.match(/<visual_prompt>/gi) || []).length !== 1 || (illustration.match(/<\/visual_prompt>/gi) || []).length !== 1) return false
+  return Boolean(/<visual_prompt>([\s\S]*?)<\/visual_prompt>/i.exec(illustration)?.[1].trim())
+}
+
+/**
+ * Model-authored XML occasionally omits a field/container closer in an otherwise
+ * canonical Plot Sparks board. Insert a closer only at an unambiguous schema
+ * boundary, then accept it only if the complete ten-key/vector/media contract
+ * validates. No opener, attribute, text, image request, or existing tag changes.
+ */
+export function normalizePlotSparksXmlClosingTags(markup: string): string {
+  const input = String(markup || '')
+  return input.replace(/<Plot_Sparks\b[^>]*>[\s\S]*?<\/Plot_Sparks\s*>/gi, original => {
+    if (parseSurfaceXml(original)) return original
+    const tokens = /<!--[\s\S]*?-->|<\/?[A-Za-z][\w:-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>/g
+    const stack: PlotSparksXmlFrame[] = []
+    let output = ''
+    let cursor = 0
+    let changed = false
+    let unsafe = false
+
+    for (const match of original.matchAll(tokens)) {
+      const index = match.index || 0
+      const token = match[0]
+      output += original.slice(cursor, index)
+      cursor = index + token.length
+      if (token.startsWith('<!--')) {
+        output += token
+        continue
+      }
+      const name = /^<\/?([A-Za-z][\w:-]*)/.exec(token)?.[1]?.toLocaleLowerCase()
+      if (!name) { unsafe = true; break }
+
+      if (token.startsWith('</')) {
+        const matchingIndex = stack.map(frame => frame.tag).lastIndexOf(name)
+        if (matchingIndex < 0) { unsafe = true; break }
+        while (stack.length - 1 > matchingIndex) {
+          const frame = stack.at(-1)!
+          if (!plotSparksXmlCanClose(frame)) { unsafe = true; break }
+          output += `</${PLOT_SPARKS_XML_CANONICAL_TAG[frame.tag]}>`
+          stack.pop()
+          changed = true
+        }
+        if (unsafe) break
+        const frame = stack.at(-1)!
+        if (!frame || frame.tag !== name || !plotSparksXmlCanClose(frame)) { unsafe = true; break }
+        output += token
+        stack.pop()
+        continue
+      }
+
+      if (/\/\s*>$/.test(token)) { unsafe = true; break }
+      if (!PLOT_SPARKS_XML_CANONICAL_TAG[name]) { unsafe = true; break }
+      if (!stack.length) {
+        if (name !== 'plot_sparks') { unsafe = true; break }
+        stack.push({ tag: name, childIndex: -1, sparkCount: 0 })
+        output += token
+        continue
+      }
+
+      let parent = stack.at(-1)!
+      while (!plotSparksXmlCanAccept(parent, name)) {
+        if (stack.length <= 1) { unsafe = true; break }
+        const frame = stack.at(-1)!
+        if (!plotSparksXmlCanClose(frame)) { unsafe = true; break }
+        output += `</${PLOT_SPARKS_XML_CANONICAL_TAG[frame.tag]}>`
+        stack.pop()
+        changed = true
+        parent = stack.at(-1)!
+      }
+      if (unsafe) break
+      const children = PLOT_SPARKS_XML_CHILDREN[parent.tag] || []
+      const childIndex = parent.tag === 'plot_sparks' ? (name === 'spark' ? 2 : children.indexOf(name)) : children.indexOf(name)
+      parent.childIndex = childIndex
+      if (parent.tag === 'plot_sparks' && name === 'spark') parent.sparkCount += 1
+      output += token
+      stack.push({ tag: name, childIndex: -1, sparkCount: 0 })
+    }
+
+    if (unsafe || stack.length || !changed) return original
+    output += original.slice(cursor)
+    if (!parseSurfaceXml(output) || plotSparksContractDiagnostic(output)) return original
+    const imageEnabled = /<reverie-illustration\b/i.test(output)
+    const sparkCount = [...output.matchAll(/<Spark\b/gi)].length
+    if (sparkCount === Object.keys(PLOT_SPARK_VECTOR_BY_KEY).length) {
+      if (!inspectStoryModelOutputContracts(output, { expectPlotSparks: true, plotSparksImagesEnabled: imageEnabled }).plotSparks.valid) return original
+    } else {
+      // Preserve the renderer's documented seven-Spark compatibility for saved
+      // boards; the new-output inspector intentionally requires ten.
+      const mediaBlocks = [...output.matchAll(/<Media\b[^>]*>([\s\S]*?)<\/Media\s*>/gi)]
+      if (imageEnabled && (mediaBlocks.length !== sparkCount || !mediaBlocks.every(match => plotSparksXmlMediaIsCurrent(match[1])))) return original
+      if (!imageEnabled && mediaBlocks.some(match => match[1].trim())) return original
+    }
+    return output
+  })
+}
 
 /** Observed live typo: Lifecycle's closer was another opener. Repair only that
  * exact header boundary, and only when the entire resulting board validates.

@@ -14,10 +14,13 @@ import { appendPhoneDraftToComposer, phoneContextDraft } from './phoneComposerDr
 import { createPhoneLoadRecovery } from './phoneLoadRecovery'
 import {applyPhonePreferences,normalizePhonePreferences} from './phonePreferences'
 import { phoneOperationId } from './phoneOperationId'
+import { mountPhoneHomeSwipe } from './phoneHomeSwipe'
+import {mountAmazonPhone,amazonNavigation} from './amazonPhoneControls'
+import type {AmazonPhoneView} from './amazonSurface'
 
 type SavedRecord = { entryId: string; ownerName: string; kind: string; app: string; title: string; body: string; storyTimeLabel?: string; imageUrl?: string }
 type CoreApp={id:string;label:string;icon:string}
-type CoreRecord={id:string;appId:string;messageId:string;swipeId:number;ownerName?:string;ownerId?:string;local?:boolean;title:string;media?:PhoneLocalAppMedia[]}
+type CoreRecord={id:string;appId:string;messageId:string;swipeId:number;ownerName?:string;ownerId?:string;local?:boolean;title:string;media?:PhoneLocalAppMedia[];renderFingerprint?:string}
 const CORE_APP_LABELS:Record<string,string>={'forum-thread':'Forum','email-thread':'Mail','imessage-chat':'iMessage','workspace-chat':'Workspace','livestream':'Twitch','dating-profile':'Tinder','public-bulletin':'News','case-file':'Case Files','relationship-map':'Relationships','instagram-dm':'Instagram DM','x-dm':'X Messages','discord-dm':'Discord DM','discord-server':'Discord','google-images':'Google Images','phone-gallery':'Gallery','tiktok-post':'TikTok','naver-article':'Naver','inline-chat':'Chat','smartphone':'SMS','instagram':'Instagram','twitter':'X','youtube-thumbnail':'YouTube','character-profile':'Cast','music-player':'Music','location-share':'Maps','voice-memo':'Voice Memos','notes-app':'Notes','market-listing':'Marketplace','property-listing':'Properties','codex-entry':'Reference','diary-app':'Diary','instagram-profile':'IG Profile','twitter-profile':'X Profile','instagram-stories':'IG Stories'}
 type PhoneProjection = { type: 'phone_state'; chatId: string; operationId: string; state: PhoneDeviceState; identities: PhoneIdentity[]; connections: Array<{ id: string; name: string; model: string }>; imageConnections?:Array<{id:string;name:string;model:string;isDefault?:boolean}>; saved: SavedRecord[]; apps?:CoreApp[];appRecords?:CoreRecord[]; incomingTransport?:'native'|'xml'; error?: string }
 const PHONE_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4M10 19h4"/></svg>'
@@ -68,7 +71,8 @@ button:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px s
 .glyph { width:54px;height:54px;border-radius:14px;display:grid;place-items:center;box-shadow:0 4px 10px #0003,inset 0 1px 0 #fff4;background:linear-gradient(145deg,#7e798b,#393442);color:white; }
 .glyph svg { width:34px;height:34px; } .app-messages .glyph { background:linear-gradient(160deg,#6bd878,#20a34b); } .app-contacts .glyph { background:linear-gradient(160deg,#c6b5a0,#8a7967); } .app-photos .glyph { background:#f9f6fb; } .app-saved .glyph { background:linear-gradient(160deg,#ead4aa,#aa8654); } .app-settings .glyph { background:linear-gradient(160deg,#b9bdc8,#5f6473); }
 .glyph .rr-surface-svg-icon{width:34px;height:34px;display:grid;place-items:center;line-height:0}.glyph .rr-surface-svg-icon>svg{display:block;width:100%;height:100%}
-.home-screen { padding-top:12px;background:radial-gradient(ellipse at 22% 26%,#df528740,transparent 60%),radial-gradient(ellipse at 95% 70%,#6454aa70,transparent 64%),linear-gradient(150deg,#312338,#13131f 75%); }
+.home-screen { touch-action:pan-y pinch-zoom;padding-top:12px;background:radial-gradient(ellipse at 22% 26%,#df528740,transparent 60%),radial-gradient(ellipse at 95% 70%,#6454aa70,transparent 64%),linear-gradient(150deg,#312338,#13131f 75%); }
+.home-screen .app-grid{user-select:none;-webkit-user-select:none}
 .home-date { text-align:center;font-size:14px;color:#f4e6f1;margin:8px 0 15px; }.home-head { border-bottom:0;background:#312338; }.home-head .icon:first-child { visibility:hidden; }.home-head strong { text-align:center;font-weight:600;font-size:18px; }.home-phone .owner { background:#312338;color:#dac7dc;font-size:11px; }
 .home-phone .top { background:#312338; }.home-phone .footer { background:#242037; }.phone-dock { display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:14px 16px 3px;background:#373044;border-top:1px solid #ffffff0d; }.phone-dock .app { min-height:77px; }.phone-dock .glyph { width:48px;height:48px;border-radius:13px; }
 .app-activity-thread{display:flex;flex-direction:column;gap:4px;min-height:0;overflow:auto;padding:8px 0 18px}.app-activity-source{display:block;width:100%;padding:11px 12px;border:1px solid #ffffff19;border-radius:14px;background:#1e1b27;color:#f4f1f7;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}.app-activity-source.self{margin-left:auto;max-width:88%;background:#233956;border-color:#385a7e}.app-activity-source small{display:block;margin-bottom:4px;color:#c9bfd1;font-size:11px}.app-activity-compose{display:flex;flex-direction:column;gap:8px;padding:10px 0 4px;border-top:1px solid #ffffff1d}.app-activity-compose textarea{min-height:48px;max-height:130px}.resize-menu{position:absolute;z-index:20;top:58px;left:50%;transform:translateX(-50%);width:min(286px,calc(100% - 26px));padding:12px;border:1px solid #765068;border-radius:16px;background:#17131dee;box-shadow:0 14px 38px #000b;backdrop-filter:blur(14px)}.resize-menu[hidden]{display:none}.resize-menu strong{display:block;margin-bottom:9px}.resize-presets{display:flex;gap:6px}.resize-presets button{flex:1;min-height:36px;padding:6px;border:1px solid #ffffff24;border-radius:10px;background:#282130;color:#f5e9f1;font-size:12px}.resize-menu label{margin:10px 0 4px}.resize-menu input[type=range]{width:100%;accent-color:#d76a97}
@@ -105,10 +109,14 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   let submittedDraft: { owner:string; peer:string; text:string } | null = null
   let requestedThread:{from:string;to:string;scope?:string}|null=null
   let coreAppId='';let coreRecordId='';let coreHtml='';let coreLoading=''
+  let storyMediaSignature=''
+  let coreAmazon:AmazonPhoneView|undefined,commercePending=''
+  const shoppingNavigation=new Map<string,ReturnType<typeof amazonNavigation>>()
   let localAppBrief='';let localCreating='';let localCreateOwner='';let localCreateApp=''
   const appImageRetryOperations=new Map<string,{key:string;recordId:string;appId:string}>(),appImageRetriesInFlight=new Set<string>()
   const appImageRetryKey=(recordId:string,mediaId:string)=>JSON.stringify([recordId,mediaId])
   let homePage=0
+  let unmountHomeSwipe: (() => void) | null = null
   let imagePromptDraft='';let imageCaption='';let imageFraming='auto';let imageConnection='';let imageSender='';let imageRecipient='';let imageMessageId='';let imageOperation=''
   let appDraft='';let appReplyActor='';let appPosting=''
   const appDrafts=new Map<string,Map<string,string>>()
@@ -126,6 +134,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   let connectionSaving='';let connectionFeedback=''
   let loadError=''
   let resizeMenuOpen=false,bubbleReturnPage='core-app',longPressTimer:number|null=null
+  let phoneLoadOperation='',sourceReloadQueued=false,sourceReloadTimer:number|null=null
   const PHONE_SCALE_KEY='reverie-phone-scale-v1'
   let phoneScale=1
   try{const stored=Number(window.localStorage.getItem(PHONE_SCALE_KEY));if(Number.isFinite(stored)&&stored>=.8&&stored<=1.2)phoneScale=stored}catch{}
@@ -133,11 +142,12 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   function setPhoneScale(value:number,save=true){phoneScale=Math.max(.8,Math.min(1.2,Math.round(value*100)/100));if(save)try{window.localStorage.setItem(PHONE_SCALE_KEY,String(phoneScale))}catch{};const hardware=overlayRoot?.querySelector<HTMLElement>('.hardware');if(hardware)applyPhoneScale(hardware);const slider=overlayRoot?.querySelector<HTMLInputElement>('.resize-menu input[type=range]');if(slider)slider.value=String(Math.round(phoneScale*100));const output=overlayRoot?.querySelector<HTMLOutputElement>('.resize-value');if(output)output.value=`${Math.round(phoneScale*100)}%`}
   function openResizeMenu(){resizeMenuOpen=true;render()}
   const loadRecovery=createPhoneLoadRecovery({
-    request:()=>send('load'),
-    exhausted:()=>{loadError='The phone connection did not respond. Retry when connected; your saved phones were not changed.';render()},
-    failed:cause=>{loadError=`Phone connection unavailable: ${cause instanceof Error?cause.message:String(cause)}`;render()},
+    request:()=>phoneLoadOperation=send('load'),
+    exhausted:()=>{sourceReloadQueued=false;loadError='The phone connection did not respond. Retry when connected; your saved phones were not changed.';render()},
+    failed:cause=>{sourceReloadQueued=false;loadError=`Phone connection unavailable: ${cause instanceof Error?cause.message:String(cause)}`;render()},
   })
   function loadPhone(){if(!enabled&&!settingsRoot)return;loadError='';loadRecovery.start()}
+  function refreshPhoneSources(){if(loadRecovery.owns(phoneLoadOperation)){sourceReloadQueued=true;return}loadPhone()}
   const launcher = ctx.ui.createFloatWidget({ width:52, height:52, chromeless:true, snapToEdge:true, tooltip:'Open Reverie Phone', initialPosition:{ x:Math.max(8, window.innerWidth - 70), y:Math.max(16, window.innerHeight - 180) } })
   launcher.root.setAttribute('data-reverie-phone-ui','launcher')
   let launcherVisible = true
@@ -150,7 +160,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     ctx.sendToBackend({ type:'reverie_phone_command', action, chatId, operationId, ...patch })
     return operationId
   }
-  function close() { loadRecovery.stop();if(longPressTimer!==null)window.clearTimeout(longPressTimer);longPressTimer=null;resizeMenuOpen=false;overlay?.destroy(); overlay = null; overlayRoot = null; if (viewportHandler) window.visualViewport?.removeEventListener('resize', viewportHandler); viewportHandler = null; launchButton.focus() }
+  function close() { loadRecovery.stop();sourceReloadQueued=false;if(sourceReloadTimer!==null)window.clearTimeout(sourceReloadTimer);sourceReloadTimer=null;unmountHomeSwipe?.();unmountHomeSwipe=null;if(longPressTimer!==null)window.clearTimeout(longPressTimer);longPressTimer=null;resizeMenuOpen=false;overlay?.destroy(); overlay = null; overlayRoot = null; if (viewportHandler) window.visualViewport?.removeEventListener('resize', viewportHandler); viewportHandler = null; launchButton.focus() }
   function useInStory(from?:string,to?:string) {
     if(!enabled||!data||ctx.getActiveChat().chatId!==chatId)return
     const context=phoneContextDraft(data.state,identities(),from,to)
@@ -164,6 +174,11 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
       overlay = ctx.ui.createFloatWidget({ fullscreen:true, chromeless:true, width:window.innerWidth, height:window.innerHeight })
       overlay.root.setAttribute('data-reverie-phone-ui','handset')
       overlayRoot = shadow(overlay.root)
+      unmountHomeSwipe = mountPhoneHomeSwipe(overlayRoot, direction => {
+        const pages = Number(overlayRoot?.querySelector<HTMLElement>('.home-screen')?.dataset.appPages) || 1
+        const next = Math.max(0, Math.min(pages - 1, homePage + direction))
+        if (page === 'home' && next !== homePage) { homePage = next; render() }
+      })
       viewportHandler = () => {
         const viewport = window.visualViewport
         if (overlayRoot && viewport) { const shade = overlayRoot.querySelector<HTMLElement>('.shade'); if (shade) { shade.style.height = `${viewport.height}px`; shade.style.transform = `translateY(${viewport.offsetTop}px)` } }
@@ -195,7 +210,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
   }
   function saved() { return (data?.saved || []).filter(record => data?.state.linkedOwners?.[record.ownerName] === owner || [currentOwner()?.name, ...(currentOwner()?.aliases||[])].some(name => name?.toLocaleLowerCase() === record.ownerName.toLocaleLowerCase())) }
   function selectThread(id: string) { peer = id; page = 'thread'; draft = ''; error = ''; render(); send('read', { from:owner, to:peer }) }
-  function openCoreRecord(record:CoreRecord,targetId=''){coreRecordId=record.id;coreHtml='';appTargetId=targetId;appTargets=[];send('read',{from:owner,recordId:record.id,appId:coreAppId,...(targetId?{targetId}:{})});coreLoading=send('app',{appId:coreAppId,recordId:record.id,from:owner,...(targetId?{targetId}:{})});appDraft='';error='';render()}
+  function openCoreRecord(record:CoreRecord,targetId='',refresh=false){if(coreRecordId!==record.id)storyMediaSignature='';coreRecordId=record.id;if(!refresh)coreHtml='';appTargetId=targetId;appTargets=[];if(!refresh)send('read',{from:owner,recordId:record.id,appId:coreAppId,...(targetId?{targetId}:{})});coreLoading=send('app',{appId:coreAppId,recordId:record.id,from:owner,...(targetId?{targetId}:{})});appDraft='';error='';render()}
   function appRecords(){return (data?.appRecords||[]).filter(record=>record.appId===coreAppId&&(record.ownerId?record.ownerId===owner:(!record.ownerName||[currentOwner()?.name,...(currentOwner()?.aliases||[])].some(name=>name?.toLocaleLowerCase()===record.ownerName?.toLocaleLowerCase())||data?.state.linkedOwners[record.ownerName]===owner)))}
   function openCoreApp(app:CoreApp){coreAppId=app.id;coreHtml='';coreRecordId='';coreLoading='';error='';page='core-app';const latest=appRecords().at(-1);if(latest)openCoreRecord(latest);else render()}
   function coreAppIcon(app:CoreApp,index:number){const button=btn('',()=>openCoreApp(app),'app');button.setAttribute('aria-label',`Open Core app ${app.label}`);const icon=node('span','glyph core-icon');icon.style.background=`linear-gradient(145deg,hsl(${(index*47+205)%360} 58% 49%),hsl(${(index*47+240)%360} 50% 27%))`;icon.innerHTML=surfaceIconMarkup('core',app.id)||APP_ICONS.apps;button.append(icon,node('span','app-label',CORE_APP_LABELS[app.id]||app.label));return button}
@@ -400,8 +415,9 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
         const app=btn('',()=>{page=id;error='';render()},`app app-${id}`);app.setAttribute('aria-label',label);const icon=node('span','glyph');icon.innerHTML=APP_ICONS[id];if(id==='messages')badge(icon,unread().filter(message=>message.to===owner).length);app.append(icon,node('span','',label));homeApps.push(app)
       }
       homeApps.push(...(data.apps||[]).map(coreAppIcon));const pages=Math.max(1,Math.ceil(homeApps.length/16));homePage=Math.min(homePage,pages-1);grid.append(...homeApps.slice(homePage*16,(homePage+1)*16))
+      screen.dataset.appPages=String(pages)
       screen.append(grid)
-      if(pages>1){const pager=node('nav','app-pages');pager.setAttribute('aria-label','Home app pages');const previous=btn('‹',()=>{homePage--;render()});previous.setAttribute('aria-label','Previous app page');previous.disabled=homePage===0;const next=btn('›',()=>{homePage++;render()});next.setAttribute('aria-label','Next app page');next.disabled=homePage===pages-1;pager.append(previous,node('span','',`${homePage+1} / ${pages}`),next);screen.append(pager)}
+      if(pages>1){const pager=node('nav','app-pages');pager.setAttribute('aria-label','Home app pages');const previous=btn('‹',()=>{homePage--;render()});previous.setAttribute('aria-label','Previous app page');previous.disabled=homePage===0;const next=btn('›',()=>{homePage++;render()});next.setAttribute('aria-label','Next app page');next.disabled=homePage===pages-1;const position=node('span','',`${homePage+1} / ${pages}`);position.setAttribute('aria-live','polite');position.setAttribute('aria-atomic','true');pager.append(previous,position,next);screen.append(pager)}
     } else if(page==='apps'){
       const grid=node('div','grid app-grid');grid.append(...(data.apps||[]).map(coreAppIcon));screen.append(grid)
     } else if(page==='core-app'){
@@ -421,7 +437,19 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
           for(const el of template.content.querySelectorAll('*'))for(const attr of [...el.attributes])if(/^on/i.test(attr.name)||(['href','src','action','formaction'].includes(attr.name)&&/^\s*(?:javascript|vbscript|file):/i.test(attr.value)))el.removeAttribute(attr.name)
           // Open only the outer chat launcher; inner app tabs/disclosures retain their state.
           template.content.querySelectorAll<HTMLDetailsElement>('details.dg-compact-launch-host,details.srv2-collapse').forEach(el=>{el.open=true})
+          // Tinder's story launcher introduces an auto-height details-content box.
+          // Flatten only that outer shell in this disposable phone DOM; keep its
+          // radio states, labels, media and nested app disclosures unchanged.
+          template.content.querySelectorAll<HTMLDetailsElement>('.rrt-root>details').forEach(el=>{
+            el.querySelector(':scope>summary')?.remove()
+            el.replaceWith(...Array.from(el.childNodes))
+          })
+          template.content.querySelector<HTMLElement>('.rrt-root')?.setAttribute('id','rp-phone-tinder')
           appRoot.append(template.content)
+          if(coreAppId==='amazon'&&coreAmazon){
+            const key=JSON.stringify([chatId,owner,coreRecordId]);if(!shoppingNavigation.has(key))shoppingNavigation.set(key,amazonNavigation())
+            mountAmazonPhone(appRoot,coreAmazon,data.state.commerce||[],owner,shoppingNavigation.get(key)!,Boolean(commercePending),data.state.commerceRequest?.ownerId===owner,patch=>{commercePending=send('commerce',{appId:'amazon',recordId:coreRecordId,from:owner,...patch});render()})
+          }
           const fit=node('style');fit.setAttribute('data-reverie-phone-app-presentation','');fit.textContent=PHONE_APP_PRESENTATION_CSS;appRoot.append(fit)
           appRoot.addEventListener('click',event=>{
             const retry=event.composedPath().find(target=>target instanceof window.HTMLElement&&target.matches('[data-phone-app-image-retry]')) as HTMLButtonElement|undefined
@@ -543,6 +571,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     stopNotification();knownDelivered=null
     settingsSaving='';settingsFeedback='';settingsEdit=0;savingEdit=0;connectionSaving='';connectionFeedback='';viewedThreadReplies.clear()
     chatId=next;data=null;owner='';peer='';page='home';draft='';sceneDraft=null;connectionDraft=null;incomingDraft=null;error='';submitting='';handingOff='';submittedDraft=null;requestedThread=null;selectedOperation='';coreAppId='';coreRecordId='';coreHtml='';coreLoading=''
+    coreAmazon=undefined;commercePending='';shoppingNavigation.clear()
     imagePromptDraft='';imageCaption='';imageMessageId='';imageOperation='';portraitActor='';portraitPrompt='';portraitConnection='';portraitOperation='';contactName='';contactDescription='';appDraft='';appPosting='';appDrafts.clear();appResponders.clear();appImageRetryOperations.clear();appImageRetriesInFlight.clear();appTargets=[];coreBubbles=[];selectedBubble=null;contextModeDraft=null;autoReplyDraft=null;loadError='';close();render();if(chatId)loadPhone()
   }
   const unsubscribe=ctx.onBackendMessage((raw:unknown)=>{
@@ -553,21 +582,48 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     }
     const message=raw as PhoneProjection
     if(message.chatId!==chatId)return
+    // Story image completion uses the ordinary Relay state channel. Refresh
+    // only the currently displayed source; opening/syncing never generates.
+    if((raw as any).type==='state'&&page==='core-app'&&overlayRoot){
+      const source=appRecords().find(record=>record.id===coreRecordId&&!record.local)
+      if(source&&Array.isArray((raw as any).records)){
+        const signature=JSON.stringify((raw as any).records.filter((record:any)=>record.messageId===source.messageId&&record.swipeId===source.swipeId).map((record:any)=>[record.key,record.status,record.imageUrl,record.imageId,record.pendingPlacement?.imageUrl]))
+        if(signature!==storyMediaSignature){storyMediaSignature=signature;refreshPhoneSources()}
+      }
+      return
+    }
     if((message as any).type==='phone_app'){
       const app=message as any
       if(app.operationId!==coreLoading||app.appId!==coreAppId||app.recordId!==coreRecordId)return
+      coreAmazon=app.amazon
       coreLoading='';coreHtml=app.html;appTargets=app.targets||[];coreBubbles=app.bubbles||[];appTargetId=app.targetId||'root';render()
     }else if(message.type==='phone_state'){
+      if(loadRecovery.owns(message.operationId)){
+        loadRecovery.stop()
+        // The backend coalesces overlapping reads. If a commit landed during
+        // that read, wait for it to finish before asking for the new source.
+        if(sourceReloadQueued){sourceReloadQueued=false;const sourceChat=chatId;sourceReloadTimer=window.setTimeout(()=>{sourceReloadTimer=null;if(!disposed&&chatId===sourceChat)loadPhone()},0)}
+      }
       if(data&&message.state.revision<data.state.revision)return
-      loadRecovery.stop();loadError=''
+      loadError=''
       if(message.operationId===connectionSaving){connectionSaving='';connectionFeedback=message.error?'Shared connection was not saved. Retry.':'Connection saved · shared across all chats.'}
       if(message.operationId===settingsSaving){settingsSaving='';settingsFeedback=message.error?'Settings were not saved. Retry after resolving the error.':settingsEdit===savingEdit?'Phone settings saved · applies to all chats.':'Earlier changes saved. New changes are not saved yet.'}
+      const previousRecords=appRecords(),previousRecord=previousRecords.find(record=>record.id===coreRecordId)
+      const followingLatest=!coreRecordId||previousRecords.at(-1)?.id===coreRecordId
       registerIncoming(message)
       data=message
+      if(message.operationId===commercePending){commercePending='';error=message.error||''}
       const retryImage=appImageRetryOperations.get(message.operationId)
       if(retryImage){appImageRetryOperations.delete(message.operationId);appImageRetriesInFlight.delete(retryImage.key);if(message.error)error=message.error;if(page==='core-app'&&coreRecordId===retryImage.recordId&&coreAppId===retryImage.appId){const refreshed=data.appRecords?.find(record=>record.id===retryImage.recordId);if(refreshed)openCoreRecord(refreshed)}}
       if(message.operationId===localCreating){const created=message.appRecords?.find(record=>record.id===`phone-app-${localCreating}`);localCreating='';error=message.error||'';if(created&&page==='app-setup'&&owner===localCreateOwner&&coreAppId===localCreateApp){page='core-app';localAppBrief='';openCoreRecord(created)}}
-      if(coreRecordId&&!(data.appRecords||[]).some(record=>record.id===coreRecordId)){coreHtml='';coreLoading='';coreRecordId='';if(page==='core-app')error='This source was edited or its swipe changed. Choose a current app record.'}
+      if(page==='core-app'&&!localCreating&&!appPosting){
+        const records=appRecords(),current=records.find(record=>record.id===coreRecordId)
+        // Follow new story content only while viewing the latest record. An
+        // explicitly chosen older record keeps its place in the app history.
+        const next=!current||followingLatest?records.at(-1):current
+        if(next&&(next.id!==coreRecordId||current?.renderFingerprint!==previousRecord?.renderFingerprint))openCoreRecord(next,appTargetId,true)
+        else if(!next){coreHtml='';coreLoading='';coreRecordId='';appTargets=[];coreBubbles=[]}
+      }else if(coreRecordId&&!(data.appRecords||[]).some(record=>record.id===coreRecordId)){coreHtml='';coreLoading='';coreRecordId=''}
       if(!identities().some(person=>person.id===owner))owner=identities().find(person=>person.kind==='persona')?.id||identities()[0]?.id||''
       if(requestedThread){
         const sender=resolvePhoneParticipant(requestedThread!.from,identities()),recipient=resolvePhoneParticipant(requestedThread!.to,identities())
@@ -584,7 +640,7 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
       if(message.operationId===selectedOperation){error=message.error||''; if(!error){if(sceneDraft===message.state.sharedScene)sceneDraft=null;if(connectionDraft===(message.state.connectionId||''))connectionDraft=null;if(contextModeDraft===message.state.contextMode)contextModeDraft=null;if(autoReplyDraft===message.state.autoReply)autoReplyDraft=null;if(JSON.stringify(incomingDraft)===JSON.stringify(message.state.incoming))incomingDraft=null} }
       if(message.operationId===handingOff){handingOff=''}
       render()
-    }else if((message as any).type==='phone_error'){if(message.operationId===connectionSaving){connectionSaving='';connectionFeedback='Shared connection was not saved. Retry.'}if(message.operationId===settingsSaving){settingsSaving='';settingsFeedback='Settings were not saved. Retry after resolving the error.'}const retryImage=appImageRetryOperations.get(message.operationId);if(retryImage){appImageRetryOperations.delete(message.operationId);appImageRetriesInFlight.delete(retryImage.key)}if(loadRecovery.owns(message.operationId)){loadRecovery.stop();loadError=message.error||'Phone load failed. Retry when connected.'}error=message.error||'Phone request failed.';submitting='';if(message.operationId===handingOff)handingOff='';if(message.operationId===imageOperation)imageOperation='';if(message.operationId===appPosting)appPosting='';if(message.operationId===coreLoading)coreLoading='';render()}
+    }else if((message as any).type==='phone_error'){if(message.operationId===commercePending)commercePending='';if(message.operationId===connectionSaving){connectionSaving='';connectionFeedback='Shared connection was not saved. Retry.'}if(message.operationId===settingsSaving){settingsSaving='';settingsFeedback='Settings were not saved. Retry after resolving the error.'}const retryImage=appImageRetryOperations.get(message.operationId);if(retryImage){appImageRetryOperations.delete(message.operationId);appImageRetriesInFlight.delete(retryImage.key)}if(loadRecovery.owns(message.operationId)){loadRecovery.stop();loadError=message.error||'Phone load failed. Retry when connected.'}error=message.error||'Phone request failed.';submitting='';if(message.operationId===handingOff)handingOff='';if(message.operationId===imageOperation)imageOperation='';if(message.operationId===appPosting)appPosting='';if(message.operationId===coreLoading)coreLoading='';render()}
   })
   const offSwitch=ctx.events.on('CHAT_SWITCHED',switchChat);const offChange=ctx.events.on('CHAT_CHANGED',switchChat)
   const onNotification=(event:Event)=>{
@@ -596,9 +652,11 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     event.preventDefault();event.stopPropagation();open({from:button.dataset.phoneFrom,to:button.dataset.phoneTo,scope:button.dataset.phoneScope||'invalid'})
   }
   document.addEventListener('click',onNotification,true)
-  const offEnded=ctx.events.on('GENERATION_ENDED',()=>loadPhone())
-  const offEdited=ctx.events.on('MESSAGE_EDITED',()=>loadPhone())
-  const offSwiped=ctx.events.on('MESSAGE_SWIPED',()=>loadPhone())
+  const offEnded=ctx.events.on('GENERATION_ENDED',refreshPhoneSources)
+  const offEdited=ctx.events.on('MESSAGE_EDITED',refreshPhoneSources)
+  const offSwiped=ctx.events.on('MESSAGE_SWIPED',refreshPhoneSources)
+  const offSent=ctx.events.on('MESSAGE_SENT',refreshPhoneSources)
+  const offDeleted=ctx.events.on('MESSAGE_DELETED',refreshPhoneSources)
   const recoverConnection=()=>{if(!disposed&&overlay&&document.visibilityState!=='hidden'){loadPhone();render()}}
   window.addEventListener('online',recoverConnection);document.addEventListener('visibilitychange',recoverConnection)
   render();if(chatId)loadPhone()
@@ -606,5 +664,5 @@ export function mountPhoneWidget(ctx: SpindleFrontendContext, options:{enabled?:
     setEnabled(value:boolean){if(value===enabled)return;enabled=value;stopNotification();knownDelivered=null;if(!enabled)close();render();if(enabled&&chatId)loadPhone()},
     mountSettings(root:HTMLElement){settingsRoot=shadow(root);render();if(chatId&&!data)loadPhone()},
     unmountSettings(){settingsRoot=null;if(!enabled)loadRecovery.stop()},
-    destroy(){disposed=true;stopNotification();close();settingsRoot=null;unsubscribe();offSwitch();offChange();offEnded();offEdited();offSwiped();document.removeEventListener('click',onNotification,true);window.removeEventListener('online',recoverConnection);document.removeEventListener('visibilitychange',recoverConnection);launcher.destroy()} }
+    destroy(){disposed=true;stopNotification();close();settingsRoot=null;unsubscribe();offSwitch();offChange();offEnded();offEdited();offSwiped();offSent();offDeleted();document.removeEventListener('click',onNotification,true);window.removeEventListener('online',recoverConnection);document.removeEventListener('visibilitychange',recoverConnection);launcher.destroy()} }
 }

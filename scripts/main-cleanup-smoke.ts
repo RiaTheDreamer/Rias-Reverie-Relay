@@ -9,7 +9,7 @@ import { bracketExampleFromXml } from '../src/bracketSurfaceAuthoring'
 function assert(value: unknown, reason: string): asserts value { if (!value) throw new Error(reason) }
 
 const definitions = [...shippedSurfaceDefinitions(1), ...r45SupplementalSurfaceDefinitions(1)]
-assert(definitions.length === 47, `expected 47 active Surface definitions, received ${definitions.length}`)
+assert(definitions.length === 48, `expected 48 active Surface definitions, received ${definitions.length}`)
 for (const definition of definitions) {
   assert(definition.promptModule.includes('FORMAT: compact-v1'), `${definition.baseSurfaceId}: compact model prompt marker is missing`)
   assert(definition.promptModule.includes(`ROOT: <${definition.canonicalOuterWrapper}>`), `${definition.baseSurfaceId}: active XML root is missing`)
@@ -52,4 +52,4 @@ assert(backend.includes("const COMPACT_SURFACE_PROMPT_MARKER = 'FORMAT: compact-
 const plotSparks = readFileSync('regex-packs/Narrative/Reverie-Plot-Sparks.json', 'utf8')
 assert(!plotSparks.includes('--lumiverse-primary:#8b5cf6') && plotSparks.includes('--ch-accent:var(--lumiverse-primary,#8b5cf6)'), 'Plot Sparks must inherit the host theme without overwriting it')
 
-console.log('main cleanup smoke passed: 46 XML prompts, theater labels, gaze rules, Lorebook navigation, and minimal permissions verified.')
+console.log('main cleanup smoke passed: 48 XML prompts, theater labels, gaze rules, Lorebook navigation, and minimal permissions verified.')

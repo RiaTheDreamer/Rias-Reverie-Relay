@@ -12,17 +12,9 @@ Presentation is global: choose Inline, Button, Sparkling Button, or Glass Button
 
 When Narrative Utilities and Character Phone are enabled, **Character Phone Apps** lets you select and order zero to eight default apps. Defaults occupy the earliest slots. The Story Model fills any remaining slots from the approved app catalog using story context. An empty selection is valid and lets the model choose all eight apps.
 
-## Event Constellations, Living Phones, and Story Reel
+## Reverie Phone
 
-Open **Reverie Relay → Story** to review the optional Story State tools. **Event Constellations** is off by default. When enabled, Relay can use the configured parser connection to analyze newly authored or edited chat messages; it does not rescan chats on open. Findings are proposals until reviewed, unless the separate high-confidence auto-confirm option is explicitly enabled. That option only accepts validated candidates at 95% confidence or higher.
-
-Confirmed events retain their exact source message and swipe. Changing or deleting a source does not erase confirmed canon: Relay flags it for review and excludes it from current prompt context until the source is active and reconciled. Switching swipes updates which source evidence is active. Manual backfill is available from the Story settings panel, supports cancellation, and can optionally inspect inactive swipes without adding them to active projections.
-
-The **Constellations** panel lets you review proposals, confirm or supersede events, mark non-canon history, merge duplicate events or actor identities, classify story actors, record each participant's knowledge and how it was acquired, resolve knowledge conflicts, link Event Echoes, and associate existing Relay Assets. A later article, social post, or phone message that repeats an established event can be reviewed as an Echo of that event instead of creating a duplicate Event Node. If the configured Sidecar omits an obvious Echo, Relay can offer a conservative fallback only when a unique active confirmed event matches named participants, event-specific terms, explicit repetition language, and a grounded media/communication action. It remains a proposal, never silently confirmed; ambiguous matches and generic messages fail closed. Unknown knowledge is not treated as proof that a character is unaware.
-
-**Reverie Phone** is an optional feature with its own **Phone** tab and settings. Its widget opens a phone alongside the story, even when no phone Surface has appeared in chat. Open Core apps, exchange messages, add supported comments, and send generated images. Configure the phone connection and incoming-message frequency in the Phone settings. The retired Character Phone Surface is no longer offered for new story output; saved records remain readable. **Inject character knowledge context** is an independent Story opt-in; the Story Reel itself is never injected.
-
-**Story Reel** is a presentation-only projection of confirmed events, with optional pinning, hiding, captions, chapter labels, linked images, and Echoes. It does not create a second event store. Proposed, non-canon, and inactive-swipe events are not Reel cards. Use the event title to jump back to its reviewed Constellation entry.
+Open **Reverie Relay → Phone** for phone settings and saved records. All 48 Core app Surfaces sync from saved story messages to their matching phone apps, preserving authored content, media and app interactions. Narrative Surfaces remain outside the phone. The experimental Story workspace is excluded from this public distribution; legacy phone records remain readable.
 
 ## Illustrations and media
 

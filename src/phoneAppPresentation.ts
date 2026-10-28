@@ -20,13 +20,29 @@ export const PHONE_APP_PRESENTATION_CSS=`
 /* Tinder's source is a responsive app, not another handset nested inside this one. */
 .rrt-root{display:flex!important;flex-direction:column!important;justify-content:stretch!important;width:100%!important;height:100%!important;min-height:0!important;overflow:hidden!important;background:#100e16!important;color:#f4f1f7!important}
 .rrt-phone{display:flex!important;flex:1 1 auto!important;flex-direction:column!important;width:100%!important;height:100%!important;max-height:100%!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:#100e16!important;color:#f4f1f7!important}
+.rrt-screen-shell{position:relative!important;display:flex!important;flex:1 1 auto!important;flex-direction:column!important;height:100%!important;min-height:0!important}
+.rrt-top{flex-shrink:0!important}
+.rrt-phone-island,.rrt-phone-status{display:none!important}
 .rrt-profiles{position:relative!important;display:block!important;flex:1 1 auto!important;height:auto!important;min-height:0!important;overflow:auto!important;padding:0 10px 8px!important;background:#100e16!important}
 .rrt-profile{inset:0 10px 8px!important;min-height:0!important}
-.rrt-card{display:flex!important;flex-direction:column!important;width:100%!important;height:100%!important;min-height:0!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
-.rrt-photo{flex:1 1 auto!important;width:100%!important;height:auto!important;min-height:120px!important;background:#24212c!important}
-.rrt-meta{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:34%!important;overflow:auto!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
+.rrt-card{display:flex!important;flex-direction:column!important;width:100%!important;height:calc(100% - 64px)!important;min-height:0!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
+.rrt-photo{flex:1 1 auto!important;width:100%!important;height:auto!important;min-height:0!important;background:#24212c!important}
+.rrt-meta{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:50%!important;padding:8px 12px!important;overflow:auto!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
+/* The handset root ID scopes these overrides and outranks legacy radio-ID geometry. */
+#rp-phone-tinder .rrt-match-copy h2{top:6%!important;font-size:clamp(22px,8cqi,38px)!important}
+#rp-phone-tinder .rrt-match-copy p{top:22%!important}
+#rp-phone-tinder .rrt-primary{bottom:70px!important}
+#rp-phone-tinder .rrt-secondary{bottom:12px!important}
+.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-photo,.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-user{top:35%!important;width:28%!important;height:auto!important;aspect-ratio:1!important}
+.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-photo{left:19%!important}
+.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-user{left:53%!important}
+#rp-phone-tinder .rrt-message-copy{padding:10px!important;overflow:auto!important}
+#rp-phone-tinder .rrt-message-box{position:relative!important;inset:auto!important;width:100%!important;min-width:0!important}
+#rp-phone-tinder .rrt-return-swipe{position:static!important;transform:none!important}
 .rrt-root .rrt-top,.rrt-root .rrt-top *{color-scheme:dark}
 @container(max-width:440px){
+ .bl-head,.bl-floor,.bl-room-copy dl{grid-template-columns:minmax(0,1fr)!important}
+ .bl-head,.bl-plan-card,.bl-room-copy{padding:10px!important}.bl-body{padding:0 8px 12px!important}
  .rrmail-layout,.rr23-notes-shell,.rr22-ws-shell,.rrdc-shell{grid-template-columns:minmax(0,1fr)!important}
  .rrmail-folders,.rr23-notes-side,.rr22-ws-side,.rrdc-servers,.rrdc-chans{max-width:100%!important;min-width:0!important}
  .rrmail-folders,.rr23-notes-side,.rr22-ws-side{max-height:150px;overflow:auto}
@@ -50,7 +66,7 @@ export function applyPhoneAppDarkTheme(root:ShadowRoot):void{
  const excluded=new Set(['IMG','SVG','VIDEO','PICTURE','CANVAS','IFRAME'])
  const control=root.querySelector<HTMLElement>('.rp-app-discussion')
  for(const element of Array.from(root.querySelectorAll<HTMLElement>('*'))){
-  if(excluded.has(element.tagName)||element.closest('.rp-app-discussion,.rp-phone-composer,.rp-phone-responder,.rp-phone-bubble,.rp-conversations,.rp-conversation-trigger'))continue
+  if(excluded.has(element.tagName)||element.closest('.rr-amazon[data-amz-brand-preserve="true"],.rp-app-discussion,.rp-phone-composer,.rp-phone-responder,.rp-phone-bubble,.rp-conversations,.rp-conversation-trigger'))continue
   const style=view.getComputedStyle(element),background=parse(style.backgroundColor),foreground=parse(style.color)
   const light=Boolean(background&&background.a>.08&&luminance(background)>.55)
   const parentLight=Boolean(element.parentElement?.closest('[data-reverie-phone-darkened="true"]'))

@@ -4,8 +4,10 @@
 import { PERSONA_WARDROBE_TEXT_ONLY_PROMPT } from './personaWardrobe'
 import { plotSparksUtilityPrompt } from './plotSparksUtility'
 import { xmlAuthoringInstructions } from './xmlSurfaceFormat'
+import { BUILDING_LAYOUT_TEXT_ONLY_CONTRACT } from './buildingLayoutContract'
 
 export const NARRATIVE_TEXT_ONLY_PROMPTS: Readonly<Record<string, string>> = {
+  'Building Layout': BUILDING_LAYOUT_TEXT_ONLY_CONTRACT,
   'Character Phone': `# Character Phone — text-only
 Create one story-linked phone snapshot for a character. Use only established facts and plausible off-screen activity; do not invent a major unseen event. Keep the fully namespaced XML element. Do not output renderer HTML or image requests.
 <character_phone>

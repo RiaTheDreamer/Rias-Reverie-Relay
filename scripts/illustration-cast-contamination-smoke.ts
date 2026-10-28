@@ -15,6 +15,16 @@ globalThis.spindle = {
   variables: { global: { async set() {} }, chat: { async set() {} } },
 }
 const backend = await import('../src/backend')
+const pronounSubjects = backend.relayPlannedSubjectStates({ continuityVault: emptyContinuityVault('unverified-each') }, 'unverified-each',
+  'Beside the table, they stood one pace apart. Each held one ceramic cup in their own right hand.', backend.defaultProseIllustratorSettings())
+assert.equal(pronounSubjects.find(subject => subject.name === 'Each')?.verifiedIdentity, false, 'capitalized Each from the live cup paragraph must remain explicitly unverified')
+const aliasVault = emptyContinuityVault('aliases')
+const nativeOwner = registerCanonicalCharacter(aliasVault, { canonicalCharacterId: 'native-owner', name: 'Han Yejin', lumiverseCharacterId: 'native-owner', sourceType: 'character-card' })
+const nativeIdentity = { id: nativeOwner.canonicalCharacterId, name: nativeOwner.canonicalCharacterName, aliases: [] }
+assert(backend.sceneVerifiedIdentityAliases(nativeIdentity, aliasVault, 'Yejin sits on the chair.').aliases.includes('Yejin'), 'a native card must retain appearance when the source uses its unambiguous short name')
+assert(!backend.sceneVerifiedIdentityAliases(nativeIdentity, aliasVault, 'Someone sits on the chair.').aliases.includes('Yejin'), 'an absent short name cannot be invented')
+aliasVault.characters['independent-owner'] = { ...nativeOwner, canonicalCharacterId: 'independent-owner', canonicalCharacterName: 'Yejin', lumiverseCharacterId: undefined, aliases: [], sourceType: 'manual' }
+assert(!backend.sceneVerifiedIdentityAliases(nativeIdentity, aliasVault, 'Yejin sits on the chair.').aliases.includes('Yejin'), 'an independent character with the same short name must prevent identity borrowing')
 const longSceneParagraph = `${'The archive room remains quiet. '.repeat(28)}Yejin laid the pencil aside and folded the sheet.`
 assert(backend.sanitizeRecentVisualContext(longSceneParagraph).length <= 703, 'history context remains bounded by default, plus its existing ellipsis')
 assert.doesNotMatch(backend.sanitizeRecentVisualContext(longSceneParagraph), /folded the sheet/, 'bounded history and full local source have deliberately different scopes')
@@ -38,6 +48,12 @@ assert.match(manualIdentity, /red hair.*blue eyes.*lean build/)
 assert.doesNotMatch(manualIdentity, /black hair/, 'selected memory must override its own card appearance domain')
 const config = await backend.setConfig({ parserConnectionId: null, includeLorebook: false, proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), enabled: true, mode: 'inline-protocol', perspectiveMode: 'storyboard' } }, 'cast-test')
 const base = { chatId: 'cast-chat', messageId: 'cast-message', swipeId: 0, requestId: 'cast-request', target: 'prose.illustration', slots: ['illustration'], count: 1, aspect: '4:3', cast: 'char+user', promptSource: 'visual_prompt', originalRequestXml: '', originalNegativePrompt: '', caption: '', alt: '' }
+for (const maximumCharacters of [1, 2, 8]) {
+  const runtime = backend.buildIllustratorRuntimeDirective({ ...config.proseIllustratorSettings, maximumCharacters }, [])
+  assert.match(runtime, new RegExp(`Model Planned cast guidance: aim for at most ${maximumCharacters} visible characters`))
+  assert.match(runtime, /preserve every necessary participant/, 'the actual Model Planned runtime must explain that cast guidance cannot remove actors')
+}
+assert.doesNotMatch(backend.buildIllustratorRuntimeDirective({ ...config.proseIllustratorSettings, mode: 'relay-planned' }, []), /Model Planned cast guidance/, 'Relay-Planned retains its separate bounded shot-selection contract')
 for (const format of ['natural-language', 'danbooru-tags']) {
   const viewConfig = await backend.setConfig({ proseIllustratorSettings: { ...backend.defaultProseIllustratorSettings(), enabled: true, mode: 'inline-protocol', perspectiveMode: 'storyboard', promptFormat: format } }, `view-${format}`)
   for (const planner of ['model', 'relay']) {
@@ -54,6 +70,40 @@ for (const format of ['natural-language', 'danbooru-tags']) {
   }
 }
 assert.equal(backend.normalizeProseIllustratorSettings({ promptRegistry: { 'story.framing.storyboard': 'Custom view instructions kept by the user.' } }).promptRegistry['story.framing.storyboard'], 'Custom view instructions kept by the user.', 'view guidance must not overwrite saved user overrides')
+for (const format of ['natural-language', 'danbooru-tags']) {
+  const user = `mixed-scene-${format}`
+  const settings = await backend.setConfig({ ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptFormat: format } }, user)
+  for (const planner of ['model', 'relay']) {
+    const imagePrompt = format === 'natural-language' ? '"Yejin sketches the floor plan at the table."' : '1girl, solo, Yejin sketches the floor plan, table, pencil'
+    const job = { ...base, cast: 'none', chatId: `${user}-${planner}`, originalSceneBrief: imagePrompt, authoritativeSourceParagraph: 'Yejin draws the floor plan at the table.', ...(planner === 'relay' ? { promptSource: 'structured', composedPositivePrompt: imagePrompt, prosePromptComposition: { namedSubjects: ['Yejin'], expectedPeopleCount: 1, perspectiveMode: 'storyboard', rawOutput: { plannerVersion: RELAY_PLANNED_V2 } } } : {}) }
+    const prepared = await backend.parseSlotPrompt(job, 'illustration', [], 0, settings, user, {})
+    assert.match(prepared.prompt, /Yejin sketches the floor plan/, `${planner}/${format}: the checked action must survive final normalization`)
+    const sent = backend.assemblePreparedProviderPrompts({ effectiveBaseTags: '', userPositivePromptPrefix: '', userNegativePromptPrefix: '' }, prepared)
+    assert.match(sent.prompt, /Yejin sketches the floor plan/, `${planner}/${format}: final provider assembly must not silently erase action evidence`)
+    assert.equal(prepared.parserUsed, false, 'equivalent visual evidence needs no extra model pass')
+  }
+}
+assert.equal(normalizeBooruTagPrompt('Yejin sketches paper, folding paper, lifting a cup'), 'Yejin sketches paper, folding paper, lifting a cup', 'image-only visual fragments remain usable without being rewritten into tags')
+assert.doesNotMatch(normalizeBooruTagPrompt('1girl, solo, pencil, return JSON, <draw>'), /JSON|<draw>/, 'non-visual control/markup snippets remain excluded')
+const quotedBound = await backend.parseSlotPrompt({ ...base, chatId: 'quoted-bound-scene', originalSceneBrief: '"Mira folds the paper while Cerys the Dreamer watches."', authoritativeSourceParagraph: 'Mira folds the paper while Cerys the Dreamer watches.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert.match(quotedBound.prompt, /Mira folds the paper/, 'identity supplementation must not make the quoted visual action disappear from the scene check')
+for (const format of ['natural-language', 'danbooru-tags']) {
+  const user = `reported-lift-${format}`
+  const settings = await backend.setConfig({ ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptFormat: format } }, user)
+  for (const planner of ['model', 'relay']) {
+    const source = 'His hand lifts, crossing the three feet of sterile air between them.'
+    const imagePrompt = format === 'natural-language' ? "Exactly one visible person: Mira. Mira's left hand reaches across the small gap between them." : '1girl, solo, her hand reaches across the small gap, indoors'
+    const job = { ...base, cast: 'none', chatId: `${user}-${planner}`, originalSceneBrief: imagePrompt, authoritativeSourceParagraph: source, ...(planner === 'relay' ? { promptSource: 'structured', composedPositivePrompt: imagePrompt, prosePromptComposition: { namedSubjects: ['Mira'], expectedPeopleCount: 1, perspectiveMode: 'storyboard', rawOutput: { plannerVersion: RELAY_PLANNED_V2 } } } : {}) }
+    const prepared = await backend.parseSlotPrompt(job, 'illustration', [], 0, settings, user, {})
+    assert.match(prepared.prompt, /hand reaches across/, `${planner}/${format}: actual horizontal movement survives final shaping`)
+    assert.equal(prepared.parserUsed, false)
+  }
+}
+const roleSource = 'The old man lifts his thermos in a small salute.'
+const rolePrepared = await backend.parseSlotPrompt({ ...base, cast: 'none', chatId: 'reported-incidental-role', originalSceneBrief: 'Exactly one visible person: Mira. Mira stands mid-step, body locked rigid, holding a script binder at chest height.', authoritativeSourceParagraph: roleSource, proseAnchor: { selectedExcerpt: roleSource } }, 'illustration', [], 0, config, 'cast-test', {})
+assert.match(rolePrepared.prompt, /body locked rigid/)
+assert.doesNotMatch(rolePrepared.prompt, /thermos|old man|salute/, 'an incidental actor/action must not be invented to satisfy proximity')
+assert(rolePrepared.promptPipeline.warnings.some(warning => warning.code === 'scene-action-scope-unproven'), 'uncertain proximity must remain visible, not become a claimed semantic pass')
 const npcScene = 'Exactly two visible people: Han Yejin and Song Arin; the server remains outside the frame. Wide view inside a café. Yejin holds the stuck door open with one hand. Arin lifts her handbag clear of the walkway.'
 const prepared = await backend.parseSlotPrompt({ ...base, originalSceneBrief: npcScene }, 'illustration', [], 0, config, 'cast-test', {})
 assert.doesNotMatch(prepared.prompt, /Mira|Cerys|Identity unresolved|red hair|red_hair/, 'explicit complete NPC cast must not acquire unrelated bound identities')
@@ -61,6 +111,43 @@ assert.equal(prepared.promptPipeline.characterContext, '')
 assert.equal(prepared.promptPipeline.personaContext, '')
 assert.match(prepared.prompt, /Yejin holds the stuck door/)
 assert.match(prepared.prompt, /Arin lifts her handbag/)
+for (const count of ['two visible adults', 'two visible people']) {
+  const headedScene = `Exactly ${count} in one continuous studio scene. Screen-left, Han Yejin: a woman in a yellow raincoat sits on a bench, both palms beside her hips. Screen-right, Kim Taehyun: a man in a navy hoodie stands holding a red cup in his right hand.`
+  const headed = await backend.parseSlotPrompt({ ...base, requestId: `headed-${count}`, originalSceneBrief: headedScene }, 'illustration', [], 0, config, 'cast-test', {})
+  assert.doesNotMatch(headed.prompt, /Mira|Cerys|red hair|red_hair/, 'complete counted owner headings must not acquire an unrelated active card despite cast=char')
+  assert.equal(headed.promptPipeline.characterContext, '')
+  assert.match(headed.prompt, /Han Yejin:.*both palms beside her hips/)
+  assert.match(headed.prompt, /Kim Taehyun:.*red cup in his right hand/)
+  assert.equal(headed.parserUsed, false, 'counted owner binding remains a local check')
+}
+const partialHeadings = await backend.parseSlotPrompt({ ...base, requestId: 'partial-headings', originalSceneBrief: 'Exactly two visible adults in a studio. Screen-left, Han Yejin: a woman seated on a bench. Mira stands beside her.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert(partialHeadings.promptPipeline.characterContext, 'partial owner headings cannot override the existing explicit cast binding')
+const colonHeadings = await backend.parseSlotPrompt({ ...base, requestId: 'colon-headings', originalSceneBrief: 'Exactly two adults visible. Screen-left: Han Yejin, a woman sitting on the bench with her hands beside her hips. Screen-right: Kim Taehyun, a man standing with an open folder in both hands.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert.equal(colonHeadings.promptPipeline.characterContext, '', 'the live colon-first owner heading spelling must also exclude the unrelated active character')
+assert.doesNotMatch(colonHeadings.prompt, /Mira|Cerys|red hair|red_hair/)
+const boundHeadings = await backend.parseSlotPrompt({ ...base, requestId: 'bound-headings', originalSceneBrief: 'Exactly two visible adults in a studio. Screen-left, Mira: a woman holding a cup. Screen-right, Cerys the Dreamer: a woman watching Mira.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert(boundHeadings.promptPipeline.characterContext, 'complete owner headings that include the bound character must retain her identity')
+const clothedOwnerBlocks = 'Center, Kim Taehyun: a man in a navy hoodie seated on a chair.\n\nDirectly behind the chair, Han Yejin: a woman in a yellow raincoat standing with her palms on the seated man\'s shoulders.\n\nScreen-right, Gabrielle: a man in a burgundy sweater standing apart with a red cup.'
+for (const [countText, ownerBlocks] of [
+  ['Exactly three visible adults.', clothedOwnerBlocks],
+  ['Exactly three fully clothed adults visible.', clothedOwnerBlocks.replace('Directly behind the chair,', 'Behind,')],
+  ['Exactly three fully clothed adults visible.', clothedOwnerBlocks],
+]) {
+  const completeClothed = await backend.parseSlotPrompt({ ...base, requestId: `clothed-complete-${countText}-${ownerBlocks.length}`, originalSceneBrief: `${countText}\n\n${ownerBlocks}` }, 'illustration', [], 0, config, 'cast-test', {})
+  assert.equal(completeClothed.promptPipeline.characterContext, '', 'the live clothed-count/depth-heading spellings must exclude the unrelated active card')
+  assert.equal(completeClothed.promptPipeline.personaContext, '')
+  assert.doesNotMatch(completeClothed.prompt, /subject Mira|red hair|lean_build/, 'a complete three-NPC scene cannot acquire the active speaker\'s traits')
+  assert.match(completeClothed.prompt, /Kim Taehyun:[\s\S]*Han Yejin:[\s\S]*Gabrielle:/, 'all authored owner blocks remain intact')
+  assert.equal(completeClothed.parserUsed, false, 'explicit owner recognition must not introduce a sidecar call')
+}
+for (const incompleteClothed of [
+  `Exactly four fully clothed adults visible.\n\n${clothedOwnerBlocks}`,
+  `Exactly three fully clothed adults visible.\n\n${clothedOwnerBlocks.replace('Gabrielle:', 'Han Yejin:')}`,
+  clothedOwnerBlocks,
+]) {
+  const incompleteClothedPrepared = await backend.parseSlotPrompt({ ...base, requestId: `clothed-incomplete-${incompleteClothed.length}`, originalSceneBrief: incompleteClothed }, 'illustration', [], 0, config, 'cast-test', {})
+  assert(incompleteClothedPrepared.promptPipeline.characterContext, 'mismatched, duplicate or uncounted extended headings cannot override the explicit cast binding')
+}
 const bound = await backend.parseSlotPrompt({ ...base, requestId: 'bound', originalSceneBrief: 'Exactly two visible people: Mira and Cerys the Dreamer; medium shot inside a café. Mira passes a cup to Cerys the Dreamer.' }, 'illustration', [], 0, config, 'cast-test', {})
 assert(bound.promptPipeline.characterContext, 'matching active identities must retain appearance context')
 assert.doesNotMatch(bound.prompt, /Identity unresolved|preserve the active Persona/, 'unresolved identity diagnostics must never be visual provider text')
@@ -100,9 +187,21 @@ const shortPreset = await backend.parseSlotPrompt({ ...base, requestId: 'short-p
 assert.deepEqual(shortPreset.promptPipeline.visualSubjectPrompts.map(subject => subject.name), ['Mira', 'Cerys the Dreamer'], 'two-person cast must not acquire an unverified short-name preset as a third actor')
 assert.doesNotMatch(shortPreset.prompt, /3people/, 'native discovery cannot exceed the declared scene capacity')
 assert.match(normalizeBooruTagPrompt('1girl, short_hair, holding, paper, a stray prose fragment'), /1girl, short_hair, holding, paper/)
-await assert.rejects(backend.parseSlotPrompt({ ...base, requestId: 'natural-over-limit', originalSceneBrief: 'Exactly three visible people: Mira, Cerys the Dreamer and Han Yejin; they examine the folder.' }, 'illustration', [], 0, config, 'cast-test', {}), /Maximum Characters in Image is 2.*3 visible people/)
+const authoredThreePeople = await backend.parseSlotPrompt({ ...base, requestId: 'natural-over-limit', originalSceneBrief: 'Exactly three visible people: Mira, Cerys the Dreamer and Han Yejin; they examine the folder.' }, 'illustration', [], 0, config, 'cast-test', {})
+assert.match(authoredThreePeople.prompt, /Mira.*Cerys the Dreamer.*Han Yejin/, 'Model Planned must preserve all three authored actors rather than delete one to meet planning guidance')
+assert.equal(authoredThreePeople.parserUsed, false, 'an over-guidance authored cast must not add a parser call')
+assert(authoredThreePeople.promptPipeline.warnings.some(warning => warning.code === 'model-placed-cast-exceeds-guidance'), 'authored cast guidance mismatch must remain visible in diagnostics without blocking generation')
 const tagConfig = await backend.setConfig({ ...config, proseIllustratorSettings: { ...config.proseIllustratorSettings, promptFormat: 'danbooru-tags', maximumCharacters: 2 } }, 'cast-test')
-await assert.rejects(backend.parseSlotPrompt({ ...base, chatId: 'fresh-tag-limit-chat', requestId: 'tag-over-limit', originalSceneBrief: 'medium_shot, 2girls, 1man, 1girl, short_hair, paper' }, 'illustration', [], 0, tagConfig, 'cast-test', {}), /Maximum Characters in Image is 2.*3 visible people/)
+const mixedOwnerTags = "wide_shot, 1boy, navy_hoodie, sitting, palms_on_own_thighs, 1girl, green_cardigan, standing_behind_chair, left_palm_on_seated_person's_left_shoulder"
+const correctedMixedOwners = await backend.parseSlotPrompt({ ...base, cast: 'none', chatId: 'mixed-owner-count', requestId: 'mixed-owner-count', originalSceneBrief: `2boys, ${mixedOwnerTags}` }, 'illustration', [], 0, tagConfig, 'cast-test', {})
+assert.doesNotMatch(correctedMixedOwners.prompt, /(?:^|, )2boys(?:,|$)/, 'actual Story Model prompt shaping must remove the contradictory aggregate count')
+assert.match(correctedMixedOwners.prompt, /1boy, navy_hoodie, sitting, palms_on_own_thighs, 1girl, green_cardigan, standing_behind_chair/)
+assert.equal(correctedMixedOwners.parserUsed, false, 'count correction must not add a model call')
+assert(!correctedMixedOwners.promptPipeline.warnings.some(warning => warning.code === 'model-placed-cast-exceeds-guidance'), 'two complete owners must not receive a false three-person warning')
+const authoredThreePeopleTags = await backend.parseSlotPrompt({ ...base, chatId: 'fresh-tag-limit-chat', requestId: 'tag-over-limit', originalSceneBrief: 'medium_shot, 2girls, 1boy, standing, examining, folder' }, 'illustration', [], 0, tagConfig, 'cast-test', {})
+assert.match(authoredThreePeopleTags.prompt, /2girls/)
+assert.match(authoredThreePeopleTags.prompt, /1boy/)
+assert(authoredThreePeopleTags.promptPipeline.warnings.some(warning => warning.code === 'model-placed-cast-exceeds-guidance'), 'Booru declared three-person cast must be accepted with a diagnostic warning, not silently clamped')
 const foldingSource = 'Yejin laid the pencil down beside the ruler. She folded the paper in half.'
 const foldedTags = await backend.parseSlotPrompt({ ...base, chatId: 'tag-fold-contract', requestId: 'fold-contract', cast: 'none', originalSceneBrief: '1girl, solo, folding, paper, pencil, ruler', authoritativeSourceParagraph: foldingSource }, 'illustration', [], 0, tagConfig, 'cast-test', {})
 assert.doesNotMatch(foldedTags.prompt, /(?:^|, )pencil(?:,|$)/, 'Model Planned final shaping must remove the explicitly idle tool tag')
@@ -140,11 +239,17 @@ const subject = registerCanonicalCharacter(vault, { name: 'Yejin', sourceType: '
 const current = addAppearanceFact(vault, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'eyes emitting a blue glow', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' })
 // Previously persisted malformed Sidecar facts must also be filtered on load.
 vault.currentAppearance['legacy-prop'] = { ...current, factId: 'legacy-prop', value: 'penlight emitting a narrow', category: 'other' }
+vault.currentAppearance['legacy-garment-prop'] = { ...current, factId: 'legacy-garment-prop', value: 'grey wool coat flattened against the table', category: 'other' }
 const normalized = normalizeContinuityVault(vault, vault.chatId)
 const projection = projectContinuityForGeneration(normalized, { chatId: vault.chatId, subjectNames: ['Yejin'], sceneBrief: 'Yejin holds a café door open with one hand.', strength: 'strong' })
 assert(!projection.included.some(fact => /penlight/.test(fact.value)), 'stale prop activity must not become persistent Appearance')
+assert(!projection.included.some(fact => /coat flattened/.test(fact.value)), 'a discarded garment must not return as its former wearer\'s current Appearance')
 assert(projection.included.some(fact => /eyes emitting a blue glow/.test(fact.value)), 'actual visual body traits must remain eligible')
 assert.throws(() => addAppearanceFact(normalized, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'lantern casting a beam', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' }), /could not be normalized/, 'new object activity must not enter Appearance state')
+assert.throws(() => addAppearanceFact(normalized, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'wet shirt folded on the chair', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' }), /could not be normalized/, 'even wet discarded clothing is a scene prop, not a worn temporary state')
+for (const value of ['coat draped over her shoulders', 'shirt flattened against her chest']) {
+  assert(addAppearanceFact(normalized, { characterId: subject.canonicalCharacterId, layer: 'current-appearance', category: 'temporary-clothing-state', value, sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' }), 'on-body clothing must remain eligible')
+}
 const arin = registerCanonicalCharacter(normalized, { name: 'Arin', sourceType: 'manual', userConfirmed: true })
 const other = registerCanonicalCharacter(normalized, { name: 'Clerk', sourceType: 'manual', userConfirmed: true })
 for (const character of [arin, other]) addAppearanceFact(normalized, { characterId: character.canonicalCharacterId, layer: 'current-appearance', category: 'other', value: 'cardigan cuffs pulled over her hands', sourceType: 'appearance-sidecar', semanticAuthority: 'appearance-sidecar' })

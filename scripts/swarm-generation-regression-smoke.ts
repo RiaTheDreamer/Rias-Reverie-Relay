@@ -26,6 +26,13 @@ let frontendMessageHandler: ((payload: any, userId?: string) => Promise<void>) |
 }
 
 const backend = await import('../src/backend')
+const nativeWarningPlan = {
+  settingsSource: 'current-native', nativeImageSettings: {
+    activeLoraPresetId: 'gpt-v4', loraPresets: [{ id: 'gpt-v4', loras: [{ lora_name: 'gpt.safetensors', weight_model: 1 }] }],
+  }, nativeActiveLoraPreset: null, effectiveLoras: [], lorasSentToProvider: [],
+}
+assert(!backend.nativeImagePlanWarnings(nativeWarningPlan).some(warning => warning.code === 'native-lora-preset-unresolved'), 'intentionally unused native preset is not an unresolved definition')
+assert(backend.nativeImagePlanWarnings({ ...nativeWarningPlan, nativeImageSettings: { activeLoraPresetId: 'missing' } }).some(warning => warning.code === 'native-lora-preset-unresolved'), 'missing preset definitions still warn')
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 const swarmPlan = { provider: 'swarmui' }
 const context = (generationId: string, extra: Record<string, unknown> = {}) => ({

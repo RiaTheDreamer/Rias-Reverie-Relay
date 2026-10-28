@@ -61,4 +61,4 @@ assert(state.localApps![1].media?.every(media=>media.image.status==='failed'),'A
 state.localApps![1].media![1].image={...state.localApps![1].media![1].image,status:'pending'}
 await service.handle({...command,action:'load',operationId:'local-app-orphan-recovery'});
 assert.equal(state.localApps![1].media![1].image.status,'failed','restart recovery resolves orphaned pending app image slots')
-console.log('Phone-local apps passed: all 46 XML shapes, schema image slots, bounded native ImageGen dispatch, exact-slot retry/owner checks, cancel and restart recovery, persisted app-owned media, no story side effects, malformed output and deduplication.')
+console.log('Phone-local apps passed: all 48 XML shapes, schema image slots, bounded native ImageGen dispatch, exact-slot retry/owner checks, cancel and restart recovery, persisted app-owned media, no story side effects, malformed output and deduplication.')

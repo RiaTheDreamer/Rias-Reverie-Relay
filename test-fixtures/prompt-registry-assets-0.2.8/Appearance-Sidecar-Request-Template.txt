@@ -1,0 +1,74 @@
+Scan visual continuity for this completed story response.
+
+FIRST-RESPONSE BASELINE AND NEW NAMES
+This Sidecar is scheduled on every completed assistant response, beginning with the first completed response in a new chat. Scan that response and supplied recent history for every newly introduced named Character or NPC with concrete appearance evidence. Return supported visual facts for new people even when they are not in the existing memory. For an NPC, set subject.trustworthy=true only when the source clearly identifies the person and supplies concrete appearance evidence or trustworthy structured context; do not wait for a second appearance. Names mentioned only as absent/off-screen do not make that person visible in this scene, though explicit stable appearance facts may still be retained. Never invent traits from a name.
+
+SETTINGS
+adultMode: {{adultMode}}
+providerVocabulary: {{providerVocabulary}}
+
+OUTPUT SCHEMA
+{
+  "subjects": [
+    {
+      "name": "Exact Subject Name",
+      "role": "character|user|npc|animal|other",
+      "trustworthy": false,
+
+      "canonical": {
+        "species": { "booruTags": [], "visualPhrases": [] },
+        "hair": { "booruTags": [], "visualPhrases": [] },
+        "eyes": { "booruTags": [], "visualPhrases": [] },
+        "skinFur": { "booruTags": [], "visualPhrases": [] },
+        "body": { "booruTags": [], "visualPhrases": [] },
+        "permanentTraits": { "booruTags": [], "visualPhrases": [] }
+      },
+
+      "current": {
+        "attire": { "booruTags": [], "visualPhrases": [] },
+        "hairstyle": { "booruTags": [], "visualPhrases": [] },
+        "temporaryTraits": { "booruTags": [], "visualPhrases": [] },
+        "injuries": { "booruTags": [], "visualPhrases": [] },
+        "intimateState": { "booruTags": [], "visualPhrases": [] }
+      },
+
+      "changedDomains": [],
+
+      "changes": [
+        {
+          "domain": "current.attire",
+          "scope": "canonical|current",
+          "provenance": "manual|card_explicit|previous_memory|narrative_explicit|inferred",
+          "reason": "short evidence-based reason"
+        }
+      ]
+    }
+  ],
+
+  "terminalVisualState": [
+    {
+      "name": "Exact Subject Name",
+      "activeCurrentDomains": {}
+    }
+  ]
+}
+
+MANUAL / PINNED APPEARANCE
+{{manualAppearanceJson}}
+
+EXISTING CANONICAL APPEARANCE
+{{canonicalAppearanceJson}}
+
+EXISTING CURRENT VISUAL STATE
+{{currentVisualStateJson}}
+
+KNOWN SUBJECT BINDINGS
+{{subjectBindingsJson}}
+
+CANONICAL TAG VOCABULARY / ALIASES
+{{tagVocabularyJson}}
+
+COMPLETED SOURCE RESPONSE
+{{sourceResponse}}
+
+Return JSON only.

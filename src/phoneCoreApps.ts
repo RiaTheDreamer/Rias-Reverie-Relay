@@ -9,8 +9,10 @@ import {xmlSurfaceExamples} from './xmlSurfaceFormat'
 import {contentFingerprint,type CustomSurfaceStudioState} from './contracts'
 import type {PhoneLocalAppMedia} from './phoneDevice'
 
-export const PHONE_CORE_APPS=[...new Map([...shippedSurfaceDefinitions(0),...r45SupplementalSurfaceDefinitions(0)].map(definition=>[definition.baseSurfaceId,{id:definition.baseSurfaceId,label:definition.displayName,root:definition.canonicalOuterWrapper,icon:definition.icon}])).values()]
-export type PhoneCoreRecord={id:string;appId:string;messageId:string;swipeId:number;markup:string;ownerName?:string;ownerId?:string;local?:boolean;title:string;media?:PhoneLocalAppMedia[]}
+// Everyday phone apps precede the full Surface library on the paginated home.
+const HOME_APP_ORDER=['instagram','instagram-dm','twitter','kakao','discord-dm','dating-profile','music-player','public-bulletin','notes-app','location-share']
+export const PHONE_CORE_APPS=[...new Map([...shippedSurfaceDefinitions(0),...r45SupplementalSurfaceDefinitions(0)].map(definition=>[definition.baseSurfaceId,{id:definition.baseSurfaceId,label:definition.displayName,root:definition.canonicalOuterWrapper,icon:definition.icon}])).values()].sort((a,b)=>(HOME_APP_ORDER.includes(a.id)?HOME_APP_ORDER.indexOf(a.id):HOME_APP_ORDER.length)-(HOME_APP_ORDER.includes(b.id)?HOME_APP_ORDER.indexOf(b.id):HOME_APP_ORDER.length))
+export type PhoneCoreRecord={id:string;appId:string;messageId:string;swipeId:number;markup:string;ownerName?:string;ownerId?:string;local?:boolean;title:string;media?:PhoneLocalAppMedia[];createdAt?:number}
 const PRIVATE_OWNER_APPS=new Set(['smartphone','notes-app','diary-app','phone-gallery'])
 const PHONE_SURFACE_SPECS=completeSurfaceSpecs(SHIPPED_SURFACE_SPECS)
 const PHONE_ROOT_MATCHERS=PHONE_CORE_APPS.map(app=>({app,matcher:new RegExp(`<${app.root}\\b[^>]*>[\\s\\S]*?<\\/${app.root}\\s*>`,'gi')}))

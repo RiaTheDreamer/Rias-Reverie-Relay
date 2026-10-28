@@ -23,8 +23,9 @@ assert(backend.includes('lane.drainWatchdog = setTimeout') && backend.includes("
 assert(backend.includes('late result discarded') && backend.includes('lease.release()'), 'late provider settlement does not explicitly release or reconcile the quarantined lane')
 assert(!backend.includes('relayDispatchQueues') && !backend.includes('enqueuedRelayJobs'), 'obsolete pre-provider dispatch queue remains')
 assert(backend.includes("markSlotStatus(stored, 'provider-waiting')"), 'provider-waiting slot lifecycle is missing')
-assert(backend.includes("const initialConcurrency = jobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit"), 'automatic illustrations must start in authored order')
-assert(backend.includes("const pendingConcurrency = pendingJobs.some(job => job.target === 'prose.illustration') ? 1 : config.queueConcurrencyLimit"), 'explicit pending illustrations must start in authored order')
+assert(backend.includes('await dispatchRelayBatch(jobs, {'), 'automatic discovery must use the independent preprocessing batch')
+assert(backend.includes('await dispatchRelayBatch(pendingJobs, {'), 'explicit pending work must use the same preprocessing batch')
+assert(backend.includes("const ordered = [...jobs.filter(job => job.target === 'prose.illustration'), ...jobs.filter(job => job.target !== 'prose.illustration')]") && backend.includes('imageDispatchAfter: previous') && backend.includes('await awaitImageDispatchOrder(options.imageDispatchAfter, options.signal)'), 'illustrations must reserve provider dispatch first while retaining bounded parallel preparation')
 assert(!frontend.includes('Generation stalled') && frontend.includes('const recoverable = canonicalFailure') && frontend.includes('const lifecycleRefreshTimer'), 'quiet provider work must retain canonical status and recover missed state broadcasts without a time-only failure judgment')
 
 assert(backend.includes('export function proseAnalysisText'), 'mixed prose/surface sanitizer is missing')

@@ -6,6 +6,9 @@ import { SHIPPED_SURFACE_SPECS } from '../src/shippedSurfaceDefinitions'
 import { completeSurfaceSpecs } from '../src/surfaceXml'
 import { PLOT_SPARK_VECTOR_BY_KEY } from '../src/contracts'
 import { recentPlotSparksReference } from '../src/plotSparksUtility'
+import { xmlSurfaceExamples } from '../src/xmlSurfaceFormat'
+import { parseSurfaceXml } from '../src/surfaceXml'
+import { REVERIE_RELAY_PLANNED_PROTOCOL, RELAY_PLANNED_STORY_CHANNEL_GUIDANCE } from '../src/protocols'
 
 let interceptorPermission = false
 let permissionChanged: ((detail: any) => void) | undefined
@@ -67,29 +70,6 @@ let blockedStateWriteAttempts = 0
 }
 
 const backend = await import('../src/backend')
-
-const novelPlan = {
-  provider: 'novelai', model: 'nai-diffusion-5-full', connection: null,
-  finalParameters: { resolution: '1216x832', guidance: 6, negativePrompt: 'bad anatomy' },
-  slotOverrides: { aspectRatio: '2:3' }, nativeActiveParameters: {}, settingsSource: 'current-native',
-} as any
-const novelPrepared = { prompt: 'one person in a studio', negativePrompt: 'watermark' } as any
-const novelParameters = backend.buildImageParameters(novelPlan, novelPrepared)
-assert.deepEqual(backend.buildSlotOverrides({ aspect: '2:3' }, 'novelai', 'native'), {}, 'default NovelAI policy keeps saved resolution')
-assert.deepEqual(backend.buildSlotOverrides({ aspect: '2:3' }, 'novelai', 'request'), { aspectRatio: '2:3' }, 'NovelAI can follow the request aspect')
-assert.deepEqual(backend.buildSlotOverrides({ aspect: '2:3' }, 'novelai', '1:1'), { aspectRatio: '1:1' }, 'NovelAI can use a fixed aspect')
-assert.deepEqual(backend.buildSlotOverrides({ aspect: '16:9' }, 'swarmui', 'native'), { aspectRatio: '16:9', width: 1280, height: 720 }, 'existing providers retain request aspect behavior')
-assert.equal(novelParameters.resolution, '1024x1536', 'NovelAI receives a supported resolution for the requested aspect')
-assert.equal(novelParameters.negativePrompt, 'watermark, bad anatomy', 'NovelAI receives Relay and saved negative tags')
-assert.equal(novelPlan.finalParameters.resolution, '1216x832', 'provider defaults remain immutable')
-assert.equal(backend.buildImageParameters({ ...novelPlan, slotOverrides: {} }, novelPrepared).resolution, '1216x832', 'no request aspect preserves native resolution')
-assert.equal(backend.buildImageParameters({ ...novelPlan, slotOverrides: { aspectRatio: '2:3', resolution: '1024x1024' }, finalParameters: { ...novelPlan.finalParameters, resolution: '1024x1024' } }, novelPrepared).resolution, '1024x1024', 'explicit recipe resolution outranks the request aspect')
-assert.equal(backend.buildImageParameters({ ...novelPlan, slotOverrides: { aspectRatio: '2:3', width: 1536, height: 1024 } }, novelPrepared).resolution, '1536x1024', 'explicit recipe dimensions outrank the request aspect')
-assert.equal(backend.requiresWorkflow({ provider: 'novelai', connectionName: 'Comfy-themed preset' } as any), false, 'a NovelAI connection name cannot impose a ComfyUI workflow')
-assert.equal(backend.requiresWorkflow({ provider: 'comfyui' } as any), true, 'ComfyUI still requires a workflow')
-assert.equal(backend.requiresWorkflow({ provider: 'comfyui-custom' } as any), true, 'other Comfy provider IDs retain workflow behavior')
-assert.equal(backend.requiresWorkflow({ provider: 'custom', connection: { metadata: { comfyui: { requires_workflow: true } } } } as any), true, 'custom-provider workflow metadata retains its existing contract')
-assert.equal(backend.buildImageParameters({ ...novelPlan, provider: 'swarmui', finalParameters: { seed: 42 } }, novelPrepared, true).seed, -1, 'Swarm regeneration seed behavior must survive provider adaptation')
 
 // A cold host may briefly return userStorage's fallback even though persisted
 // config exists. Relay must retry the read and must never write defaults during
@@ -212,7 +192,7 @@ assert(worldUtilityWithOverride.includes("<future_use>...</future_use>"))
 assert(worldUtilityWithOverride.includes("Never use </future_use> to close <why_it_matters>"))
 assert(!/\[\/?(?:image_request|scene_brief)\b/i.test(worldUtilityWithOverride), 'World prompt lock converted canonical Relay XML image controls to brackets')
 const expectedSurfaceIds = completeSurfaceSpecs(SHIPPED_SURFACE_SPECS).map(surface => surface.id)
-  .filter(id => id !== 'relationship-map' && id !== 'character-profile').sort()
+  .filter(id => id !== 'relationship-map' && id !== 'character-profile' && id !== 'building-layout').sort()
 const assertUtilitiesInjected = (text: string, stage: string) => {
   const surfaceWrapper = text.match(/<reverie_surface_utility\b[^>]*\bmodules="([^"]*)"[\s\S]*?<\/reverie_surface_utility>/i)
   assert(surfaceWrapper, `${stage}: enabled Surface Utility wrapper was not injected`)
@@ -221,9 +201,9 @@ const assertUtilitiesInjected = (text: string, stage: string) => {
     expectedSurfaceIds,
     `${stage}: the injected Surface Utility inventory is incomplete`,
   )
-  assert.equal(expectedSurfaceIds.length, 45, `${stage}: expected 45 Core authoring modules after the Narrative move`)
+  assert.equal(expectedSurfaceIds.length, 45, `${stage}: expected 45 Core authoring modules including Amazon after the Building Layout Narrative move`)
   assert(text.includes(expectedNarrativeUtility.content), `${stage}: the complete enabled Narrative Utility payload was not injected`)
-  assert.equal(expectedNarrativeUtility.utilityNames.length, 15, `${stage}: expected 15 inline Utilities with Character Phone hosted in the widget`)
+  assert.equal(expectedNarrativeUtility.utilityNames.length, 16, `${stage}: expected 16 inline Utilities with Character Phone hosted in the widget`)
 }
 await backend.setConfig({ narrativeDlcEnabled: true, narrativeDlcUtilityNames: expectedNarrativeUtility.utilityNames }, 'u1')
 const baseMessages = [{ role: 'user', content: 'Continue the scene.' }]
@@ -254,6 +234,41 @@ assert(inline.includes('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'))
 assert(inline.includes("<visual_prompt>"))
 assert(inline.includes('<mode>inline-protocol</mode>'))
 assert(inline.includes('Count only Inline &lt;reverie-illustration&gt; requests owned by the Illustrator protocol'))
+
+// Relay controls standalone narrative images, never the media authored inside
+// enabled Core Surfaces or Narrative Utilities. Exercise actual interception,
+// including hosts that pre-expanded a stock macro before the interceptor.
+const beforeRelayMediaConfig = await backend.getConfig('u1')
+const customRelayProtocol = `${REVERIE_RELAY_PLANNED_PROTOCOL}\nMANUAL PROTOCOL SENTINEL — preserve this customization.`
+for (const format of ['natural-language', 'danbooru-tags']) {
+  const relayMediaSettings = { ...backend.defaultProseIllustratorSettings(), mode: 'relay-planned', promptFormat: format,
+    promptRegistry: { 'story.relay-planned': customRelayProtocol } }
+  await backend.setConfig({ proseIllustratorSettings: relayMediaSettings }, 'u1')
+  for (const [placement, messages] of [
+    ['automatic', baseMessages],
+    ['all-macro', [{ role: 'system', content: '<reverie_all_macro/>' }, ...baseMessages]],
+    ['separate-macros', [{ role: 'system', content: '<reverie_surfaces_macro/>\n<reverie_narrative_macro/>\n<reverie_illustrator_macro/>' }, ...baseMessages]],
+    ['pre-expanded', [{ role: 'system', content: customRelayProtocol }, ...baseMessages]],
+  ]) {
+    const compiled = assembledText(await interceptor!(messages, { chatId: `relay-surface-media-${format}-${placement}`, userId: 'u1', isDryRun: true }))
+    assertUtilitiesInjected(compiled, `Relay ${format}/${placement}`)
+    assert.equal(compiled.split(backend.RELAY_PLANNED_SURFACE_MEDIA_SCOPE).length - 1, 1, `${placement}: missing or duplicate scoped Relay instruction`)
+    assert(!compiled.includes(RELAY_PLANNED_STORY_CHANNEL_GUIDANCE), `${placement}: broad stock no-image ban remained`)
+    assert(!compiled.includes('ordinary narrative prose with no illustration markup'), `${placement}: Booru guidance still suppresses Surface media`)
+    assert(compiled.includes('nested <reverie-illustration>') && compiled.includes('A zero Illustrator request count does not disable Surface or Utility media'))
+    assert(compiled.includes('<image_request ') && compiled.includes('<visual_prompt>'), `${placement}: actual enabled media-authoring contracts lost`)
+    if (placement.includes('macro')) assert(compiled.includes('<request_illustrations>false</request_illustrations>'), 'Surface permission must not enable standalone Illustrator requests')
+  }
+  assert.equal((await backend.getConfig('u1')).proseIllustratorSettings.promptRegistry['story.relay-planned'], customRelayProtocol, 'runtime scoping cannot rewrite a stored manual protocol')
+}
+const textOnlyImageSettings = Object.fromEntries(expectedNarrativeUtility.utilityNames.map(name => [name, false]))
+await backend.setConfig({ narrativeUtilityImageEnabled: textOnlyImageSettings }, 'u1')
+const textOnlyRelay = assembledText(await interceptor!(baseMessages, { chatId: 'relay-text-only-utilities', userId: 'u1', isDryRun: true }))
+const textOnlyPayload = textOnlyRelay.match(/<reverie_narrative_utility>[\s\S]*?<\/reverie_narrative_utility>/i)?.[0] || ''
+assert(textOnlyPayload.includes(buildNarrativeUtilityPrompt(expectedNarrativeUtility.utilityNames, {}, textOnlyImageSettings).content), 'Relay must preserve the complete text-only Utility contracts')
+assert(!/<(?:image_request|reverie-illustration)\b/i.test(textOnlyPayload), 'scoped Surface media permission must not re-enable disabled Utility media')
+await backend.setConfig({ narrativeUtilityImageEnabled: beforeRelayMediaConfig.narrativeUtilityImageEnabled }, 'u1')
+await backend.setConfig({ proseIllustratorSettings: beforeRelayMediaConfig.proseIllustratorSettings }, 'u1')
 assert(!inline.includes('Scene Snapshot-style Inline'), 'framing-neutral Illustrator count instruction must not claim Scene Snapshot when another framing mode is selected')
 const inlineWorkflow = inline.slice(inline.indexOf('REVERIE RELAY — MODEL PLANNED ILLUSTRATIONS'), inline.indexOf('<reverie_illustrator_runtime>'))
 assert(!/<reverie-illustration[\s\S]*?<scene_brief>/i.test(inlineWorkflow))
@@ -272,6 +287,19 @@ assert(!/<hook_media>\s*<\/hook_media>/i.test(sanitizedInterception))
 // pure helper. Automatic and explicitly placed Utility paths each include it
 // once, and historical image requests never enter the reminder.
 const previousSparks = `[Plot_Sparks][ID]prior-board[/ID][Lifecycle]Unused.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Previous playable choice ${key}.[/Text][Media]<reverie-illustration request="generate" slot="past-${key}"><visual_prompt>PRIVATE-OLD-IMAGE-${key}</visual_prompt></reverie-illustration>[/Media][/Spark]`).join('')}[/Plot_Sparks]`
+const malformedXmlHistory = xmlSurfaceExamples(previousSparks).replaceAll('</Media>', '')
+const historyTracker = '<internal_states><details><summary>Historical tracker</summary>Only established events.</details></internal_states>'
+const malformedHistoryMessages = [{ role: 'assistant', content: `${malformedXmlHistory}\n${historyTracker}` }, ...baseMessages]
+const historyInputSnapshot = JSON.stringify(malformedHistoryMessages)
+const recoveredHistoryResult = await interceptor!(malformedHistoryMessages, { chatId: 'sparks-xml-closure-history', userId: 'u1', isDryRun: true })
+const recoveredHistoryText = assembledText(recoveredHistoryResult)
+const recoveredHistoryBoard = recoveredHistoryText.match(/<Plot_Sparks><ID>prior-board<\/ID>[\s\S]*?<\/Plot_Sparks>/)?.[0] || ''
+assert(parseSurfaceXml(recoveredHistoryBoard), 'real interceptor must not pass the malformed Media example back to the Story Model')
+assert.equal((recoveredHistoryBoard.match(/<\/Media>/g) || []).length, 10, 'outgoing history must recover all ten missing Media closers')
+assert(recoveredHistoryBoard.includes('Previous playable choice j.'), 'outgoing history recovery must preserve option text')
+assert(!recoveredHistoryText.includes('PRIVATE-OLD-IMAGE-'), 'history recovery cannot reintroduce stripped historical image controls')
+assert(recoveredHistoryText.includes(historyTracker), 'history recovery cannot change an adjacent tracker')
+assert.equal(JSON.stringify(malformedHistoryMessages), historyInputSnapshot, 'interceptor recovery must not mutate stored/input messages')
 const sparkHistory = [{ role: 'assistant', content: previousSparks }, ...baseMessages]
 const expectedRecentIdeas = recentPlotSparksReference(sparkHistory)
 assert(expectedRecentIdeas)

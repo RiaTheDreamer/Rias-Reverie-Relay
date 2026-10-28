@@ -3,6 +3,8 @@ import {r45SupplementalSurfaceDefinitions} from './r45SurfaceCatalog'
 import {parseSurfaceXml,xmlText} from './surfaceXml'
 import type {PhoneIdentity,PhoneLocalApp} from './phoneDevice'
 import {parseImageRequests} from './contracts'
+import {parseAmazon} from './amazon-contract.mjs'
+import {AMAZON_UTILITY} from './amazonDefinition'
 
 export const MAX_PHONE_LOCAL_APP_IMAGES=12
 function localImageRequests(markup:string){
@@ -25,6 +27,8 @@ export function phoneLocalAppPrompt(appId:string,owner:PhoneIdentity,identities:
   if(!definition)throw new Error('Choose an installed Core app.')
   const shape=definition.sampleXml.replace(/<img\b[^>]*>/gi,'')
   const hasMedia=/<image_request\b/i.test(shape)
+  if(appId==='amazon')return [{role:'system' as const,content:`Prepare one phone-local Amazon catalog for ${owner.name}. This is a fictional phone app, not a new main-story turn. Return only its complete XML. Ground it in the supplied RP and owner knowledge; example identities and products are placeholders, not story facts. Preserve each defined <image_request> media slot and fill it with a scene-relevant visual description; product media is generated after saving. No prose outside XML, code fences, HTML images or executable markup. Do not simulate a reply to a message the user has not sent. ${AMAZON_UTILITY}\nSCHEMA SHAPE:\n${shape}`},
+    {role:'user' as const,content:JSON.stringify({owner:{id:owner.id,name:owner.name,description:owner.description},participants:identities.map(({id,name,kind})=>({id,name,kind})),setup:brief,rp:rp.slice(0,14000)})}]
   return [{role:'system' as const,content:`Prepare one phone-local ${definition.displayName} app record for ${owner.name}. This is a fictional phone app, not a new main-story turn. Return only one complete <${definition.canonicalOuterWrapper}> XML document. Use the semantic structure below; example names and content are schema placeholders, never RP facts. Ground the app in the supplied RP and user's setup. Keep private content within this owner's knowledge. Use registered participants where applicable. No prose outside XML, code fences, HTML images or executable markup. ${hasMedia?'Preserve each defined <image_request> media slot and fill it with a scene-relevant visual description; requests are generated through native ImageGen after this record is saved. Do not place image markup in the authored XML.':'This app schema has no authored media slot; media can still be sent separately through the phone.'} Do not simulate a reply to a message the user has not sent. Keep content brief.\nSCHEMA SHAPE:\n${shape}`},
     {role:'user' as const,content:JSON.stringify({owner:{id:owner.id,name:owner.name,description:owner.description},participants:identities.map(({id,name,kind})=>({id,name,kind})),setup:brief,rp:rp.slice(0,14000)})}]
 }
@@ -38,6 +42,7 @@ export function validatePhoneLocalApp(source:string,appId:string):string{
   if(rawImageRequests.length&&!/<image_request\b/i.test(definition.sampleXml)||imageRequests.length>MAX_PHONE_LOCAL_APP_IMAGES)throw new Error('The app setup returned an unsupported image request. Nothing was saved; retry with valid unique XML media slots.')
   phoneLocalAppImageRequests(markup)
   if(!parsed||parsed.tag!==definition.canonicalOuterWrapper||!hasContent||/<\/?(?:script|style|iframe|object|embed|link|img|reverie-phone)\b|\son(?!line\b)\w+\s*=|(?:javascript|vbscript|file):/i.test(markup))throw new Error('The app setup returned malformed or unsupported content. Nothing was saved; refine the setup and retry.')
+  if(appId==='amazon')try{parseAmazon(markup)}catch(error){throw new Error(`${error instanceof Error?error.message:String(error)} Nothing was saved; no image was dispatched.`)}
   return markup
 }
 export function phoneLocalAppImageRequests(markup:string){
@@ -51,5 +56,5 @@ export function phoneLocalAppImageRequests(markup:string){
 }
 export function phoneLocalAppRecord(record:PhoneLocalApp,owner:PhoneIdentity){
   if(record.ownerId!==owner.id)throw new Error('This phone-local app belongs to another owner.')
-  return {id:record.id,appId:record.appId,messageId:record.id,swipeId:0,markup:record.markup,ownerName:owner.name,ownerId:owner.id,title:record.title,local:true as const,media:record.media||[]}
+  return {id:record.id,appId:record.appId,messageId:record.id,swipeId:0,markup:record.markup,ownerName:owner.name,ownerId:owner.id,title:record.title,local:true as const,media:record.media||[],createdAt:record.createdAt}
 }

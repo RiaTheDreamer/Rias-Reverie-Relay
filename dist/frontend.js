@@ -1,3 +1,50 @@
+// src/portraitInsightFrontend.ts
+async function readPortraitAvatar(url, fetcher = fetch) {
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.origin !== window.location.origin || !/^\/api\/(?:v1\/)?images\//.test(parsed.pathname))
+      return null;
+    const abort = new AbortController, timer = setTimeout(() => abort.abort(), 4000);
+    try {
+      const response = await fetcher(parsed.href, { credentials: "same-origin", redirect: "error", signal: abort.signal });
+      const mime = (response.headers.get("content-type") || "").split(";")[0].toLowerCase();
+      if (!response.ok || !["image/png", "image/jpeg", "image/webp"].includes(mime))
+        return null;
+      if (Number(response.headers.get("content-length")) > 4500000)
+        return null;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (bytes.length > 4500000)
+        return null;
+      let binary = "";
+      for (let i = 0;i < bytes.length; i += 8192)
+        binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      return { data: btoa(binary), mime };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
+// src/orbAppearance.ts
+var ORB_MIN_SIZE = 32;
+var ORB_MAX_SIZE = 96;
+function normalizeOrbSizePx(value, legacySize = "medium") {
+  const fallback = legacySize === "small" ? 44 : legacySize === "large" ? 62 : 52;
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(ORB_MIN_SIZE, Math.min(ORB_MAX_SIZE, Math.round(value))) : fallback;
+}
+var ORB_STAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>';
+
+// src/appearanceUpdateSchedule.ts
+var MAX_APPEARANCE_UPDATE_INTERVAL = 1000;
+function normalizeAppearanceUpdateInterval(value) {
+  if (value === null || value === undefined || value === "")
+    return 1;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(MAX_APPEARANCE_UPDATE_INTERVAL, Math.trunc(parsed))) : 1;
+}
+
 // src/phoneMedia.ts
 var PHONE_FRAMING = [
   { id: "auto", label: "As described" },
@@ -49,6 +96,101 @@ function normalizePhoneIncoming(value) {
   return { frequency: row.frequency, everyN: row.everyN, maxNotifications: row.maxNotifications };
 }
 
+// src/amazon-contract.mjs
+var MAX_CHARS = 24000;
+var TEXT = "(?:[^<>&]|&(?:amp|lt|gt|quot|apos|#\\d+|#x[\\da-fA-F]+);)*";
+var ATTRIBUTE = '(?:[^<>&"]|&(?:amp|lt|gt|quot|apos|#\\d+|#x[\\da-fA-F]+);)*';
+var SLUG = "[a-z0-9][a-z0-9-]{0,95}";
+var field = (tag, pattern = TEXT, capture = false) => `<${tag}>${capture ? "(" : "(?:"}${pattern})</${tag}>\\s*`;
+var PRODUCT_FIELDS = ["amz_product_id", "amz_title", "amz_brand", "amz_category", "amz_amount", "amz_rating", "amz_reviews", "amz_availability", "amz_delivery", "amz_description", "amz_specs", "amz_seller"];
+var ORDER_FIELDS = ["amz_order_id", "amz_order_summary", "amz_order_status", "amz_order_delivery"];
+var brief = `<scene_brief>${TEXT}</scene_brief>`;
+var request = `<image_request\\s+id="${SLUG}"\\s+target="custom\\.artifact-media"\\s+slot="${SLUG}"\\s+aspect="1:1"\\s+alt="${ATTRIBUTE}">\\s*${brief}\\s*</image_request>`;
+var PRODUCT_PATTERN = "<amz_product>\\s*" + PRODUCT_FIELDS.map((tag) => field(tag, tag === "amz_product_id" ? SLUG : tag === "amz_amount" ? "(?:0|[1-9]\\d{0,6})(?:\\.\\d{2})?" : tag === "amz_availability" ? "Available|Preorder|Unavailable" : TEXT)).join("") + `<amz_media>\\s*${request}\\s*</amz_media>\\s*</amz_product>`;
+var order = "<amz_order>\\s*" + ORDER_FIELDS.map((tag) => field(tag, tag === "amz_order_id" ? SLUG : tag === "amz_order_status" ? "Placed|Dispatched|Delivered|Cancelled" : TEXT)).join("") + "</amz_order>";
+var ROOT_PATTERN = "<amazon_store>\\s*" + field("amz_id", SLUG, true) + field("amz_query", TEXT, true) + field("amz_currency", "EUR|USD|GBP|JPY|KRW", true) + field("amz_delivery_area", TEXT, true) + `<amz_products>\\s*((?:${PRODUCT_PATTERN}\\s*){1,8})</amz_products>\\s*<amz_orders>\\s*((?:${order}\\s*){0,4})</amz_orders>\\s*</amazon_store>`;
+var imageAttributes = `(?:src|alt|class|data-reverie-artifact-media|data-dgir-key|data-dgir-request-id|data-dgir-slot|data-dgir-image-id|data-dgir-message-id|data-dgir-swipe-id|data-dgir-image-intent|data-dgir-custom-target|data-caption)="${ATTRIBUTE}"`;
+var resolved = `<img(?=[^>]*\\ssrc="(?:https://|/api/|blob:))(?=[^>]*\\sdata-dgir-request-id="${SLUG}")(?=[^>]*\\sdata-dgir-custom-target="custom\\.artifact-media")(?:\\s+${imageAttributes})+\\s*>`;
+var failure = `<image_request_error\\s+id="${SLUG}"\\s+target="custom\\.artifact-media"\\s+slot="${SLUG}"\\s+retryable="true">${TEXT}</image_request_error>`;
+var comment = "(?:<!-- reverie-relay:image(?:-error)? [^<>]{1,800} -->\\s*)?";
+var DISPLAY_ROOT_PATTERN = ROOT_PATTERN.replace(request, `${comment}(?:${request}|${resolved}|${failure})`);
+var escapeXml = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+var decodeXml = (value) => String(value).replace(/&#(x[\da-f]+|\d+);/gi, (_, n) => String.fromCodePoint(n[0].toLowerCase() === "x" ? parseInt(n.slice(1), 16) : Number(n))).replace(/&(lt|gt|quot|apos|amp);/g, (_, key) => ({ lt: "<", gt: ">", quot: '"', apos: "'", amp: "&" })[key]);
+var read = (source, tag) => decodeXml(new RegExp(`<${tag}>(${TEXT})</${tag}>`).exec(source)?.[1] || "").trim();
+function minorUnits(amount, currency) {
+  const digits = ["JPY", "KRW"].includes(currency) ? 0 : 2;
+  if (!new RegExp(digits ? "^(?:0|[1-9]\\d{0,6})\\.\\d{2}$" : "^(?:0|[1-9]\\d{0,6})$").test(amount))
+    throw new Error("Price precision does not match currency.");
+  const value = Number(amount.replace(".", ""));
+  if (!Number.isSafeInteger(value) || value < 0 || value > 1e6 * 10 ** digits)
+    throw new Error("Invalid price.");
+  return value;
+}
+function formatMoney(value, currency) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency, maximumFractionDigits: ["JPY", "KRW"].includes(currency) ? 0 : 2 }).format(value / (["JPY", "KRW"].includes(currency) ? 1 : 100));
+}
+function parseAmazon(source) {
+  if (source.length > MAX_CHARS)
+    throw new Error("Amazon Surface exceeds its bounded size.");
+  source = source.replace(/<(amz_id|amz_product_id|amz_currency|amz_amount|amz_availability|amz_order_id|amz_order_status)>([^<]*)<\/\1>/g, (_, tag, value) => `<${tag}>${value.trim()}</${tag}>`);
+  const match = new RegExp(`^\\s*${ROOT_PATTERN}\\s*$`).exec(source);
+  if (!match)
+    throw new Error("Amazon Surface has an invalid or incomplete XML contract.");
+  const used = new Set;
+  const products = [...match[5].matchAll(/<amz_product>[\s\S]*?<\/amz_product>/g)].map((item) => {
+    const values = Object.fromEntries(PRODUCT_FIELDS.map((tag) => [tag, read(item[0], tag)]));
+    if (Object.values(values).some((value) => !value))
+      throw new Error("Product metadata is empty.");
+    if (values.amz_title.length > 180 || values.amz_description.length > 1200 || values.amz_specs.length > 600 || values.amz_brand.length > 160 || values.amz_seller.length > 160)
+      throw new Error("Product field exceeds its limit.");
+    const id = values.amz_product_id;
+    if (used.has(`product:${id}`))
+      throw new Error("Duplicate product ID.");
+    used.add(`product:${id}`);
+    const media = /<image_request\b[^>]*>[\s\S]*?<\/image_request>/.exec(item[0])[0];
+    const attrs = Object.fromEntries([...media.matchAll(/([\w-]+)="([^"]*)"/g)].map((row) => [row[1], decodeXml(row[2])]));
+    if (!attrs.alt.trim() || !read(media, "scene_brief") || attrs.id !== attrs.slot || used.has(`media:${attrs.id}`))
+      throw new Error("Missing, duplicate or mismatched product media owner.");
+    used.add(`media:${attrs.id}`);
+    const { amz_rating: rating, amz_reviews: reviews } = values;
+    if (rating !== "Not listed" && !/^(?:[0-4](?:\.\d)?|5(?:\.0)?)$/.test(rating))
+      throw new Error("Invalid rating.");
+    if (reviews !== "Not listed" && !/^(?:0|[1-9]\d{0,7})$/.test(reviews))
+      throw new Error("Invalid review count.");
+    return { id, title: values.amz_title, brand: values.amz_brand, category: values.amz_category, amount: minorUnits(values.amz_amount, match[3]), rating, reviews, availability: values.amz_availability, delivery: values.amz_delivery, description: values.amz_description, specs: values.amz_specs, seller: values.amz_seller, media, mediaId: attrs.id };
+  });
+  const orders = [...match[6].matchAll(/<amz_order>[\s\S]*?<\/amz_order>/g)].map((item) => {
+    const values = Object.fromEntries(ORDER_FIELDS.map((tag) => [tag, read(item[0], tag)]));
+    if (Object.values(values).some((value) => !value) || used.has(`order:${values.amz_order_id}`))
+      throw new Error("Invalid established order.");
+    used.add(`order:${values.amz_order_id}`);
+    return { id: values.amz_order_id, summary: values.amz_order_summary, status: values.amz_order_status, delivery: values.amz_order_delivery };
+  });
+  if (!decodeXml(match[2]).trim() || !decodeXml(match[4]).trim())
+    throw new Error("Search and delivery-area metadata must be populated.");
+  return { id: match[1], query: decodeXml(match[2]), currency: match[3], deliveryArea: decodeXml(match[4]), products, orders };
+}
+
+// src/amazon-phone-state.mjs
+var scopeKey = (scope) => JSON.stringify([scope.userId, scope.chatId, scope.ownerId, scope.snapshotId, scope.sourceKey]);
+function checkoutSummary(state, snapshot) {
+  if (snapshot.id !== state.scope.snapshotId)
+    throw new Error("Snapshot mismatch.");
+  const lines = state.cart.map((row) => {
+    const product = snapshot.products.find((item) => item.id === row.productId);
+    if (!product || product.availability !== "Available" || product.amount !== row.unitAmount || snapshot.currency !== row.currency)
+      throw new Error("The saved offer changed; review the cart again.");
+    return { ...row };
+  });
+  const total = lines.reduce((sum, row) => sum + row.quantity * row.unitAmount, 0);
+  if (!Number.isSafeInteger(total))
+    throw new Error("Cart total is outside its valid range.");
+  return { snapshotId: snapshot.id, revision: state.revision, currency: snapshot.currency, lines, total };
+}
+function commerceScopeKey(state) {
+  return scopeKey(state.scope);
+}
+
 // src/phoneDevice.ts
 function phonePair(from, to) {
   return JSON.stringify([from, to].sort());
@@ -69,6 +211,23 @@ function resolvePhoneParticipant(ref, identities) {
 function phoneStoryScope(identities) {
   return `${identities.find((person) => person.kind === "character")?.id || ""}|${identities.find((person) => person.kind === "persona")?.id || ""}`;
 }
+
+// src/sightline.ts
+var DREAMCUT_GUIDANCE = `DREAMCUT: Select one source-established object, environmental detail, reflection, silhouette or limited body detail as a quiet visual cutaway. Director JSON reports dreamcutFocus with kind (object/environment/reflection/silhouette/detail) and quote (an exact short phrase from this image's own paragraph). Story XML instead places framing="dreamcut", focus-kind="object" (or the applicable kind) and focus="exact short source phrase" on the reverie-illustration opening tag. Preserve the anchor's material, color, state and location. An object/environment-only frame has expectedPeopleCount 0, namedSubjects [], subjectDirectives [], cast="none", and no invented people. A reflected person, silhouette or body detail still belongs to a source-established named subject and must be counted; describe only what this crop can reveal, including its relevant established appearance directly in visual_prompt. Never attach a complete character portrait to a selected fragment. No imagined symbolism or future aftermath.`;
+var SCENE_FLOW_GUIDANCE = `SCENE FLOW: Choose each illustration's framingMode independently from scene-snapshot, blocking-fidelity, dreamcut. Still scene/setting -> scene-snapshot. Visible action, contact or owned prop -> blocking-fidelity. Use dreamcut only for a source-grounded cutaway without hiding that paragraph's required action. Include dreamcutFocus for that choice. Every shot keeps its own anchor, cast and current appearance. Do not change the requested number of inline images. Fixed Char only and Persona POV are never rerouted.`;
+
+// src/blockingFidelity.ts
+var BLOCKING_FIDELITY_GUIDANCE = `BLOCKING FIDELITY — EXPERIMENTAL, ONE MOMENT / ONE OWNER BLOCK PER SUBJECT
+
+Prioritize source-faithful body placement and attribute ownership over a dramatic crop. Select one concrete instant in the anchored paragraph. Resolve the exact visible cast, one viewing axis, screen/depth positions, body postures and established contacts before describing appearances. Do not depict successive actions at once. Current source actions override an earlier frame's posture; confirmed current clothing overrides baseline attire.
+
+For Natural Language, write complete sentences with one consecutive paragraph per visible subject. Start each subject paragraph with a short screen/depth heading such as 'Screen-left, Name:' or 'Foreground, Name:', immediately followed by their own established visual identity, complete current attire, posture, action, expression and gaze. These headings describe positions within ONE scene, not separate panels. Finish that person's block before describing the next. Follow established screen-left to screen-right order when readable; for overlapping foreground/behind arrangements use depth roles instead of pretending they stand side by side. Say screen-left or screen-right, not 'left of the image' or 'right of the image'. Do not emit panels, numbered subjects, BREAK, region syntax or underscore-joined prose. Ordinary story names are not trained image identities: always include the owner's supported visual referent. Do not change hair, colors, garments or body traits to manufacture contrast.
+
+Keep each active arm attached to its owner's shoulder and identify whose hand contacts which person's body part or object. State anatomical left/right only when the source does. Preserve free hands, separate props, posture differences and source-established gaps. For contact or overlap, retain separate heads, necks, shoulder lines and torsos in the same arrangement; make the contact point readable with a suitable view, not by separating a hug, inventing an extra arm or changing who sits and who stands. Show only anatomy the chosen view can reveal; a hidden limb is not another visible limb. Never promise all limbs visible through an occluding body.
+
+After all owner blocks, add shared setting, important objects, light and view once. Choose framing that includes the source-required contact surfaces and props: a waist-up crop cannot establish feet on the floor or palms on thighs. Match the active aspect policy throughout the description: a landscape canvas is not two portrait crops placed side by side. Pull the single camera back to include the required height rather than request a conflicting portrait orientation or duplicate the people to fill the width. Keep the image description concrete and concise, not an explanation of these rules. Reverse-check every action and garment against its owner in the source; a seated man and standing woman must not become a standing man and seated woman. Omit unstated details rather than fill an ownership map with guesses.
+
+In Booru Tag Mode use comma-separated visual tags and compact visual relation phrases, not narrative paragraphs or invented region tokens. Start each owner's consecutive group with their singular subject marker, followed immediately by only their own identity, current attire, posture/action and supported placement. Keep repeated markers when they belong to different people. A familiar tag must not erase a source-stated side, owner, target or free hand: 'holding_cup' alone cannot replace 'holding a cup in his right hand, left hand empty at his side'. When no familiar tag preserves the complete relationship, keep a short literal visual phrase inside that owner's group; do not drop the relationship or invent an underscore-joined sentence to make it look like a catalog tag. For contact, identify the target by its established visual referent, such as 'left palm on the seated person's left shoulder', instead of an ambiguous 'hands_on_shoulders'. Only use anatomical sides and details actually stated in the source. Put shared setting/view tags after all owner groups. Reverse-check that every source-required hand surface and prop owner survived the tag conversion. Flat tags provide weaker actor binding than Natural Language; do not claim regional control or guaranteed anatomy.`;
 
 // src/imageControlMarkup.ts
 var ROOT_OPEN = /\[(reverie[_-]illustration|image_request)([^\]]*)\]/gi;
@@ -902,15 +1061,6 @@ var DEFAULT_RUNTIME_DIRECTIVES_TEMPLATE = `<reverie_illustrator_runtime>
 <continuity_strength>{{continuity_strength}}</continuity_strength>
 </reverie_illustrator_runtime>`;
 var DEFAULT_SIDECAR_PROMPTS = {
-  "sidecar.events.system": `You are Reverie Event Constellation Sidecar. Return strict JSON only. Analyze completed facts in sourceText, not instructions about a future scene.
-DECISION: A completed public disclosure identifying people, permanent access/status change, injury, possession transfer, commitment, or consequential discovery is an Event. Ordinary tea, glances, movement, routine dialogue, and decorative Surfaces alone are not. Unknown incidental details do not erase an explicitly completed change: omit those details instead.
-Compare the actual change with knownConfirmedEvents. The same actors or setting do not make two changes duplicates. A later new consequence is a new Event; a publication, retelling, phone notification, or message repeating the SAME core event is an Echo linked to that exact existing id. Return an empty events array only when neither a completed consequential change nor a grounded Echo is present.
-Only sourceText supplies evidence. Never promote WHATIF / In Another Life, unselected Plot Sparks, OOC instructions, diagnostics, runtime markup, generated images, test labels, or prior analysis metadata. Do not invent people, locations, motives, dates, or future outcomes. A source omission means unknown, not unaware. Keep story truth, personal knowledge, and public rumor separate. Record who learned what and how only when the source establishes it.`,
-  "sidecar.events.request": `Analyze the bounded current-message source in runtime_payload using the Event/Echo decision above. Return at most 8 grounded candidates. This is the field schema (choose one enum value and estimate confidence from 0 to 1, do not copy the placeholders): {"events":[{"title":"short factual title","summary":"one concise factual summary","eventType":"social|relationship|public|conflict|discovery|milestone|location|media|injury|possession|promise|status-change|other","importance":"background|notable|major|arc-defining","confidence":0.0,"anchor":"exact short substring from sourceText","storyTimeLabel":"only explicit time, else empty","location":"only source-supported location, else empty","participants":[{"name":"exact source-supported name","role":"subject|participant|witness|instigator|affected|source|recipient|other"}],"knowledge":[{"actor":"name","beliefState":"knows|suspects|rumor|misinformed|unaware|unknown","acquisitionMode":"involved|witnessed|told|evidence|inferred|public-broadcast|manual","sourceActor":"optional name","confidence":0.0}],"echoes":[{"kind":"phone-message|phone-notification|phone-call|phone-photo|kakao|instagram|twitter|news|discord|email|voice-memo|surface|scene-reference|manual|other","channel":"optional","summary":"exactly grounded manifestation","confidence":0.0}],"likelyDuplicateEventId":"only an exact matching known event id or empty"}]}. Do not add fields or Markdown. For a manifestation of a known event (for example, the same photo appearing in a news article or being sent in a phone message), return a candidate describing only this new manifestation and set likelyDuplicateEventId to the exact matching knownConfirmedEvents id. Do not create a second Event Node for the repeated core event. Put each manifestation in echoes with the correct channel/type and a summary quoted or closely paraphrased from sourceText. The anchor must be an exact short source substring that proves the manifestation. For Character Phone content, use explicit cp_* text as evidence; the mere presence of a phone block is not an Event or Echo. Only include participants actually named in sourceText. Knowledge array must be empty unless the source clearly establishes who learned what and how. Predictions, intentions, hypotheticals, and imagined futures are not completed Events.
-
-<runtime_payload>
-{{runtime_payload}}
-</runtime_payload>`,
   "sidecar.appearance.system": `You are Reverie Relay Appearance Sidecar. Return strict JSON only. You maintain visual continuity from the supplied bounded visual excerpts: active Character card, active Persona card, activated lorebook entries, current scene, selected recent history, and Appearance Memory. Read active Character and Persona even when their appearance is not restated in chat. User-confirmed/pinned facts have highest priority. For durable identity prefer direct Character/Persona/established lorebook evidence over inferred chat details; current explicit scene evidence governs outfit and temporary appearance. Native ImageGen presets are direct generation anchors handled separately by Relay; never split preset prompts into memory facts. Missing excerpts mean unknown, not absent, and are not permission to invent facts. Decide semantic identity, wardrobe, current-scene appearance categories, and unusual-trait replacement domains yourself; do not ask Relay to infer prose with regexes. Never invent facts or promote generic descriptions to people. A named NPC is trustworthy only when either it is recurring with sufficient concrete identity/appearance evidence, or trustworthy structured context (especially an activated lorebook/world-info entry) strongly establishes its identity and appearance before its first relevant prose appearance. Reject unnamed extras, generic roles, ambiguous pronouns, places, objects, random capitalized words, and one-off names without trustworthy identity evidence.`,
   "sidecar.appearance.request": `Return {"observations":[...]} only. Each observation has subject:{name,aliases,role:"character"|"persona"|"npc",trustworthy}, confidence, and facts:[{layer:"visual-identity"|"wardrobe"|"current-appearance",category,value,conflictDomain?,provenance:"chat-history"|"current-assistant-message"|"character-card"|"persona-card"|"lorebook"|"prior-appearance-state"}]. Keep base identity separate from wardrobe and current-scene state. Use direct Character/Persona/lorebook evidence for durable facts, current scene for outfit/temporary state, and preserve user-confirmed memory. Never parse a native preset into facts. For unusual or category="other" facts, provide conflictDomain only when the fact semantically replaces values in one Sidecar-owned domain; use a bounded lowercase slug or one colon-qualified slug such as "skin-color", "tail", "wing-state", "horns", "limb-state", or "species-trait:complexion". Do not invent a domain from Relay rules: you decide it from supplied context. For an NPC, trustworthy=true is allowed for a named recurring participant with concrete identity evidence OR a named NPC strongly established by activated structured/lorebook context with concrete identity and appearance. Do not return style, camera, pose, location, or generic scene facts.
 
@@ -999,12 +1149,15 @@ The repaired result must not:
 </runtime_payload>`
 };
 var ILLUSTRATOR_FRAMING_METADATA = {
+  "scene-flow": { displayName: "Framing: Scene Flow", description: "Choose a source-faithful treatment independently for each image." },
+  dreamcut: { displayName: "Framing: Dreamcut", description: "A source-grounded object, environment or limited-detail cutaway." },
   "scene-snapshot": { displayName: "Framing: Scene Snapshot", description: "Candid, composition-led narrative event." },
   sequence: { displayName: "Framing: Sequence", description: "Continue established screen direction, geography, and action." },
   "emotional-beat": { displayName: "Framing: Emotional Beat", description: "Frame a story-supported reaction or turning point." },
   "solo-scene": { displayName: "Framing: Char only", description: "Exactly one visible character in the actual scene." },
   "persona-pov": { displayName: "Framing: Persona POV", description: "The resolved active Persona owns the in-world viewpoint." },
-  storyboard: { displayName: "Framing: Storyboard", description: "Depict the exact anchored story action, not just its characters." }
+  storyboard: { displayName: "Framing: Storyboard", description: "Depict the exact anchored story action, not just its characters." },
+  "blocking-fidelity": { displayName: "Framing: Blocking Fidelity (Experimental)", description: "Prioritize source-faithful postures, contacts and consecutive subject-owned descriptions." }
 };
 var STORYBOARD_VIEW_GUIDANCE = `FRAMING VOCABULARY: Describe the view, angle and crop (for example, "low-angle view" or "view from above"), not imaging equipment. Use "View:" rather than "Camera:" in the image prompt; this overrides generic camera-position wording elsewhere. Keep schema keys such as cameraAngle unchanged, but put view wording in their values. In Booru mode use established viewpoint tags such as from_above, from_below or from_side, without prose labels or invented camera_angle tags. Mention a physical camera only when it is an actual, source-established object in the depicted scene.`;
 var STORYBOARD_SCENE_GUIDANCE = `STORYBOARD — ONE ANCHORED, ACTION-FAITHFUL STILL
@@ -1022,6 +1175,8 @@ PHYSICALITY: Resolve who is where, facing which direction, doing what, using whi
 OBJECTS AND SETTING: Include enough environment/depth to locate the beat. Preserve important items' position, condition, material and ownership. Nearby idle tools are not actively used. A tool making marks on an alignment aid touches that aid; the separate reference object and its existing marks remain unchanged. Color/material is not emitted light. When a source-established reflective surface is visible, its reflection must match the same instant, cast, clothing and objects from the physically reflected view; retain only what that angle can show. Mirror imagery reverses the view, not real anatomical ownership. Glass has subdued/translucent reflections according to material and light; do not create extra actors or add a mirror merely to show everyone.`;
 var STORYBOARD_TAG_GUIDANCE = `BOORU EXPRESSION: Put count/view and the central action plus its plain target/object tags early, then keep each subject's distinctive appearance, complete outfit, expression, pose/action and owned prop tags consecutive. Finish with necessary setting/light tags. Use established Danbooru-style concepts, no headings, name: labels, disguised underscore sentences or invented relationship compounds. Every comma item is a concise visual concept of at most four underscore-separated words. Ordinary character names are not trained character tags unless an exact supported tag was supplied. A vague standing or looking_at_object tag alone does not depict a specific event. Express an unsupported relation with separate short action, body-position and object tags; do not invent contact tags to fill a gap. Preserve the same source facts as Natural Language, without pretending a flat tag list guarantees actor binding.`;
 var DEFAULT_ILLUSTRATOR_FRAMING_PROMPTS = {
+  "scene-flow": SCENE_FLOW_GUIDANCE,
+  dreamcut: DREAMCUT_GUIDANCE,
   "scene-snapshot": `SCENE SNAPSHOT FRAMING
 
 Treat the image as a captured moment inside the story.
@@ -1073,7 +1228,8 @@ Show only what the Persona can see from that position. Never depict any part of 
 Other visible characters may meet the lens only when the scene establishes that they are speaking to, recognizing, confronting, or intentionally addressing the Persona. Otherwise, their gaze must follow the person, object, movement, or environment that holds their attention. Never turn this first-person view into a selfie or an outside-observer shot.`,
   storyboard: STORYBOARD_SCENE_GUIDANCE + `
 
-` + STORYBOARD_TAG_GUIDANCE
+` + STORYBOARD_TAG_GUIDANCE,
+  "blocking-fidelity": BLOCKING_FIDELITY_GUIDANCE
 };
 var STORYBOARD_DIRECTOR_GUIDANCE = STORYBOARD_SCENE_GUIDANCE + `
 
@@ -1361,12 +1517,16 @@ CONTEXT
 Use the current scene/message for names, places, timing, route information, text, participants, and visual content. Schema ellipses are placeholders only, never default story values. Do not author Markdown fences, HTML/CSS layouts, launcher chrome, presentation controls, generic substitute cards, or renderer fallback text.`);
 var REVERIE_SURFACE_APP_SCHEMA_FIREBREAK = `APP SURFACE SHAPE FIREBREAK
 Use only the enabled module's exact registered root and exact child hierarchy. Never emit <igfeed>, <igstory>, <igpost>, <tw_profile>, <reddit_thread>, <reddit_comment>, or <discord_message>. A <tw_post> is valid only inside <twitter_app>. A Discord Server uses <discord_server> with the module's exact four <server_channel> children; do not flatten its messages beside the channels. If the requested platform module is not enabled, omit that Surface instead of inventing a substitute schema.`;
+var REVERIE_SURFACE_ROOT_SCOPE = "This root registry applies only to the App/UI modules in this wrapper. Separately enabled Narrative Utility roots follow their own current selection and schemas; this App/UI registry does not disable them.";
+function scopeSurfaceRootRegistry(content) {
+  return content.replace(/Only (?:the exact roots below|these exact roots) are valid\./g, "For the App/UI modules in this wrapper, only the listed exact roots are valid.");
+}
 var REVERIE_SURFACE_UTILITY_TEMPLATE = `REVERIE RELAY — ENABLED SURFACES
 
 {{reverie_enabled_surface_modules}}
 
 STRICT ENABLED ROOT REGISTRY
-Only the exact roots below are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
+For the App/UI modules in this wrapper, only the listed exact roots are valid. Never rename a root after a platform, invent feed/post/story shorthand, add namespace punctuation, or combine multiple enabled contracts into a substitute app schema.
 {{reverie_enabled_surface_roots}}
 
 ${REVERIE_SURFACE_APP_SCHEMA_FIREBREAK}
@@ -1556,8 +1716,8 @@ var PROMPT_REGISTRY_DEFINITIONS = [
     description: ILLUSTRATOR_FRAMING_METADATA[id].description,
     category: "story-model",
     defaultTemplate,
-    version: id === "persona-pov" ? 6 : id === "sequence" ? 5 : id === "storyboard" ? 14 : 4,
-    status: "stable"
+    version: id === "blocking-fidelity" ? 1 : id === "persona-pov" ? 6 : id === "sequence" ? 5 : id === "storyboard" ? 14 : 4,
+    status: ["blocking-fidelity", "scene-flow", "dreamcut"].includes(id) ? "provisional" : "stable"
   })),
   {
     id: "appearance.sidecar.system",
@@ -1628,7 +1788,7 @@ var PROMPT_REGISTRY_DEFINITIONS = [
     description: "Editable Sidecar workflow prompt.",
     category: "sidecars",
     defaultTemplate,
-    version: id === "sidecar.composer.request" ? 5 : id === "sidecar.parser.request" ? 3 : id === "sidecar.parser.repair" ? 2 : id === "sidecar.appearance.field-refresh" ? 3 : id.startsWith("sidecar.appearance.") ? 2 : id.startsWith("sidecar.events.") ? 3 : 1
+    version: id === "sidecar.composer.request" ? 5 : id === "sidecar.parser.request" ? 3 : id === "sidecar.parser.repair" ? 2 : id === "sidecar.appearance.field-refresh" ? 3 : id.startsWith("sidecar.appearance.") ? 2 : 1
   }))
 ];
 var DEFAULT_PROMPT_REGISTRY = Object.fromEntries(PROMPT_REGISTRY_DEFINITIONS.map((definition) => [definition.id, definition.defaultTemplate]));
@@ -1707,6 +1867,69 @@ ${input.specificRules.trim()}` : ""
 `));
 }
 
+// src/amazonDefinition.ts
+var AMAZON_SAMPLE = `<amazon_store><amz_id>amazon-demo-everyday</amz_id><amz_query>Everyday essentials</amz_query><amz_currency>EUR</amz_currency><amz_delivery_area>Not set</amz_delivery_area><amz_products>
+<amz_product><amz_product_id>sage-headphones</amz_product_id><amz_title>Sage wireless headphones</amz_title><amz_brand>Unbranded</amz_brand><amz_category>Audio</amz_category><amz_amount>49.90</amz_amount><amz_rating>4.7</amz_rating><amz_reviews>386</amz_reviews><amz_availability>Available</amz_availability><amz_delivery>Delivery not confirmed</amz_delivery><amz_description>A soft-touch wireless pair for quieter commutes and late-night playlists.</amz_description><amz_specs>Sage finish · Foldable · Cushioned ear cups</amz_specs><amz_seller>Not listed</amz_seller><amz_media><image_request id="amazon-demo-sage-headphones" target="custom.artifact-media" slot="amazon-demo-sage-headphones" aspect="1:1" alt="Sage wireless headphones"><scene_brief>Product-only catalog photograph of sage wireless headphones, sage finish · foldable · cushioned ear cups, neutral background, soft light. No people, UI, readable text or watermark.</scene_brief></image_request></amz_media></amz_product></amz_products><amz_orders></amz_orders></amazon_store>`;
+var AMAZON_UTILITY = `REVERIE RELAY — AMAZON SHOPPING SURFACE
+Local implementation contract: 0.1.0. Root: <amazon_store>. Core App ID: amazon.
+ROOT: <amazon_store>
+
+PURPOSE AND TRIGGER
+Render a fictional in-world Amazon storefront when a character actually browses Amazon, product information matters to the scene, or the human requests it. Do not emit it merely because a phone, money or a package is mentioned. This is a Reverie Surface, not a real Amazon integration or a substitute phone-message schema.
+
+AUTHORING LAW
+Return one complete <amazon_store> using the XML child hierarchy below. Write text directly between its XML tags; no semantic square brackets, HTML, CSS, scripts, UI controls, action JSON, payment credentials, decorative wrappers or Markdown fences. Escape &, < and > in text values. Fields occur in the shown order. The renderer owns branding, controls, tabs, cart, wishlist, confirmation and Phone action persistence.
+
+PRESENTATION OWNERSHIP
+The renderer supplies Amazon-style desktop search results and the mobile shopping layout. Supply truthful catalog data only: never invent discounts, Prime eligibility, sponsored status, ratings, reviews, delivery promises or account details to decorate the interface. Product images depict the product, not the Amazon UI. Browsing a saved catalog is not a real Amazon request.
+
+SCHEMA
+<amazon_store>
+<amz_id>unique-lowercase-snapshot-id</amz_id>
+<amz_query>Current search or collection</amz_query>
+<amz_currency>EUR</amz_currency>
+<amz_delivery_area>Established delivery region, or Not set</amz_delivery_area>
+<amz_products>
+<amz_product>
+<amz_product_id>stable-product-id</amz_product_id>
+<amz_title>Product title</amz_title>
+<amz_brand>Established brand, or Unbranded</amz_brand>
+<amz_category>Category</amz_category>
+<amz_amount>49.90</amz_amount>
+<amz_rating>Not listed</amz_rating>
+<amz_reviews>Not listed</amz_reviews>
+<amz_availability>Available</amz_availability>
+<amz_delivery>Established estimate, or Delivery not confirmed</amz_delivery>
+<amz_description>Useful, scene-specific description</amz_description>
+<amz_specs>Concise product specifications</amz_specs>
+<amz_seller>Established seller, or Not listed</amz_seller>
+<amz_media><image_request id="amazon-product-unique-id" target="custom.artifact-media" slot="amazon-product-unique-id" aspect="1:1" alt="Accessible product description"><scene_brief>One complete product-only catalog photograph of this exact item, showing its established color, material and shape against a clean background. No people, readable text, price labels, interface or watermarks.</scene_brief></image_request></amz_media>
+</amz_product>
+</amz_products>
+<amz_orders>
+<amz_order><amz_order_id>established-order-id</amz_order_id><amz_order_summary>Established items and quantities</amz_order_summary><amz_order_status>Placed</amz_order_status><amz_order_delivery>Delivery not confirmed</amz_order_delivery></amz_order>
+</amz_orders>
+</amazon_store>
+
+BOUNDS AND VALUES
+One to eight products. Zero to four established order records; use <amz_orders></amz_orders> when there are none. Maximum 24,000 characters per document. Snapshot, product, order and media IDs are lowercase slug-safe, with unique product/order/media IDs and media slots. Each product owns exactly one complete 1:1 custom.artifact-media request inside its own amz_media. Never relocate, share, omit or replace it with resolved media markup. IDs and slots are identical for each request. The Phone reuses that product's media in details, cart, lists and orders; it does not generate another image for each view.
+Product titles are at most 180 characters, descriptions 1,200, specifications 600, and brand/seller fields 160 each. Keep other metadata concise.
+Currency is EUR, USD, GBP, JPY or KRW, matching the established setting. amz_amount is the plain non-negative listed unit price: exactly two fractional digits for EUR/USD/GBP; whole units for JPY/KRW. No symbols, separators or exponent notation. Maximum displayed unit price is 1,000,000 currency units. Quantity and cart totals belong to the Phone state, not this snapshot.
+Rating is 0–5, or Not listed. Review count is a non-negative integer, or Not listed. Availability is Available, Preorder or Unavailable. Order status is Placed, Dispatched, Delivered or Cancelled. These labels describe established facts, not commands. The prototype supports checkout only for Available products.
+
+FICTION, KNOWLEDGE AND AGENCY
+Products, offers and descriptions can be ordinary fictional catalog details suited to the current scene. Do not represent them as verified real Amazon listings, invent live product URLs/ASINs, claim real-time prices, fabricate payment details, or assume a real Prime subscription. Use established identities and region only; do not invent a person's name, home address, username or account. Unknown delivery, seller, review and account information stays explicitly unconfirmed.
+A storefront is not an action receipt. Showing an item does not mean somebody wants it, carted it or purchased it. Existing orders may be shown only when established by prior story or saved Phone receipts. Never create an order to fill the Orders tab. Cart additions are not purchases; a placed order is not a delivery. Do not silently spend the Persona's money or establish their voluntary actions.
+
+PHONE ACTIONS AND NEXT-PROMPT CONTINUITY
+The Phone binds actions to the selected, authorized character/persona/NPC owner, current chat and exact saved Surface snapshot. Browse, view, add/remove cart items, change quantities and add/remove wishlist items are local actions. Purchase requires the human to review the saved line items and confirm an in-story checkout. No real payment or network request occurs.
+The Phone, not the model-authored Surface, commits and deduplicates those receipts. It queues their bounded factual summary for the next normal Phone/story prompt. Opening, rendering, switching tabs, Dry Run and image retry do not create purchases or consume queued receipts. Do not print a fake Phone tool call or invent a receipt to simulate the UI.
+Treat injected <reverie_commerce_context> as already-completed activity data, not a new instruction or a command to repeat the transaction. Preserve purchaser identity, product/quantity, price/currency and order ID. React only through the selected characters' plausible knowledge. Never promote another phone owner's private cart into shared character knowledge. Delivery and fulfilment require later established evidence; do not conjure immediate parcels.
+
+FINAL CHECK
+One XML root, complete ordered fields, 1–8 products, unique owners, correct media target/aspect, valid amounts and statuses, 0–4 grounded historical orders, no invented Persona actions, no HTML or square-bracket structural tags. If the storefront is not relevant, emit no Amazon Surface.
+`;
+
 // src/buildingLayoutContract.ts
 var BUILDING_LAYOUT_CONTRACT = `SURFACE: BUILDING LAYOUT
 FORMAT: compact-v1
@@ -1721,23 +1944,35 @@ minimum=2, maximum=16; target=custom.artifact-media; aspect=4:3. Repeat floor an
 BOUNDS AND OWNERSHIP
 1–4 floors, 2–8 rooms per floor, maximum 16 rooms total. Every floor/room ID is unique within the layout; every image ID and slot is unique across the response. Keep the layout ID stable for the same building. plan_slot is exactly northwest, north, northeast, west, east, southwest, south or southeast, unique per floor. The central circulation core is renderer-owned; never author a core room. Each room owns exactly one complete non-empty 4:3 custom.artifact-media request, inside its own <media>; never omit, share, resolve or relocate it. Text metadata stays outside the image brief. Preserve every field, nesting and closer; validate bounds, non-empty values and ownership before stopping.
 INTERACTION
-Relay owns floor/room selection and Add to lorebook. Do not author move_text, player movement, Composer drafts, button HTML or lorebook action tags. Selecting a room changes only the view; the human must click Add to lorebook to save that room. No click advances the story or sends a message.`;
+Relay owns floor/room selection and Add to lorebook. Each click saves only the selected room to a lorebook named after building_context/name and automatically links that book to the source chat. Rooms from the same building, including later messages, reuse its book; a different building gets its own book. Keep building and room IDs stable across messages, never recycle a building ID for a different building, and keep media IDs/slots unique per response. Do not author move_text, player movement, Composer drafts, button HTML or lorebook action tags. Selecting a room changes only the view; the human must click Add to lorebook to save that room. No click advances the story or sends a message.`;
 var room = (id, name, position) => `<room><room_id>${id}</room_id><room_name>${name}</room_name><plan_slot>${position}</plan_slot><category>Interior</category><atmosphere>Quiet</atmosphere><summary>A room grounded in the current setting.</summary><notable_features>Established architectural details</notable_features><connected_to>Circulation hall</connected_to><media><image_request id="building-${id}" target="custom.artifact-media" slot="building-${id}" aspect="4:3" alt="${name}"><scene_brief>Environment-only view of the ${name.toLowerCase()}, established furnishings and natural light. No people or readable text.</scene_brief></image_request></media></room>`;
 var BUILDING_LAYOUT_SAMPLE = `<building_layout><id>current-building</id><title>Building Layout</title><subtitle>Explore the established rooms</subtitle><building_context><name>Current building</name><type>Residence</type><setting>Current setting</setting><style_note>Established architecture</style_note></building_context><floor><floor_id>ground-floor</floor_id><floor_name>Ground floor</floor_name><floor_summary>Shared rooms and circulation</floor_summary>${room("entry", "Entrance", "north")}${room("common-room", "Common room", "east")}</floor></building_layout>`;
+var BUILDING_LAYOUT_TEXT_ONLY_CONTRACT = `# Building Layout — text-only
+Use only for an explicitly requested layout or building exploration, not merely an indoor scene. Preserve established names, architecture and spatial connections.
+Author the same XML hierarchy with empty media wrappers:
+${BUILDING_LAYOUT_CONTRACT.split(`
+SCHEMA
+`)[1].split(`
+
+MEDIA`)[0].replace(/<media>[\s\S]*?<\/media>/g, "<media></media>")}
+Use 1–4 floors, 2–8 rooms per floor and at most 16 rooms total. Unique stable floor/room IDs; plan_slot is northwest, north, northeast, west, east, southwest, south or southeast, unique per floor. Keep the building ID stable across messages and use a different ID for every different building.
+Every room keeps an empty <media></media>. Do not author image requests, HTML, controls, move_text, movement or Composer actions.
+Relay owns floor/room selection and Add to lorebook: a human click saves only the selected room to a book named after this building, reuses that building's book on later messages, and automatically links it to the source chat. Different buildings get separate books. Selection alone never saves or advances the story.`;
 
 // src/r45UtilityContracts.ts
-var SHARED = `R4.5 FINAL SURFACE UTILITY CONTRACT
+var SHARED = `SURFACE AUTHORING CONTRACT
 Author one XML semantic Surface. Keep the exact attributes and child elements shown in its canonical schema, with all tags closed. Reverie owns Surface recognition, normalization, validation, canonical rendering, launcher state, interactions, media lifecycle, reinsertion, repair/reparse/rescan UI, and mobile rendering. Do not author launcher chrome, presentation controls, HTML or CSS. Square brackets in text are literal values, never field delimiters. Escape & and < inside XML values.
 
 Every Relay image request stays inside its exact owning XML element and keeps canonical XML transport syntax: <image_request id="…" target="…" slot="…" aspect="…" alt="…"><scene_brief>…</scene_brief></image_request>. Use target="custom.artifact-media" for custom Surface media. image_request and scene_brief are protected Relay control tags, XML control elements; never convert them to bracket tags. The brief describes the actual in-world image, preserves established identity/outfit when relevant, composes the important content safely for the target slot, and never asks the image model to draw interface chrome, labels, captions, map labels, timestamps, logos, or readable text. Never place a bare image request in visible prose. Do not reuse one generic request across unrelated media slots.
 
-Use the current scene/message for names, places, timing, route information, text, and visual content. Examples are structural only; never promote demo values into defaults. Keep all XML child elements balanced and preserve the specified child order. Relay renders the approved R4.5 layout; do not emit generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text.`;
+Use the current scene/message for names, places, timing, route information, text, and visual content. Examples are structural only; never promote demo values into defaults. Keep all XML child elements balanced and preserve the specified child order. Relay renders the registered Surface layout; do not emit generic substitute cards, HTML layouts, centered prose blobs, or renderer fallback text.`;
 var utility = (root, body) => xmlAuthoringInstructions(`${SHARED}
 
 XML ROOT: <${root}>
 ${body}
 Use attributes rather than child elements wherever the canonical SCHEMA shows an attribute. The schema owns field placement and order.`);
 var R45_UTILITY_CONTRACTS = {
+  amazon: AMAZON_UTILITY,
   "building-layout": BUILDING_LAYOUT_CONTRACT,
   "forum-thread": utility("forum_thread", "Keep topic metadata, posts, replies, and media contextual. In <fm_comment>, use its user attribute then plain reply text, never <time>/<score>/<content> fields. Without an actual attachment, keep <fm_media></fm_media> empty and omit image requests. Actual attachments use 16:9 or 4:3."),
   "email-thread": utility("email_thread", "Author ordered <email_item> rows with slot, from, subject, preview and time attributes; <email_body> and optional <email_attachment> are children. Omit the attachment when none exists. Keep device facts grounded. Visual attachments own 16:9 media."),
@@ -1747,7 +1982,7 @@ var R45_UTILITY_CONTRACTS = {
   "dating-profile": utility("tinder", "Author exactly three <profile> records. Each record carries slot, prev and next XML attributes. Each <photo> owns one 3:4 identity image: centered face and upper torso, full hair visible, generous headroom, current outfit/context, no extreme close-up. The same source is reused in match states, so it must be crop-safe."),
   "public-bulletin": utility("public_bulletin", "Author authority, level, headline, timestamp and district as root attributes; then <pb_media>, <pb_body> and <pb_instructions> children in order. <pb_media> owns one 16:9 documentary image of the exact event/place; all readable bulletin text remains in XML child elements."),
   "case-file": utility("case_file", "Author the dossier tabs/sheets/evidence/timeline in the approved order. Evidence media stays in its specific evidence field and uses 3:4 or 4:3 documentary framing with the entire clue/object/area visible."),
-  "relationship-map": utility("relationship_map", "Author the approved named character nodes, relationship connections, and insight fields only. Preserve the R4.5 inner relationship-map structure; do not substitute a different graph or generic media card."),
+  "relationship-map": utility("relationship_map", "Author the registered named character nodes, relationship connections, and insight fields only. Preserve the registered inner relationship-map structure; do not substitute a different graph or generic media card."),
   "instagram-dm": utility("instagram_dm", "Author a coherent ordered direct-message exchange. Any media belongs in its exact chat-media child and uses 4:3; do not let scene_brief appear as chat text."),
   "x-dm": utility("x_dm", "Author a coherent ordered direct-message exchange. Any attachment belongs in its exact message media child and uses 4:3."),
   "discord-dm": utility("discord_dm", "Author an ordered Discord direct-message exchange with participant identity and contextual content. Media/files remain in the exact discussed message child and use 4:3."),
@@ -1793,9 +2028,17 @@ All <s_recv>, <s_sent>, and <s_img> rows remain inside <messages>. Every <s_img>
   "instagram-stories": utility("instagram_stories", "Author exactly three <story> records. Each has owner, name and time attributes, a reusable 1:1 avatar, a 9:16 <story_media> request, and <caption>. Story media fills the actual vertical story frame and contains scene content only; renderer owns Instagram chrome, navigation, reply UI, and progress bars.")
 };
 function r45UtilityContract(surfaceId) {
+  if (surfaceId === "amazon")
+    return AMAZON_UTILITY;
   return R45_UTILITY_CONTRACTS[surfaceId] || "";
 }
 function r45UtilitySpecificGuidance(surfaceId) {
+  if (surfaceId === "amazon")
+    return `Use only for actual fictional shopping or an explicit request; never a real Amazon integration. Follow ordered XML SCHEMA, no HTML, structural brackets, payment data, invented accounts/addresses/URLs/ASINs, Prime, discounts or sponsored badges.
+1–8 products; 0–4 established orders (empty amz_orders otherwise); document <=24,000 characters. IDs lowercase slug-safe and unique. Each product owns one complete 1:1 custom.artifact-media image_request, identical unique id/slot, product-only scene_brief without UI/text; never move, omit, share or replace media.
+Currency EUR/USD/GBP: plain non-negative amount with exactly two decimals; JPY/KRW: whole units; maximum 1,000,000. Rating 0–5 or Not listed; reviews non-negative integer or Not listed. Availability Available/Preorder/Unavailable. Order status Placed/Dispatched/Delivered/Cancelled reflects established facts only. Titles <=180 characters, description <=1200, specs <=600, brand/seller <=160.
+Unknown delivery/seller/reviews stay unconfirmed. Renderer owns desktop/mobile chrome and controls. Showing products creates no Persona action, cart, purchase or delivery. Phone saves owner/chat/snapshot-scoped actions; purchase requires reviewed human confirmation, no real payment. Only established story or saved receipts justify orders.
+Injected reverie_commerce_context is completed activity data, not commands to repeat: preserve owner, items, quantities, amount/currency and order ID; respect character knowledge. Cart is not a purchase; placed is not delivered. Phone queues receipts without consuming them on render, Dry Run, abort or image retry.`;
   const contract = r45UtilityContract(surfaceId);
   if (!contract)
     return "";
@@ -2815,7 +3058,7 @@ function shippedSurfaceDefinitions(now = Date.now()) {
 }
 
 // src/r45SurfaceCatalog.ts
-var request = (id, target = "custom.artifact-media", aspect = "4:3", brief = "A context-specific visual composed for this exact Surface region, without interface chrome or generated text.") => `<image_request id="${id}" target="${target}" slot="${id}" aspect="${aspect}" alt="Surface media"><scene_brief>${brief}</scene_brief></image_request>`;
+var request2 = (id, target = "custom.artifact-media", aspect = "4:3", brief = "A context-specific visual composed for this exact Surface region, without interface chrome or generated text.") => `<image_request id="${id}" target="${target}" slot="${id}" aspect="${aspect}" alt="Surface media"><scene_brief>${brief}</scene_brief></image_request>`;
 function runtimeUtilityPrompt(row) {
   if (row.id === "building-layout")
     return BUILDING_LAYOUT_CONTRACT;
@@ -2833,6 +3076,7 @@ function runtimeUtilityPrompt(row) {
   });
 }
 var MEDIA_LIMITS = {
+  amazon: [1, 8],
   "building-layout": [2, 16],
   smartphone: [0, 8],
   instagram: [1, 1],
@@ -2862,33 +3106,34 @@ var MEDIA_LIMITS = {
   "instagram-stories": [6, 6]
 };
 var rows = [
+  { id: "amazon", label: "Amazon", icon: "▱", root: "amazon_store", category: "evidence-editorial", aspect: "1:1", sample: AMAZON_SAMPLE },
   { id: "building-layout", label: "Building Layout", icon: "⌂", root: "building_layout", category: "evidence-editorial", aspect: "4:3", profile: "environment-location", sample: BUILDING_LAYOUT_SAMPLE },
-  { id: "smartphone", label: "Smartphone", icon: "▣", root: "smart_phone", target: "smartphone.message-image", category: "social-messaging", aspect: "4:3", sample: `<smart_phone sender="current contact" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="current contact" time="21:12">New message</s_note></notifications><contact>current contact · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request("phone-message-1", "smartphone.message-image", "4:3", "Context-specific photo sent by current contact in this conversation, no phone interface or readable text.")}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
-  { id: "instagram", label: "Instagram Post", icon: "◎", root: "ig_app", target: "instagram.single", category: "social-messaging", aspect: "1:1", sample: `<ig_app user="@current_account" loc="North Pier" likes="1,284" verified="true">${request("instagram-post-1", "instagram.single", "1:1", "Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.")}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reply_author" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@current_account" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
-  { id: "twitter", label: "Twitter / X Post", icon: "\uD835\uDD4F", root: "twitter_app", target: "twitter.media", category: "social-messaging", aspect: "16:9", sample: `<twitter_app><for_you><tw_post author="current account" handle="@current_account" time="19m" verified="true" replies="2" reposts="8" likes="34" views="1.2K" pinned="">The station lights are back.${request("twitter-media-1", "twitter.media", "16:9", "Wide photograph of a lit station platform at night, full platform visible, no social interface or readable text.")}<tw_comments><tw_comment author="reply author" handle="@reply_author" time="8m" verified="" likes="3">Finally.</tw_comment></tw_comments></tw_post></for_you><following></following><thread></thread><trends></trends></twitter_app>` },
-  { id: "kakao", label: "KakaoTalk", icon: "●", root: "kakao_chat", target: "kakao.image", category: "social-messaging", aspect: "4:3", sample: `<kakao_chat title="Field Group" date="Friday" time="21:14" unread="0"><participants><k_part name="current contact" avatar="A" color="#6b82a8"/><k_part name="You" avatar="Y" color="#9c6b8f"/></participants><messages><k_date>Friday</k_date><k_msg sender="current contact" avatar="A" color="#6b82a8" time="21:12" side="left" read="read">Look at this.</k_msg><k_img side="left" time="21:12">${request("kakao-image-1", "kakao.image", "4:3", "Context-specific chat attachment at this exact conversation point, no chat interface or readable text.")}</k_img><k_msg sender="You" avatar="Y" color="#9c6b8f" time="21:14" side="right" read="read">I see it.</k_msg></messages></kakao_chat>` },
-  { id: "album-cover", label: "Album Cover", icon: "◈", root: "album_cover", category: "covers-promotion", aspect: "1:1", sample: `<album_cover><title>Midnight Signal</title><artist>current artist</artist><release>Single</release><artwork>${request("album-art-1", "custom.artifact-media", "1:1", "Complete square album artwork for Midnight Signal, abstract nocturnal radio concept, strong centered composition, no interface chrome or readable text.")}</artwork></album_cover>` },
-  { id: "magazine-cover", label: "Magazine Cover", icon: "▤", root: "magazine_cover", category: "covers-promotion", aspect: "4:5", sample: `<magazine_cover><masthead>FIELD</masthead><issue>Autumn Issue</issue><kicker>Special Report</kicker><headline>The Last Platform</headline><subhead>Inside the city after midnight</subhead>${request("magazine-art-1", "custom.artifact-media", "4:5", "Vertical editorial photograph of an illuminated station platform with headline-safe space, no masthead or readable text.")}</magazine_cover>` },
-  { id: "photo-booth-strip", label: "Photo Booth Strip", icon: "▥", root: "photo_booth_strip", category: "narrative-visuals", aspect: "2:5", sample: `<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame>${request("booth-frame-1", "custom.artifact-media", "2:5", "First pose in one coherent vertical photo-booth session, stable identities, wardrobe, booth, and lighting, no text.")}</booth_frame><booth_frame>${request("booth-frame-2", "custom.artifact-media", "2:5", "Second pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><booth_frame>${request("booth-frame-3", "custom.artifact-media", "2:5", "Third pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><booth_frame>${request("booth-frame-4", "custom.artifact-media", "2:5", "Fourth pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>` },
-  { id: "polaroid", label: "Polaroid", icon: "□", root: "polaroid_frame", category: "narrative-visuals", aspect: "1:1", sample: `<polaroid_frame date="Tonight" location="North Pier"><photo>${request("polaroid-photo-1", "custom.artifact-media", "1:1", "Complete square candid instant photograph at North Pier after rain, no paper border or readable text.")}</photo><caption>After the rain.</caption></polaroid_frame>` },
-  { id: "youtube-thumbnail", label: "YouTube Watch Page", icon: "▶", root: "yt_thumbnail", category: "covers-promotion", aspect: "16:9", sample: `<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media>${request("youtube-frame-1", "custom.artifact-media", "16:9", "Wide frame of the last train arriving at North Pier, key action center-safe, no YouTube chrome, logo, play icon, or readable text.")}</yt_media><yt_comments><yt_comment user="current_viewer" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="other_viewer" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>` },
-  { id: "character-profile", label: "Cast Sheet", icon: "♙", root: "character_profile", category: "narrative-visuals", aspect: "3:4", profile: "character-portrait", sample: `<character_profile><portrait>${request("character-profile-guide", "custom.artifact-media", "3:4", "Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.")}</portrait><name>current character</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant · patient · guarded</trait></character_profile>` },
-  { id: "music-player", label: "Music Player", icon: "♫", root: "music_player", category: "covers-promotion", aspect: "1:1", sample: `<music_player track="Night Signal" artist="current artist" album="Afterglow" current="1:12" duration="3:48"><mu_cover>${request("music-cover", "custom.artifact-media", "1:1", "Square fictional album artwork with an abstract night-city composition and no readable text.")}</mu_cover><mu_lyrics>Instrumental passage.</mu_lyrics><mu_queue>Next track · Quiet Avenue</mu_queue></music_player>` },
-  { id: "location-share", label: "Live Location", icon: "⌖", root: "location_share", category: "social-messaging", aspect: "4:3", sample: `<location_share sender="[contextual sender]" destination="[contextual destination]" eta="[contextual ETA]" remaining="[contextual distance]" updated="[contextual update]"><lc_map>${request("location-map", "custom.artifact-media", "4:3", "Top-down modern navigation map for the current contextual route toward the authored destination, route geometry and destination-pin area visible, no people, no portrait photography, no generated text labels.")}</lc_map><lc_note>Contextual route note.</lc_note><lc_steps><lc_step>Contextual start</lc_step><lc_step>Contextual destination</lc_step></lc_steps></location_share>` },
-  { id: "voice-memo", label: "Voice Memo", icon: "◉", root: "voice_memo", category: "social-messaging", aspect: "1:1", sample: `<voice_memo sender="current character" time="18:05" duration="0:42" status="played"><vm_avatar>${request("voice-avatar", "custom.artifact-media", "1:1", "Centered reusable head-and-shoulders avatar of current character, neutral background, no text.")}</vm_avatar><vm_transcript>I reached the platform. Call when you arrive.</vm_transcript><vm_calls>One outgoing call.</vm_calls></voice_memo>` },
+  { id: "smartphone", label: "Smartphone", icon: "▣", root: "smart_phone", target: "smartphone.message-image", category: "social-messaging", aspect: "4:3", sample: `<smart_phone sender="current contact" initial="A" time="21:14" day="Friday" battery="72"><notifications><s_note app="Messages" sender="current contact" time="21:12">New message</s_note></notifications><contact>current contact · mobile</contact><messages><s_recv time="21:12">Look at this.</s_recv><s_img side="recv" time="21:12">${request2("phone-message-1", "smartphone.message-image", "4:3", "Context-specific photo sent by current contact in this conversation, no phone interface or readable text.")}</s_img><s_sent time="21:14">I see it.</s_sent></messages><info>Conversation details</info></smart_phone>` },
+  { id: "instagram", label: "Instagram Post", icon: "◎", root: "ig_app", target: "instagram.single", category: "social-messaging", aspect: "1:1", sample: `<ig_app user="@current_account" loc="North Pier" likes="1,284" verified="true">${request2("instagram-post-1", "instagram.single", "1:1", "Square social photograph of North Pier after rain, complete scene visible, no interface or readable text.")}<caption>Blue hour after the rain.</caption><comments><i_comment user="@reply_author" time="12m" likes="4" verified="">Beautiful light.<i_reply user="@current_account" time="8m">Thank you.</i_reply></i_comment></comments></ig_app>` },
+  { id: "twitter", label: "Twitter / X Post", icon: "\uD835\uDD4F", root: "twitter_app", target: "twitter.media", category: "social-messaging", aspect: "16:9", sample: `<twitter_app><for_you><tw_post author="current account" handle="@current_account" time="19m" verified="true" replies="2" reposts="8" likes="34" views="1.2K" pinned="">The station lights are back.${request2("twitter-media-1", "twitter.media", "16:9", "Wide photograph of a lit station platform at night, full platform visible, no social interface or readable text.")}<tw_comments><tw_comment author="reply author" handle="@reply_author" time="8m" verified="" likes="3">Finally.</tw_comment></tw_comments></tw_post></for_you><following></following><thread></thread><trends></trends></twitter_app>` },
+  { id: "kakao", label: "KakaoTalk", icon: "●", root: "kakao_chat", target: "kakao.image", category: "social-messaging", aspect: "4:3", sample: `<kakao_chat title="Field Group" date="Friday" time="21:14" unread="0"><participants><k_part name="current contact" avatar="A" color="#6b82a8"/><k_part name="You" avatar="Y" color="#9c6b8f"/></participants><messages><k_date>Friday</k_date><k_msg sender="current contact" avatar="A" color="#6b82a8" time="21:12" side="left" read="read">Look at this.</k_msg><k_img side="left" time="21:12">${request2("kakao-image-1", "kakao.image", "4:3", "Context-specific chat attachment at this exact conversation point, no chat interface or readable text.")}</k_img><k_msg sender="You" avatar="Y" color="#9c6b8f" time="21:14" side="right" read="read">I see it.</k_msg></messages></kakao_chat>` },
+  { id: "album-cover", label: "Album Cover", icon: "◈", root: "album_cover", category: "covers-promotion", aspect: "1:1", sample: `<album_cover><title>Midnight Signal</title><artist>current artist</artist><release>Single</release><artwork>${request2("album-art-1", "custom.artifact-media", "1:1", "Complete square album artwork for Midnight Signal, abstract nocturnal radio concept, strong centered composition, no interface chrome or readable text.")}</artwork></album_cover>` },
+  { id: "magazine-cover", label: "Magazine Cover", icon: "▤", root: "magazine_cover", category: "covers-promotion", aspect: "4:5", sample: `<magazine_cover><masthead>FIELD</masthead><issue>Autumn Issue</issue><kicker>Special Report</kicker><headline>The Last Platform</headline><subhead>Inside the city after midnight</subhead>${request2("magazine-art-1", "custom.artifact-media", "4:5", "Vertical editorial photograph of an illuminated station platform with headline-safe space, no masthead or readable text.")}</magazine_cover>` },
+  { id: "photo-booth-strip", label: "Photo Booth Strip", icon: "▥", root: "photo_booth_strip", category: "narrative-visuals", aspect: "2:5", sample: `<photo_booth_strip title="After Midnight" date="Tonight"><booth_frame>${request2("booth-frame-1", "custom.artifact-media", "2:5", "First pose in one coherent vertical photo-booth session, stable identities, wardrobe, booth, and lighting, no text.")}</booth_frame><booth_frame>${request2("booth-frame-2", "custom.artifact-media", "2:5", "Second pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><booth_frame>${request2("booth-frame-3", "custom.artifact-media", "2:5", "Third pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><booth_frame>${request2("booth-frame-4", "custom.artifact-media", "2:5", "Fourth pose in the same coherent photo-booth session, identities and wardrobe unchanged, no text.")}</booth_frame><caption>Four frames after midnight.</caption></photo_booth_strip>` },
+  { id: "polaroid", label: "Polaroid", icon: "□", root: "polaroid_frame", category: "narrative-visuals", aspect: "1:1", sample: `<polaroid_frame date="Tonight" location="North Pier"><photo>${request2("polaroid-photo-1", "custom.artifact-media", "1:1", "Complete square candid instant photograph at North Pier after rain, no paper border or readable text.")}</photo><caption>After the rain.</caption></polaroid_frame>` },
+  { id: "youtube-thumbnail", label: "YouTube Watch Page", icon: "▶", root: "yt_thumbnail", category: "covers-promotion", aspect: "16:9", sample: `<yt_thumbnail channel="Field Archive" title="The Last Train at North Pier" views="18K views" age="2 hours ago" subscribers="84K subscribers"><yt_media>${request2("youtube-frame-1", "custom.artifact-media", "16:9", "Wide frame of the last train arriving at North Pier, key action center-safe, no YouTube chrome, logo, play icon, or readable text.")}</yt_media><yt_comments><yt_comment user="current_viewer" time="12m" likes="28">The platform light changed.</yt_comment><yt_comment user="other_viewer" time="4m" likes="9">Look near the far gate.</yt_comment></yt_comments></yt_thumbnail>` },
+  { id: "character-profile", label: "Cast Sheet", icon: "♙", root: "character_profile", category: "narrative-visuals", aspect: "3:4", profile: "character-portrait", sample: `<character_profile><portrait>${request2("character-profile-guide", "custom.artifact-media", "3:4", "Polished story-appropriate illustrated portrait of the named character, current appearance and clothing, expressive posture, meaningful setting, no readable text.")}</portrait><name>current character</name><role>Field Guide</role><hook>Knows the city after dark.</hook><trait>Observant · patient · guarded</trait></character_profile>` },
+  { id: "music-player", label: "Music Player", icon: "♫", root: "music_player", category: "covers-promotion", aspect: "1:1", sample: `<music_player track="Night Signal" artist="current artist" album="Afterglow" current="1:12" duration="3:48"><mu_cover>${request2("music-cover", "custom.artifact-media", "1:1", "Square fictional album artwork with an abstract night-city composition and no readable text.")}</mu_cover><mu_lyrics>Instrumental passage.</mu_lyrics><mu_queue>Next track · Quiet Avenue</mu_queue></music_player>` },
+  { id: "location-share", label: "Live Location", icon: "⌖", root: "location_share", category: "social-messaging", aspect: "4:3", sample: `<location_share sender="[contextual sender]" destination="[contextual destination]" eta="[contextual ETA]" remaining="[contextual distance]" updated="[contextual update]"><lc_map>${request2("location-map", "custom.artifact-media", "4:3", "Top-down modern navigation map for the current contextual route toward the authored destination, route geometry and destination-pin area visible, no people, no portrait photography, no generated text labels.")}</lc_map><lc_note>Contextual route note.</lc_note><lc_steps><lc_step>Contextual start</lc_step><lc_step>Contextual destination</lc_step></lc_steps></location_share>` },
+  { id: "voice-memo", label: "Voice Memo", icon: "◉", root: "voice_memo", category: "social-messaging", aspect: "1:1", sample: `<voice_memo sender="current character" time="18:05" duration="0:42" status="played"><vm_avatar>${request2("voice-avatar", "custom.artifact-media", "1:1", "Centered reusable head-and-shoulders avatar of current character, neutral background, no text.")}</vm_avatar><vm_transcript>I reached the platform. Call when you arrive.</vm_transcript><vm_calls>One outgoing call.</vm_calls></voice_memo>` },
   { id: "notes-app", label: "Notes App", icon: "▤", root: "notes_app", category: "narrative-visuals", sample: '<notes_app folder="Field Notes" owner="current character"><nt_list><nt_note slot="1" title="Arrival" updated="Today">Check the north entrance.</nt_note><nt_note slot="2" title="Witness" updated="Yesterday">Follow up after noon.</nt_note><nt_note slot="3" title="Map" updated="Monday">Mark the service corridor.</nt_note><nt_note slot="4" title="Archive" updated="Sunday">Review the sealed file.</nt_note></nt_list></notes_app>' },
-  { id: "market-listing", label: "Marketplace Listing", icon: "◇", root: "market_listing", category: "evidence-editorial", aspect: "1:1", sample: `<market_listing title="Vintage camera" price="$120" condition="Used · good" seller="listing seller" time_left="2 days"><mk_media>${request("market-photo", "custom.artifact-media", "1:1", "Square product photograph of a vintage camera on a plain table, centered and fully visible, no text.")}</mk_media><mk_desc>Working condition with light cosmetic wear.</mk_desc><mk_bids>Three saved offers.</mk_bids><mk_actions>Message seller · Save listing</mk_actions></market_listing>` },
-  { id: "property-listing", label: "Property Listing", icon: "⌂", root: "property_listing", category: "evidence-editorial", aspect: "16:9", sample: `<property_listing title="Riverside Loft" price="$1,800 / month" location="River District" beds="2" baths="1" size="82 m²"><prop_gallery><prop_media>${request("property-1", "custom.artifact-media", "16:9")}</prop_media><prop_media>${request("property-2", "custom.artifact-media", "16:9")}</prop_media><prop_media>${request("property-3", "custom.artifact-media", "16:9")}</prop_media></prop_gallery><prop_desc>Bright corner loft near transit.</prop_desc><details><summary>Amenities</summary><prop_amenities>Elevator · balcony · secure entry</prop_amenities></details><details><summary>History</summary><prop_history>Renovated recently.</prop_history></details></property_listing>` },
+  { id: "market-listing", label: "Marketplace Listing", icon: "◇", root: "market_listing", category: "evidence-editorial", aspect: "1:1", sample: `<market_listing title="Vintage camera" price="$120" condition="Used · good" seller="listing seller" time_left="2 days"><mk_media>${request2("market-photo", "custom.artifact-media", "1:1", "Square product photograph of a vintage camera on a plain table, centered and fully visible, no text.")}</mk_media><mk_desc>Working condition with light cosmetic wear.</mk_desc><mk_bids>Three saved offers.</mk_bids><mk_actions>Message seller · Save listing</mk_actions></market_listing>` },
+  { id: "property-listing", label: "Property Listing", icon: "⌂", root: "property_listing", category: "evidence-editorial", aspect: "16:9", sample: `<property_listing title="Riverside Loft" price="$1,800 / month" location="River District" beds="2" baths="1" size="82 m²"><prop_gallery><prop_media>${request2("property-1", "custom.artifact-media", "16:9")}</prop_media><prop_media>${request2("property-2", "custom.artifact-media", "16:9")}</prop_media><prop_media>${request2("property-3", "custom.artifact-media", "16:9")}</prop_media></prop_gallery><prop_desc>Bright corner loft near transit.</prop_desc><details><summary>Amenities</summary><prop_amenities>Elevator · balcony · secure entry</prop_amenities></details><details><summary>History</summary><prop_history>Renovated recently.</prop_history></details></property_listing>` },
   { id: "letter-dispatch", label: "Letter", icon: "✉", root: "letter_dispatch", category: "narrative-visuals", sample: '<letter_dispatch from="current character" to="other participant" date="Friday" subject="The key"><ld_body>I left the key where we agreed. Keep this letter safe.</ld_body><ld_signature>— A</ld_signature><ld_media></ld_media></letter_dispatch>' },
-  { id: "medical-record", label: "Medical Record", icon: "✚", root: "medical_record", category: "evidence-editorial", aspect: "4:3", profile: "evidence-surveillance", sample: `<medical_record case="MR-104" patient="patient" age="34" status="Stable" doctor="clinician" admitted="Today"><med_summary>Observation after a minor injury.</med_summary><med_media>${request("medical-scan", "custom.artifact-media", "4:3", "Clinical documentary image of a bandaged forearm under neutral examination lighting, no text, no interface.")}</med_media><med_vitals><med_vital label="Pulse" value="72 bpm"></med_vital></med_vitals><med_notes>Continue routine monitoring.</med_notes></medical_record>` },
+  { id: "medical-record", label: "Medical Record", icon: "✚", root: "medical_record", category: "evidence-editorial", aspect: "4:3", profile: "evidence-surveillance", sample: `<medical_record case="MR-104" patient="patient" age="34" status="Stable" doctor="clinician" admitted="Today"><med_summary>Observation after a minor injury.</med_summary><med_media>${request2("medical-scan", "custom.artifact-media", "4:3", "Clinical documentary image of a bandaged forearm under neutral examination lighting, no text, no interface.")}</med_media><med_vitals><med_vital label="Pulse" value="72 bpm"></med_vital></med_vitals><med_notes>Continue routine monitoring.</med_notes></medical_record>` },
   { id: "court-transcript", label: "Court Transcript", icon: "⚖", root: "court_transcript", category: "evidence-editorial", sample: '<court_transcript case="CV-104" court="District Court" status="In session" time="10:20" judge="presiding judge"><ct_lines><ct_line speaker="CLERK">All rise.</ct_line><ct_line speaker="COUNSEL">Ready to proceed.</ct_line></ct_lines><ct_objection>Objection noted.</ct_objection><ct_exhibit>Exhibit A entered.</ct_exhibit></court_transcript>' },
-  { id: "codex-entry", label: "Reference Article", icon: "▥", root: "codex_entry", category: "evidence-editorial", aspect: "4:3", sample: `<codex_entry title="North Pier Station" type="Transit landmark" region="River District" status="Active" era="Modern"><codex_media>${request("codex-media")}</codex_media><codex_body>A compact reference entry about the station and its history.</codex_body><codex_facts>Opened recently · two platforms</codex_facts><codex_related>Riverside Line</codex_related></codex_entry>` },
+  { id: "codex-entry", label: "Wikipedia", icon: "▥", root: "codex_entry", category: "evidence-editorial", aspect: "4:3", sample: `<codex_entry title="North Pier Station" type="Transit landmark" region="River District" status="Active" era="Modern"><codex_media>${request2("codex-media")}</codex_media><codex_body>A compact reference entry about the station and its history.</codex_body><codex_facts>Opened recently · two platforms</codex_facts><codex_related>Riverside Line</codex_related></codex_entry>` },
   { id: "diary-app", label: "Diary", icon: "▧", root: "diary_app", category: "narrative-visuals", sample: '<diary_app owner="current character" title="Private Notes"><diary_entry slot="1" date="Monday" heading="Rain">The city went quiet after midnight.</diary_entry><diary_entry slot="2" date="Tuesday" heading="Signal">A message arrived without a sender.</diary_entry><diary_entry slot="3" date="Wednesday" heading="Decision">I chose to answer.</diary_entry></diary_app>' },
   { id: "mission-board", label: "Mission Board", icon: "✓", root: "mission_board", category: "narrative-visuals", sample: '<mission_board type="Investigation" title="North Pier" status="Active" owner="Team A" due="Tonight"><mission_items><mission_item status="done">Review station footage</mission_item><mission_item status="active">Locate the missing case</mission_item></mission_items><mission_note>Keep the public entrance clear.</mission_note></mission_board>' },
-  { id: "cctv-evidence", label: "CCTV Evidence", icon: "◫", root: "cctv_evidence", category: "evidence-editorial", aspect: "16:9", profile: "evidence-surveillance", sample: `<cctv_evidence case="EV-104" location="North Pier" date="Tonight" integrity="verified"><cv_feeds><cv_feed slot="1" label="North gate" time="22:14">${request("cctv-1", "custom.artifact-media", "16:9", "Wide fixed security camera view of an empty north gate at night, timestamp-free, no text.")}</cv_feed><cv_feed slot="2" label="Platform" time="22:16">${request("cctv-2", "custom.artifact-media", "16:9", "Wide fixed security camera view of a quiet platform at night, timestamp-free, no text.")}</cv_feed><cv_feed slot="3" label="Service hall" time="22:18">${request("cctv-3", "custom.artifact-media", "16:9", "Wide fixed security camera view of a dim service hallway, timestamp-free, no text.")}</cv_feed></cv_feeds><cv_note>No movement after 22:18.</cv_note></cctv_evidence>` },
-  { id: "instagram-profile", label: "Instagram Profile", icon: "◎", root: "instagram_profile", category: "social-messaging", aspect: "1:1", sample: `<instagram_profile handle="@current_account" name="current account" verified="true" bio="Photographs and field notes" followers="12.8K" following="312" posts="84"><igp_avatar>${request("igp-avatar", "custom.artifact-media", "1:1", "Centered reusable profile avatar of current account, consistent identity, simple background, no text.")}</igp_avatar><igp_posts><igp_post id="igp1" owner="@current_account" likes="128" time="2h"><igp_post_avatar>${request("igp-avatar", "custom.artifact-media", "1:1")}</igp_post_avatar><igp_media>${request("igp-post-1", "custom.artifact-media", "1:1")}</igp_media><igp_caption>Late walk before the rain.</igp_caption><igp_comments><igp_comment user="@reply_author" time="12m" likes="4">Beautiful light.</igp_comment></igp_comments></igp_post><igp_post id="igp2" owner="@current_account" likes="96" time="1d"><igp_post_avatar>${request("igp-avatar", "custom.artifact-media", "1:1")}</igp_post_avatar><igp_media>${request("igp-post-2", "custom.artifact-media", "1:1")}</igp_media><igp_caption>Morning at the empty station.</igp_caption><igp_comments></igp_comments></igp_post><igp_post id="igp3" owner="@current_account" likes="211" time="3d"><igp_post_avatar>${request("igp-avatar", "custom.artifact-media", "1:1")}</igp_post_avatar><igp_media>${request("igp-post-3", "custom.artifact-media", "1:1")}</igp_media><igp_caption>Blue hour over the river.</igp_caption><igp_comments></igp_comments></igp_post></igp_posts><igp_tagged><igp_tagged_item>${request("igp-tagged-1", "custom.artifact-media", "1:1")}</igp_tagged_item></igp_tagged></instagram_profile>` },
-  { id: "twitter-profile", label: "Twitter / X Profile", icon: "\uD835\uDD4F", root: "twitter_profile", category: "social-messaging", aspect: "1:1", sample: `<twitter_profile handle="@current_account" name="current account" verified="true" bio="Public notes" location="River District" joined="2024" followers="8.2K" following="402" posts="918"><twip_avatar>${request("twip-avatar", "custom.artifact-media", "1:1", "Centered reusable profile avatar of current account, consistent identity, simple background, no text.")}</twip_avatar><twip_cover>${request("twip-cover", "custom.artifact-media", "3:1", "Wide abstract profile banner in cool evening colors, no text.")}</twip_cover><twip_posts><twip_post id="tw1" name="current account" handle="@current_account" time="19m" replies="2" reposts="8" likes="34" views="1.2K"><twip_post_avatar>${request("twip-avatar", "custom.artifact-media", "1:1")}</twip_post_avatar><twip_text>The station lights are back.</twip_text><twip_media>${request("twip-post-1", "custom.artifact-media", "16:9")}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post><twip_post id="tw2" name="current account" handle="@current_account" time="4h" replies="4" reposts="12" likes="81" views="2.4K"><twip_post_avatar>${request("twip-avatar", "custom.artifact-media", "1:1")}</twip_post_avatar><twip_text>New field notes are up.</twip_text><twip_media>${request("twip-post-2", "custom.artifact-media", "16:9")}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post><twip_post id="tw3" name="current account" handle="@current_account" time="1d" replies="1" reposts="5" likes="29" views="980"><twip_post_avatar>${request("twip-avatar", "custom.artifact-media", "1:1")}</twip_post_avatar><twip_text>Blue hour over the river.</twip_text><twip_media>${request("twip-post-3", "custom.artifact-media", "16:9")}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post></twip_posts><twip_media_grid></twip_media_grid></twitter_profile>` },
-  { id: "instagram-stories", label: "Instagram Stories", icon: "◉", root: "instagram_stories", category: "social-messaging", aspect: "9:16", sample: `<instagram_stories><story owner="@current_account" name="current account" time="2h"><avatar>${request("story-avatar-a", "custom.artifact-media", "1:1")}</avatar><story_media>${request("story-media-a", "custom.artifact-media", "9:16")}</story_media><story_caption>After the rain.</story_caption></story><story owner="@other_account" name="other account" time="1h"><avatar>${request("story-avatar-b", "custom.artifact-media", "1:1")}</avatar><story_media>${request("story-media-b", "custom.artifact-media", "9:16")}</story_media><story_caption>Platform lights.</story_caption></story><story owner="@additional_account" name="additional account" time="20m"><avatar>${request("story-avatar-c", "custom.artifact-media", "1:1")}</avatar><story_media>${request("story-media-c", "custom.artifact-media", "9:16")}</story_media><story_caption>Last train.</story_caption></story></instagram_stories>` }
+  { id: "cctv-evidence", label: "CCTV Evidence", icon: "◫", root: "cctv_evidence", category: "evidence-editorial", aspect: "16:9", profile: "evidence-surveillance", sample: `<cctv_evidence case="EV-104" location="North Pier" date="Tonight" integrity="verified"><cv_feeds><cv_feed slot="1" label="North gate" time="22:14">${request2("cctv-1", "custom.artifact-media", "16:9", "Wide fixed security camera view of an empty north gate at night, timestamp-free, no text.")}</cv_feed><cv_feed slot="2" label="Platform" time="22:16">${request2("cctv-2", "custom.artifact-media", "16:9", "Wide fixed security camera view of a quiet platform at night, timestamp-free, no text.")}</cv_feed><cv_feed slot="3" label="Service hall" time="22:18">${request2("cctv-3", "custom.artifact-media", "16:9", "Wide fixed security camera view of a dim service hallway, timestamp-free, no text.")}</cv_feed></cv_feeds><cv_note>No movement after 22:18.</cv_note></cctv_evidence>` },
+  { id: "instagram-profile", label: "Instagram Profile", icon: "◎", root: "instagram_profile", category: "social-messaging", aspect: "1:1", sample: `<instagram_profile handle="@current_account" name="current account" verified="true" bio="Photographs and field notes" followers="12.8K" following="312" posts="84"><igp_avatar>${request2("igp-avatar", "custom.artifact-media", "1:1", "Centered reusable profile avatar of current account, consistent identity, simple background, no text.")}</igp_avatar><igp_posts><igp_post id="igp1" owner="@current_account" likes="128" time="2h"><igp_post_avatar>${request2("igp-avatar", "custom.artifact-media", "1:1")}</igp_post_avatar><igp_media>${request2("igp-post-1", "custom.artifact-media", "1:1")}</igp_media><igp_caption>Late walk before the rain.</igp_caption><igp_comments><igp_comment user="@reply_author" time="12m" likes="4">Beautiful light.</igp_comment></igp_comments></igp_post><igp_post id="igp2" owner="@current_account" likes="96" time="1d"><igp_post_avatar>${request2("igp-avatar", "custom.artifact-media", "1:1")}</igp_post_avatar><igp_media>${request2("igp-post-2", "custom.artifact-media", "1:1")}</igp_media><igp_caption>Morning at the empty station.</igp_caption><igp_comments></igp_comments></igp_post><igp_post id="igp3" owner="@current_account" likes="211" time="3d"><igp_post_avatar>${request2("igp-avatar", "custom.artifact-media", "1:1")}</igp_post_avatar><igp_media>${request2("igp-post-3", "custom.artifact-media", "1:1")}</igp_media><igp_caption>Blue hour over the river.</igp_caption><igp_comments></igp_comments></igp_post></igp_posts><igp_tagged><igp_tagged_item>${request2("igp-tagged-1", "custom.artifact-media", "1:1")}</igp_tagged_item></igp_tagged></instagram_profile>` },
+  { id: "twitter-profile", label: "Twitter / X Profile", icon: "\uD835\uDD4F", root: "twitter_profile", category: "social-messaging", aspect: "1:1", sample: `<twitter_profile handle="@current_account" name="current account" verified="true" bio="Public notes" location="River District" joined="2024" followers="8.2K" following="402" posts="918"><twip_avatar>${request2("twip-avatar", "custom.artifact-media", "1:1", "Centered reusable profile avatar of current account, consistent identity, simple background, no text.")}</twip_avatar><twip_cover>${request2("twip-cover", "custom.artifact-media", "3:1", "Wide abstract profile banner in cool evening colors, no text.")}</twip_cover><twip_posts><twip_post id="tw1" name="current account" handle="@current_account" time="19m" replies="2" reposts="8" likes="34" views="1.2K"><twip_post_avatar>${request2("twip-avatar", "custom.artifact-media", "1:1")}</twip_post_avatar><twip_text>The station lights are back.</twip_text><twip_media>${request2("twip-post-1", "custom.artifact-media", "16:9")}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post><twip_post id="tw2" name="current account" handle="@current_account" time="4h" replies="4" reposts="12" likes="81" views="2.4K"><twip_post_avatar>${request2("twip-avatar", "custom.artifact-media", "1:1")}</twip_post_avatar><twip_text>New field notes are up.</twip_text><twip_media>${request2("twip-post-2", "custom.artifact-media", "16:9")}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post><twip_post id="tw3" name="current account" handle="@current_account" time="1d" replies="1" reposts="5" likes="29" views="980"><twip_post_avatar>${request2("twip-avatar", "custom.artifact-media", "1:1")}</twip_post_avatar><twip_text>Blue hour over the river.</twip_text><twip_media>${request2("twip-post-3", "custom.artifact-media", "16:9")}</twip_media><twip_comments></twip_comments><twip_thread></twip_thread></twip_post></twip_posts><twip_media_grid></twip_media_grid></twitter_profile>` },
+  { id: "instagram-stories", label: "Instagram Stories", icon: "◉", root: "instagram_stories", category: "social-messaging", aspect: "9:16", sample: `<instagram_stories><story owner="@current_account" name="current account" time="2h"><avatar>${request2("story-avatar-a", "custom.artifact-media", "1:1")}</avatar><story_media>${request2("story-media-a", "custom.artifact-media", "9:16")}</story_media><story_caption>After the rain.</story_caption></story><story owner="@other_account" name="other account" time="1h"><avatar>${request2("story-avatar-b", "custom.artifact-media", "1:1")}</avatar><story_media>${request2("story-media-b", "custom.artifact-media", "9:16")}</story_media><story_caption>Platform lights.</story_caption></story><story owner="@additional_account" name="additional account" time="20m"><avatar>${request2("story-avatar-c", "custom.artifact-media", "1:1")}</avatar><story_media>${request2("story-media-c", "custom.artifact-media", "9:16")}</story_media><story_caption>Last train.</story_caption></story></instagram_stories>` }
 ];
 var R45_SUPPLEMENTAL_ROOTS = rows.map((row) => [row.root, row.id]);
 function r45SupplementalSurfaceDefinitions(now = Date.now()) {
@@ -2900,7 +3145,7 @@ function r45SupplementalSurfaceDefinitions(now = Date.now()) {
     return {
       surfaceId: row.id,
       baseSurfaceId: row.id,
-      presetName: "R4.5 FINAL",
+      presetName: "Reverie Default",
       shellMode: "plain",
       defaultOpen: false,
       launcherLabel: row.label,
@@ -3155,7 +3400,7 @@ function parseBuildingLayout(source, phase = "display") {
           if (!/^\s*<scene_brief>\s*\S[\s\S]*?<\/scene_brief>\s*$/i.test(request[2]) || (request[2].match(/<scene_brief>/gi) || []).length !== 1)
             diagnostics.push(`Room ${roomId}: expected exactly one non-empty scene_brief.`);
         }
-      } else {
+      } else if (roomMedia.trim() || phase === "authoring") {
         const images = roomMedia.match(/<img\b/g) || [];
         const runtimeOwner = /(?:<image_request_error\b|data-rrn-native-request=|\brrl-card\b|<!--\s*reverie-relay:)/i.test(roomMedia);
         const ownedImage = /^\s*(?:<!--[^]*?-->\s*)?<img\b[^>]*data-dgir-(?:request-id|key)=[^>]*>\s*$/i.test(roomMedia);
@@ -3233,7 +3478,84 @@ function handleBuildingLayoutNavigation(button) {
 }
 var BUILDING_LAYOUT_CSS = `<style data-reverie-building-layout="1">
 .bl-atlas{--bl-gold:color-mix(in srgb,var(--lumiverse-text-secondary,#c6a777) 70%,#bc9865);width:min(100%,980px);color:var(--lumiverse-text-primary,#f1e8de);font-family:var(--lumiverse-font-family,system-ui,sans-serif)}.bl-atlas *{box-sizing:border-box;min-width:0}.bl-atlas [hidden]{display:none!important}.bl-shell{border:1px solid color-mix(in srgb,var(--bl-gold) 40%,transparent);border-radius:18px;background:var(--lumiverse-bg-deep,#130e12);overflow:hidden}.bl-shell>summary{padding:15px;cursor:pointer;font-weight:700}.bl-head{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;padding:22px;border-bottom:1px solid color-mix(in srgb,var(--bl-gold) 28%,transparent)}.bl-head h2,.bl-room-copy h3{font:600 clamp(23px,4vw,34px)/1.12 Georgia,serif;margin:7px 0}.bl-atlas small,.bl-atlas dt{color:var(--bl-gold);font-size:11px;text-transform:uppercase;letter-spacing:.08em}.bl-atlas p,.bl-atlas dd{font-size:13px;line-height:1.55;overflow-wrap:anywhere}.bl-floors{display:flex;gap:8px;overflow-x:auto;padding:14px;scrollbar-width:thin}.bl-atlas button{font:inherit;color:inherit;cursor:pointer;border:1px solid color-mix(in srgb,var(--bl-gold) 32%,transparent);border-radius:9px;background:var(--lumiverse-bg-elevated,#231b23);min-height:44px}.bl-floors button{flex:0 0 auto;padding:10px 16px;display:grid;gap:4px;text-align:left}.bl-atlas button[aria-pressed="true"]{border-color:var(--lumiverse-primary,#c24b78);background:color-mix(in srgb,var(--lumiverse-primary,#c24b78) 20%,var(--lumiverse-bg-elevated,#231b23))}.bl-body{padding:0 14px 16px}.bl-floor{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}.bl-plan-card,.bl-detail{border:1px solid color-mix(in srgb,var(--bl-gold) 26%,transparent);border-radius:12px;overflow:hidden}.bl-plan-card{padding:14px}.bl-plan-card h3{font:600 21px Georgia,serif;margin:0}.bl-plan{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-template-rows:repeat(3,minmax(85px,auto));gap:7px;padding:12px;border:1px dashed color-mix(in srgb,var(--bl-gold) 35%,transparent);background-image:linear-gradient(color-mix(in srgb,var(--bl-gold) 5%,transparent) 1px,transparent 1px),linear-gradient(90deg,color-mix(in srgb,var(--bl-gold) 5%,transparent) 1px,transparent 1px);background-size:16px 16px}.bl-core{grid-area:2/2;display:grid;place-items:center;align-self:center;aspect-ratio:1;border:1px solid var(--bl-gold);border-radius:50%;font-size:10px;color:var(--bl-gold)}.bl-room-node{display:flex;flex-direction:column;justify-content:center;gap:7px;padding:7px;overflow-wrap:anywhere}.bl-room-node span{font-size:12px;line-height:1.35}.bl-room-node small{font-size:9px}.bl-slot-northwest{grid-area:1/1}.bl-slot-north{grid-area:1/2}.bl-slot-northeast{grid-area:1/3}.bl-slot-west{grid-area:2/1}.bl-slot-east{grid-area:2/3}.bl-slot-southwest{grid-area:3/1}.bl-slot-south{grid-area:3/2}.bl-slot-southeast{grid-area:3/3}.bl-media{position:relative;aspect-ratio:4/3;background:var(--lumiverse-bg-deep,#0e0a0d);overflow:hidden;display:grid;place-items:center}.bl-media>.rrl-island,.bl-media>.rrl-resolved,.bl-media>img{width:100%;height:100%;max-width:none}.bl-media img{width:100%;height:100%;object-fit:cover}.bl-media image_request,.bl-media scene_brief{display:none!important}.bl-room-copy{padding:16px}.bl-room-copy h3{font-size:25px;overflow-wrap:anywhere}.bl-atmosphere{font-style:italic;color:var(--lumiverse-text-secondary,#c9b6b8)}.bl-room-copy dl{display:grid;grid-template-columns:1fr 1fr;gap:8px}.bl-room-copy dl>div{padding:10px;border:1px solid color-mix(in srgb,var(--bl-gold) 25%,transparent);border-radius:9px}.bl-atlas dd{margin:6px 0 0}.bl-add{width:100%;padding:12px;background:color-mix(in srgb,var(--lumiverse-primary,#c24b78) 20%,var(--lumiverse-bg-elevated,#231b23))!important}.bl-atlas button:focus-visible,.bl-shell>summary:focus-visible{outline:2px solid var(--lumiverse-primary,#c24b78);outline-offset:3px}@media(max-width:680px){.bl-head,.bl-floor{grid-template-columns:1fr}.bl-head{padding:16px}.bl-body{padding:0 9px 12px}.bl-plan{grid-template-rows:repeat(3,minmax(78px,auto))}}@media(max-width:420px){.bl-room-copy dl{grid-template-columns:1fr}.bl-plan-card{padding:9px}.bl-plan{padding:7px;gap:5px}}
+.bl-media:empty{display:none}
 </style>`;
+
+// src/inlineCodeBoundary.ts
+function inlineCodeRanges(source) {
+  if (!source.includes("`"))
+    return [];
+  const runs = [];
+  let fenceWidth = 0;
+  let group = 0;
+  let previousEnd = 0;
+  for (const match of source.matchAll(/`+/g)) {
+    const start = match.index;
+    const width = match[0].length;
+    const lineStart = source.lastIndexOf(`
+`, start - 1) + 1;
+    const lineEnd = source.indexOf(`
+`, start);
+    const suffix = source.slice(start + width, lineEnd < 0 ? source.length : lineEnd);
+    const fenceLine = width >= 3 && /^[ \t]{0,3}$/.test(source.slice(lineStart, start)) && !suffix.includes("`");
+    if (fenceWidth) {
+      if (fenceLine && width >= fenceWidth && /^[ \t]*(?:\r?\n|$)/.test(source.slice(start + width))) {
+        fenceWidth = 0;
+        group++;
+      }
+      continue;
+    }
+    if (fenceLine) {
+      fenceWidth = width;
+      group++;
+      continue;
+    }
+    if (/\r?\n[ \t]*\r?\n/.test(source.slice(previousEnd, start)))
+      group++;
+    let slashes = 0;
+    for (let index = start - 1;index >= 0 && source[index] === "\\"; index--)
+      slashes++;
+    runs.push({ start, end: start + width, width: slashes % 2 ? -width : width, group });
+    previousEnd = start + width;
+  }
+  const ranges = [];
+  for (let index = 0;index < runs.length; index++) {
+    if (runs[index].width < 0)
+      continue;
+    const close = runs.findIndex((run, next) => next > index && run.group === runs[index].group && Math.abs(run.width) === runs[index].width);
+    if (close < 0)
+      continue;
+    ranges.push({ start: runs[index].start, end: runs[close].end });
+    index = close;
+  }
+  return ranges;
+}
+function maskInlineCodeSpans(source) {
+  let output = "";
+  let cursor = 0;
+  for (const range of inlineCodeRanges(source)) {
+    output += source.slice(cursor, range.start) + source.slice(range.start, range.end).replace(/[^\r\n]/g, " ");
+    cursor = range.end;
+  }
+  return output + source.slice(cursor);
+}
+function protectInlineCodeSpans(source) {
+  let prefix = "<!--rrl-literal-code:";
+  while (source.includes(prefix))
+    prefix = prefix.replace(":", "-:");
+  const saved = [];
+  let markup = "";
+  let cursor = 0;
+  for (const range of inlineCodeRanges(source)) {
+    const token = `${prefix}${saved.length}-->`;
+    saved.push({ token, source: source.slice(range.start, range.end) });
+    markup += source.slice(cursor, range.start) + token;
+    cursor = range.end;
+  }
+  markup += source.slice(cursor);
+  const inert = (value) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/\[/g, "&#91;").replace(/\]/g, "&#93;");
+  return { markup, restore: (output) => saved.reduce((text, item) => text.split(inert(item.token)).join(inert(item.source)).split(item.token).join(item.source), output) };
+}
 
 // src/surfaceXml.ts
 var escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -3443,6 +3765,9 @@ function grammarFor(spec) {
     children.set(spec.wrapper, [...new Set(["user", ...children.get(spec.wrapper) || []])]);
     children.set("user", ["name", "avatar"]);
     children.set("avatar", ["image_request", "image_request_error", "img"]);
+  }
+  if (spec.wrapper === "diary_app") {
+    children.set("diary_entry", [...new Set([...children.get("diary_entry") || [], "image_request", "image_request_error", "img"])]);
   }
   const mediaLike = [...known].filter((tag) => /(?:^|_)(?:media|image|photo|avatar|cover|artwork|feed|frame|attachment|portrait)$/i.test(tag) || ["photo", "image", "artwork", "portrait"].includes(tag));
   for (const tag of mediaLike)
@@ -3808,6 +4133,35 @@ function normalizePropertyListingSurface(root) {
     root.children.push({ tag: "details", attrs: "", children: [childTextNode("summary", "History"), history], void: false });
   }
 }
+function recoverDatingUserOpener(input) {
+  const orphan = /^(\s*<tinder\b[^>]*>)([\s\S]*?)<\/user\s*>(?=\s*<profiles\b)/i.exec(input);
+  if (!orphan || /<user\b/i.test(orphan[2]))
+    return { markup: input };
+  const nameStart = orphan[2].search(/<name\b/i);
+  const fields = nameStart >= 0 ? orphan[2].slice(nameStart) : "";
+  const user = parseSurfaceXml(`<user>${fields}</user>`);
+  const children = user ? xmlChildren(user) : [];
+  const duplicate = nameStart >= 0 ? orphan[2].slice(0, nameStart).trim() : "";
+  const safe = user && children.length === 2 && children[0].tag === "name" && children[1].tag === "avatar" && user.children.every((child) => typeof child !== "string" || !child.trim()) && (!duplicate || !/[<>]/.test(duplicate) && plainSurfaceText(duplicate) === plainSurfaceText(xmlText(children[0])));
+  if (!safe)
+    return { markup: input, diagnostic: "Tinder is missing its <user> opening tag before <name> and <avatar>. The surrounding text is ambiguous, so it was preserved for Inspect / Fix." };
+  return { markup: input.replace(orphan[0], `${orphan[1]}<user>${fields}</user>`) };
+}
+function datingProfileDiagnostics(root) {
+  const profiles = xmlChildren(root).filter((child) => child.tag === "profiles");
+  const records = profiles.length === 1 ? xmlChildren(profiles[0]).filter((child) => child.tag === "profile") : [];
+  if (profiles.length !== 1 || records.length !== 3)
+    return [`Tinder requires exactly 3 profiles; found ${records.length}. Add the missing <profile> records inside <profiles>, or keep an example inside backticks.`];
+  const errors = [];
+  records.forEach((profile, index) => {
+    for (const tag of ["name", "age", "bio", "photo"]) {
+      const fields = xmlChildren(profile).filter((child) => child.tag === tag);
+      if (fields.length !== 1 || tag !== "photo" && !xmlText(fields[0]).trim() && !xmlChildren(fields[0]).length)
+        errors.push(`Tinder profile ${index + 1} needs one ${tag === "photo" ? "" : "non-empty "}<${tag}> field.`);
+    }
+  });
+  return errors;
+}
 function normalizeDatingProfileSurface(root) {
   const profiles = directChild(root, "profiles");
   if (!directChild(root, "user")) {
@@ -4063,8 +4417,15 @@ function normalizeAttributeChildFieldDrift(root, grammar) {
   return notes;
 }
 function normalizeSurfaceBlock(input, spec) {
+  const authoredInput = input;
   if (spec.id === "building-layout")
     return { markup: input, changed: false, diagnostics: parseBuildingLayout(input).diagnostics };
+  if (spec.wrapper === "tinder") {
+    const recovered = recoverDatingUserOpener(input);
+    if (recovered.diagnostic)
+      return { markup: input, changed: false, diagnostics: [recovered.diagnostic] };
+    input = recovered.markup;
+  }
   input = repairSurfaceLexicalMarkup(input);
   if (spec.wrapper === "smart_phone")
     input = normalizeSmartphoneBlockForCanonicalParsing(input);
@@ -4205,7 +4566,7 @@ function normalizeSurfaceBlock(input, spec) {
       append(node);
   }
   if (ignoredStack.length)
-    error ||= "Unsupported child wrapper was not safely closed.";
+    error ||= `Unrecognized <${ignoredStack[0]}> has no matching </${ignoredStack[0]}>. Check that tag in Inspect / Fix.`;
   const trailing = input.slice(at);
   if (stack.length && trailing)
     stack.at(-1).children.push(trailing);
@@ -4214,7 +4575,7 @@ function normalizeSurfaceBlock(input, spec) {
   if (!root || root.tag !== spec.wrapper)
     error ||= "Surface root could not be resolved.";
   if (error)
-    return { markup: input, changed: false, diagnostics: [`${spec.id}: ${error}`] };
+    return { markup: spec.wrapper === "tinder" ? authoredInput : input, changed: false, diagnostics: [`${spec.id}: ${error}`] };
   const driftDiagnostics = normalizeAttributeChildFieldDrift(root, grammar);
   const reorder = (node) => {
     const childNodes = xmlChildren(node);
@@ -4267,8 +4628,12 @@ function normalizeSurfaceBlock(input, spec) {
     normalizeTwitterSurface(root);
   if (spec.wrapper === "discord_server")
     normalizeDiscordServerSurface(root);
-  if (spec.wrapper === "tinder")
+  if (spec.wrapper === "tinder") {
+    const diagnostics = datingProfileDiagnostics(root);
+    if (diagnostics.length)
+      return { markup: authoredInput, changed: false, diagnostics };
     normalizeDatingProfileSurface(root);
+  }
   if (spec.wrapper === "property_listing")
     normalizePropertyListingSurface(root);
   if (spec.wrapper === "case_file")
@@ -4289,9 +4654,12 @@ function normalizeSurfaceBlock(input, spec) {
     normalizeMissionBoardSurface(root);
   normalizeEscapedRootMedia(root, grammar);
   const markup = serializeSurfaceXml(root);
-  return { markup, changed: markup !== input, diagnostics: [], driftDiagnostics };
+  return { markup, changed: markup !== authoredInput, diagnostics: [], driftDiagnostics };
 }
 function normalizeSurfaceDocument(input, supplied, render) {
+  const literalCode = protectInlineCodeSpans(input);
+  const originalInput = input;
+  input = literalCode.markup;
   const specs = completeSurfaceSpecs(supplied);
   const aliases = specs.flatMap((spec) => surfaceRootAliases(spec).map((alias) => ({ alias, spec })));
   const startPattern = new RegExp(`<(${aliases.map((row) => escapeRe(row.alias)).join("|")})(?=[\\s>])`, "gi");
@@ -4326,8 +4694,14 @@ function normalizeSurfaceDocument(input, supplied, render) {
     cursor = finish;
   }
   output += input.slice(cursor);
-  return { markup: output, changed: output !== input, diagnostics, driftDiagnostics };
+  output = literalCode.restore(output);
+  return { markup: output, changed: output !== originalInput, diagnostics, driftDiagnostics };
 }
+
+// src/sceneAppearance.ts
+var SCENE_APPEARANCE_GUIDANCE = `SCENE APPEARANCE CONTINUITY: Full Appearance scans may be scheduled infrequently. Track explicit visual changes in this response using your existing planning/authoring call. The saved sheet is a starting identity, not permission to restore an outfit removed in the story. Each image must depict the clothing and temporary appearance at its own paragraph, including distinct before/after states in the same response. Carry forward unchanged clothes; never infer a change merely from a room, mood or earlier image request. Preserve stable identity and manual exclusions. Do not add a separate model call. When an explicit change occurs, report a sceneAppearance array: {"subject":"exact known name","paragraphIndex":0,"evidence":"exact short quote from that story paragraph","wardrobe":["complete current outfit after this change"],"appearance":["complete temporary appearance after this change"],"replaces":["exact stored appearance descriptor replaced by this change"]}. Zero-based paragraphs count story paragraphs separated by blank lines, excluding image controls and Surfaces. Include only fields that change. wardrobe must be a nonempty complete snapshot, including retained garments; an explicitly unclothed subject needs an explicit visual descriptor, not an empty array. appearance may be empty to clear temporary traits; replaces is optional and names exact old descriptors, never broad categories. Do not record poses, actions, hypothetical changes, dialogue suggestions or other people's traits. Changes apply at and after that paragraph only. No change means an empty array.`;
+var STORY_SCENE_APPEARANCE_GUIDANCE = `${SCENE_APPEARANCE_GUIDANCE}
+For Story Model Planned, emit a hidden <reverie-scene-state>{"changes":[...]}</reverie-scene-state> immediately after each paragraph with a visual change, BEFORE any following illustration request so Instant generation receives it in time. Emit it even if no illustration depicts the change. Use the same event fields as sceneAppearance above. This is Relay metadata, never image prompt text, narrative prose or a Surface. Keep each visual_prompt self-contained and faithful to its illustrated instant. Do not put this metadata in visual_prompt.`;
 
 // src/contracts.ts
 var MAX_RELAY_JOB_CONCURRENCY = 8;
@@ -4352,6 +4726,7 @@ function normalizeImageIntent(value) {
   const normalized = String(value || "").trim().toLocaleLowerCase().replace(/[\s-]+/g, "_");
   return NORMAL_IMAGE_INTENTS.has(normalized) || SPECIAL_IMAGE_INTENTS.has(normalized) ? normalized : "auto";
 }
+var DEFAULT_NSFW_PLANNER_TEXT = "For adult scenes, preserve the source-established nudity, clothing state, and physical blocking. Do not add sexual content to scenes that do not contain it.";
 function normalizeGenerationPlaceholderEffect(value) {
   return value === "spinner" || value === "glitter" || value === "none" || value === "dream-orb" || value === "diffusion-preview" ? value : "glitter";
 }
@@ -4391,8 +4766,74 @@ function normalizeProseIllustrationCast(value) {
     return "char+user";
   return PROSE_ILLUSTRATION_CASTS.has(normalized) ? normalized : null;
 }
-function normalizeProseIllustrationContracts(content) {
+function normalizeProseIllustrationContracts(content, options = {}) {
   const repairs = [];
+  if (options.completedResponse) {
+    let fence = "";
+    const scannable = maskInlineCodeSpans(content).split(/(?<=\n)/).map((line) => {
+      const delimiter = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+      if (fence) {
+        if (delimiter?.[0] === fence[0] && delimiter.length >= fence.length && /^[ \t\r\n]*$/.test(line.slice(line.indexOf(delimiter) + delimiter.length)))
+          fence = "";
+        return line.replace(/[^\r\n]/g, " ");
+      }
+      if (!delimiter)
+        return line;
+      fence = delimiter;
+      return line.replace(/[^\r\n]/g, " ");
+    }).join("");
+    const openings = [...scannable.matchAll(/<reverie-illustration\b([^>]*)>/gi)];
+    const insertions = [];
+    for (const [ordinal, opening] of openings.entries()) {
+      const index = opening.index;
+      const next = openings[ordinal + 1]?.index ?? content.length;
+      const rawAttrs = opening[1];
+      if (!/^(?:\s+[A-Za-z_][\w:.-]*\s*=\s*(?:"[^"<>]*"|'[^'<>]*'))*\s*$/.test(rawAttrs))
+        continue;
+      const attributeNames = [...rawAttrs.matchAll(/\s+([A-Za-z_][\w:.-]*)\s*=/g)].map((match) => match[1].toLowerCase());
+      if (new Set(attributeNames).size !== attributeNames.length)
+        continue;
+      const slot = String(parseAttrs(rawAttrs).slot || "");
+      if (openings.filter((other) => parseAttrs(other[1]).slot === slot).length !== 1)
+        continue;
+      const region = scannable.slice(index + opening[0].length, next);
+      if (/<\/reverie-illustration\s*>/i.test(region))
+        continue;
+      const prompt = /^\s*<visual_prompt\s*>([^<>]+)<\/visual_prompt\s*>/i.exec(region);
+      if (!prompt || !prompt[1].trim())
+        continue;
+      const tail = region.slice(prompt[0].length);
+      if (tail.trim() && (!/^\s*\r?\n[ \t]*\r?\n/.test(tail) || /[<>\[\]`]/.test(tail)))
+        continue;
+      let prefix = scannable.slice(0, index);
+      for (const insertion of [...insertions].reverse())
+        prefix = prefix.slice(0, insertion.end) + insertion.text + prefix.slice(insertion.end);
+      const stack = [];
+      let crossed = false;
+      for (const tag of prefix.matchAll(/<(\/?)([A-Za-z_][\w.-]*)\b[^>]*>/g)) {
+        const name = tag[2].toLowerCase();
+        if (/\/>$/.test(tag[0]) || /^(?:br|hr|img|input|meta|link|wbr)$/.test(name))
+          continue;
+        if (!tag[1])
+          stack.push(name);
+        else if (stack.pop() !== name) {
+          crossed = true;
+          break;
+        }
+      }
+      if (crossed || stack.length || isNarrativeOwnedImageRequest(scannable, index))
+        continue;
+      const end = index + opening[0].length + prompt[0].length;
+      const original = content.slice(index, end);
+      const repaired = `${original}</reverie-illustration>`;
+      if (inspectProseIllustrationSchemas(repaired).length)
+        continue;
+      insertions.push({ end, text: "</reverie-illustration>" });
+      repairs.push({ code: "REPAIRED_PROSE_ILLUSTRATION_CLOSING_TAG", slot, index, original, repaired });
+    }
+    for (const insertion of [...insertions].reverse())
+      content = content.slice(0, insertion.end) + insertion.text + content.slice(insertion.end);
+  }
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi;
   const markup = content.replace(re, (fullMatch, rawAttrs, body, index) => {
     let repaired = fullMatch;
@@ -4518,17 +4959,18 @@ function containsImageRequestMarkup(value) {
   return typeof value === "string" && /<(?:image_request|reverie-illustration)\b|\[(?:image_request|reverie[_-]illustration)\b/i.test(value);
 }
 function parseImageRequests(content) {
+  const scannable = maskInlineCodeSpans(content);
   const out = [];
   const phoneRanges = [];
   const phoneRe = /<(?:smart_phone|smartphone)\b([^>]*)>([\s\S]*?)<\/(?:smart_phone|smartphone)>/gi;
   let phoneMatch;
-  while ((phoneMatch = phoneRe.exec(content)) !== null) {
+  while ((phoneMatch = phoneRe.exec(scannable)) !== null) {
     const rootAttrs = parseAttrs(phoneMatch[1] || "");
     const openEnd = phoneMatch[0].indexOf(">") + 1;
     phoneRanges.push({ start: phoneMatch.index, end: phoneMatch.index + phoneMatch[0].length, bodyStart: phoneMatch.index + openEnd, time: rootAttrs.time?.trim() || "" });
   }
   const bracketPhoneRe = /\[(?:smart_phone|smartphone)\]([\s\S]*?)\[\/(?:smart_phone|smartphone)\]/gi;
-  while ((phoneMatch = bracketPhoneRe.exec(content)) !== null) {
+  while ((phoneMatch = bracketPhoneRe.exec(scannable)) !== null) {
     const openEnd = phoneMatch[0].indexOf("]") + 1;
     phoneRanges.push({
       start: phoneMatch.index,
@@ -4539,9 +4981,10 @@ function parseImageRequests(content) {
   }
   const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi;
   let match;
-  while ((match = re.exec(content)) !== null) {
+  while ((match = re.exec(scannable)) !== null) {
+    const authored = content.slice(match.index, match.index + match[0].length);
     const tagName = match[1].toLocaleLowerCase();
-    const normalized = normalizeProseIllustrationContracts(match[0]).markup;
+    const normalized = normalizeProseIllustrationContracts(authored).markup;
     const normalizedParts = /^<(?:image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/(?:image_request|reverie-illustration)>$/i.exec(normalized);
     re.lastIndex = match.index + match[0].length;
     const attrs = parseAttrs(normalizedParts?.[1] || match[2]);
@@ -4592,11 +5035,15 @@ function parseImageRequests(content) {
       promptSource: isIllustrationProtocol && narrativeOwned ? "structured" : isIllustrationProtocol ? "visual_prompt" : "structured",
       negative: firstTagText(body, "negative") ? decodeImageControlValue(firstTagText(body, "negative").trim()) : undefined,
       slot: attrs.slot?.trim() || (isIllustrationProtocol ? "illustration" : undefined),
-      fullMatch: match[0],
+      fullMatch: authored,
       index: match.index
     });
   }
-  for (const control of bracketImageControls(content)) {
+  for (const scannedControl of bracketImageControls(scannable)) {
+    const rawControl = bracketImageControls(content.slice(scannedControl.index, scannedControl.index + scannedControl.fullMatch.length))[0];
+    if (!rawControl)
+      continue;
+    const control = { ...rawControl, index: scannedControl.index };
     if (!control.complete || control.diagnostics.length)
       continue;
     const request = parseImageRequests(imageControlAsXml(control))[0];
@@ -4669,8 +5116,19 @@ function phoneAppInteractionMode(id) {
   return dms.has(id) ? "message" : social.has(id) ? "comment" : null;
 }
 
+// src/surfaceLauncherStyle.ts
+var GLASS_BUTTON_LAUNCHER_DECLARATIONS = 'position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 7%,transparent)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 4%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 10px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 3%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)';
+var BUTTON_LAUNCHER_DECLARATIONS = GLASS_BUTTON_LAUNCHER_DECLARATIONS.replace("height:40px!important;min-height:40px!important", "height:auto!important;min-height:42px!important").replace("padding:0 20px!important", "padding:10px 23px!important").replace(" 7%,transparent)", " 35%,transparent)").replace("background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 4%,transparent)!important", "background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-elevated,#25172f) 76%,var(--lumiverse-primary,#ff70bd) 24%),color-mix(in srgb,var(--lumiverse-bg-deep,#0c0711) 90%,var(--lumiverse-primary,#ff70bd) 10%))!important").replace("letter-spacing:.18em", "letter-spacing:.19em").replace("box-shadow:0 0 10px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 3%,transparent)!important", "box-shadow:0 8px 24px #0003,inset 0 1px 0 #ffffff12!important").replace(/(?:-webkit-)?backdrop-filter:[^;]+;?/g, "");
+function surfaceLauncherDeclarations(mode, core = false) {
+  if (mode === "inline")
+    return "display:none!important";
+  const base = mode === "glass" || mode === "plain-glass" ? GLASS_BUTTON_LAUNCHER_DECLARATIONS : BUTTON_LAUNCHER_DECLARATIONS;
+  return base.replace("margin:0 auto!important", `margin:${core ? "16px auto" : "0 auto"}!important`) + ";box-sizing:border-box!important;gap:9px!important;min-width:0!important;white-space:normal!important;overflow-wrap:anywhere!important";
+}
+
 // src/surfaceIcons.ts
 var VECTORS = {
+  blocks: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 22V7a1 1 0 0 0-1-1H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5a1 1 0 0 0-1-1H2"/><rect x="14" y="2" width="8" height="8" rx="1"/></svg>',
   archive: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1" /><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" /><path d="M10 12h4" /></svg>',
   "audio-lines": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10v3" /><path d="M6 6v11" /><path d="M10 3v18" /><path d="M14 8v7" /><path d="M18 5v13" /><path d="M22 10v3" /></svg>',
   "book-heart": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" /><path d="M8.62 9.8A2.25 2.25 0 1 1 12 6.836a2.25 2.25 0 1 1 3.38 2.966l-2.626 2.856a.998.998 0 0 1-1.507 0z" /></svg>',
@@ -4726,6 +5184,7 @@ var VECTORS = {
   video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5" /><rect x="2" y="6" width="14" height="12" rx="2" /></svg>'
 };
 var SURFACE_ICON_REGISTRY = {
+  "core:amazon": { svg: VECTORS["shopping-bag"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/shopping-bag.svg" },
   "core:forum-thread": { svg: VECTORS["messages-square"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/messages-square.svg" },
   "core:email-thread": { svg: VECTORS["mail"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/mail.svg" },
   "core:imessage-chat": { svg: VECTORS["message-circle"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/message-circle.svg" },
@@ -4762,7 +5221,8 @@ var SURFACE_ICON_REGISTRY = {
   "core:notes-app": { svg: VECTORS["notebook-pen"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/notebook-pen.svg" },
   "core:market-listing": { svg: VECTORS["shopping-bag"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/shopping-bag.svg" },
   "core:property-listing": { svg: VECTORS["house"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/house.svg" },
-  "core:building-layout": { svg: VECTORS["house"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/house.svg" },
+  "core:building-layout": { svg: VECTORS["blocks"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/blocks.svg" },
+  "narrative:Building Layout": { svg: VECTORS["blocks"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/blocks.svg" },
   "core:letter-dispatch": { svg: VECTORS["send"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/send.svg" },
   "core:medical-record": { svg: VECTORS["stethoscope"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/stethoscope.svg" },
   "core:court-transcript": { svg: VECTORS["scale"], source: "lucide", sourceUrl: "https://github.com/lucide-icons/lucide/blob/main/icons/scale.svg" },
@@ -4799,6 +5259,11 @@ var SURFACE_ICON_STYLE = `<style data-rr-surface-icon-style="1">
 .rr-surface-svg-icon{position:relative;z-index:3;display:inline-grid;place-items:center;flex:0 0 auto;width:18px;height:18px;color:currentColor;line-height:0;vertical-align:middle}
 .rr-surface-svg-icon>svg{display:block;width:100%;height:100%;overflow:visible}
 .rr-surface-launcher-iconized>.rr-surface-svg-icon[data-rr-surface-icon^="core:"]{width:12px!important;height:12px!important;margin-right:6px!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]>.rr-surface-svg-icon{width:18px!important;height:18px!important;margin:0!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]>:is([class*="spark"],[class*="particle"]):not(.rr-surface-sparks){display:none!important;animation:none!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]:not(.rr-surface-launcher-sparkling)>.rr-surface-sparks{display:none!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]::before,.rr-surface-launcher-iconized[data-rr-launcher-mode]::after{content:none!important;animation:none!important}
+.rr-surface-launcher-iconized[data-rr-launcher-mode]::-webkit-details-marker{display:none!important}
 .rr-surface-launcher-iconized[data-rr-plain-glass="1"] [class*="spark"],.rr-surface-launcher-iconized[data-rr-plain-glass="1"] [class*="particle"]{display:none!important;animation:none!important}
 .rr-surface-launcher-iconized[data-rr-plain-glass="1"]::before,.rr-surface-launcher-iconized[data-rr-plain-glass="1"]::after{content:none!important;animation:none!important}
 .rr-surface-launcher-iconized.rr-surface-launcher-sparkling>.rr-surface-sparks[aria-hidden="true"]{position:absolute!important;inset:0!important;z-index:1!important;display:block!important;overflow:hidden;pointer-events:none}
@@ -4818,6 +5283,66 @@ var SURFACE_ICON_STYLE = `<style data-rr-surface-icon-style="1">
 @keyframes rrSurfaceEmber{0%{opacity:0;transform:translate3d(0,5px,0) scale(.75)}18%{opacity:.62}55%{opacity:.9}100%{opacity:0;transform:translate3d(var(--dx),var(--dy),0) scale(1.1)}}
 @media(prefers-reduced-motion:reduce){.rr-surface-launcher-iconized>.rr-surface-sparks i,:is([data-reverie-glass-button],[data-reverie-narrative-glass-button]) .rr-surface-launcher-iconized.rr-surface-launcher-sparkling>.rr-surface-sparks[aria-hidden="true"]>i{animation:none!important;opacity:.5!important;transform:none!important}}
 </style>`;
+var CORE_GLASS_LAUNCHER_DECLARATIONS = GLASS_BUTTON_LAUNCHER_DECLARATIONS.replace("margin:0 auto!important", "margin:16px auto!important") + ";box-sizing:border-box!important;gap:9px!important";
+function launcherInlineStyle(original, declarations) {
+  const owned = new Set(declarations.split(";").map((value) => value.slice(0, value.indexOf(":"))));
+  const retained = [];
+  let start = 0, depth = 0, quote = "";
+  for (let i = 0;i <= original.length; i++) {
+    const char = original[i];
+    if (char === "\\") {
+      i++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote)
+        quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === "(")
+      depth++;
+    if (char === ")")
+      depth--;
+    if (i === original.length || char === ";" && depth === 0) {
+      const declaration = original.slice(start, i).trim();
+      const property = declaration.slice(0, declaration.indexOf(":")).trim().toLowerCase();
+      if (declaration && !owned.has(property) && !/^(?:background|border|font|margin|padding)-/.test(property))
+        retained.push(declaration);
+      start = i + 1;
+    }
+  }
+  return [...retained, declarations].join(";");
+}
+function applySurfaceLauncherInlineStyle(launcher, mode) {
+  launcher.classList.add("rr-surface-launcher-iconized");
+  const animated = mode === "glass" || mode === "sparkling";
+  launcher.classList.toggle("rr-surface-launcher-sparkling", animated);
+  if (animated && !launcher.querySelector(":scope>.rr-surface-sparks")) {
+    const field = launcher.ownerDocument.createElement("span");
+    field.className = "rr-surface-sparks";
+    field.setAttribute("aria-hidden", "true");
+    for (let i = 0;i < 8; i++)
+      field.appendChild(launcher.ownerDocument.createElement("i"));
+    launcher.prepend(field);
+  }
+  const core = Boolean(launcher.querySelector('[data-rr-surface-icon^="core:"]'));
+  const next = launcherInlineStyle(launcher.getAttribute("style") || "", surfaceLauncherDeclarations(mode, core));
+  if (launcher.getAttribute("style") !== next)
+    launcher.setAttribute("style", next);
+  launcher.setAttribute("data-rr-launcher-mode", mode);
+}
+var CORE_GLASS_LAUNCHER_RULES = `
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]{${CORE_GLASS_LAUNCHER_DECLARATIONS}}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]>.rr-surface-svg-icon[data-rr-surface-icon^="core:"]{width:18px!important;height:18px!important;margin-right:0!important}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]>.r43-particles{display:none!important}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]::before,.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]::after{content:none!important}
+.rr-surface-launcher-iconized[data-rr-glass-launcher="1"]::-webkit-details-marker{display:none!important}
+`;
+var CORE_GLASS_LAUNCHER_STYLE = `<style data-rr-core-glass-launcher-style="1">${CORE_GLASS_LAUNCHER_RULES}</style>`;
 var SPARKS = '<span class="rr-surface-sparks" aria-hidden="true">' + "<i></i>".repeat(8) + "</span>";
 function removeLegacyNarrativeLauncherIcon(markup, id) {
   if (id === "Dramatic Cutaway") {
@@ -4829,23 +5354,24 @@ function removeLegacyNarrativeLauncherIcon(markup, id) {
   const labelClass = id === "Character Phone" ? "rrcp-label" : id === "Archive Entry" ? "ra66-label" : "r65-label";
   return markup.replace(new RegExp(`(<span class="${labelClass}">)\\s*<span>[^<]*<\\/span>(?=\\s*<span>)`, "i"), "$1");
 }
-function includeSurfaceIconStyle(markup) {
+function includeSurfaceIconStyle(markup, coreGlass = false) {
+  const style = SURFACE_ICON_STYLE + (coreGlass ? CORE_GLASS_LAUNCHER_STYLE : "");
   if (/<\/summary>/i.test(markup)) {
-    return markup.replace(/<\/summary>/i, `</summary>${SURFACE_ICON_STYLE}`);
+    return markup.replace(/<\/summary>/i, `</summary>${style}`);
   }
   if (/<label\b[^>]*\brrcp-launch\b[\s\S]*?<\/label>/i.test(markup)) {
-    return markup.replace(/<\/label>/i, `</label>${SURFACE_ICON_STYLE}`);
+    return markup.replace(/<\/label>/i, `</label>${style}`);
   }
-  return `${SURFACE_ICON_STYLE}${markup}`;
+  return `${style}${markup}`;
 }
 function decorateSurfaceLauncherMarkup(markup, family, id, presentation) {
   const icon = surfaceIconMarkup(family, id);
-  if (!icon || markup.includes(`data-rr-surface-icon="${family}:${id}"`))
+  if (!icon || /data-rr-launcher-mode=/.test(markup) || markup.includes(`data-rr-surface-icon="${family}:${id}"`))
     return markup;
   const animated = presentation === "sparkling" || presentation === "glass";
   const launcher = family === "narrative" && id === "Character Phone" ? /<label\b(?=[^>]*\bclass="[^"]*\brrcp-launch\b)[^>]*>/i : /<summary\b[^>]*>/i;
   if (presentation === "inline") {
-    const header = family === "narrative" ? /<(?:header|div)\b(?=[^>]*\bclass="[^"]*\b(?:r65-head|ra66-head|rrcp-hero|ch-meta|dg-meta-strip)\b)[^>]*>/i : /<(?:header|div|h[1-3])\b(?=[^>]*\bclass="[^"]*(?:\bhead\b|\bheading\b|\btitle\b|rrn-surface-head)[^"]*")[^>]*>/i;
+    const header = family === "narrative" ? /<(?:header|div)\b(?=[^>]*\bclass="[^"]*\b(?:r65-head|ra66-head|rrcp-hero|ch-meta|dg-meta-strip|pw-head)\b)[^>]*>/i : /<(?:header|div|h[1-3])\b(?=[^>]*\bclass="[^"]*(?:\bhead\b|\bheading\b|\btitle\b|rrn-surface-head)[^"]*")[^>]*>/i;
     let inserted = false;
     let output = markup.replace(header, (opening) => {
       inserted = true;
@@ -4856,20 +5382,28 @@ function decorateSurfaceLauncherMarkup(markup, family, id, presentation) {
         inserted = true;
         return `${opening}${icon}`;
       });
-    return inserted ? includeSurfaceIconStyle(output) : markup;
+    output = output.replace(launcher, (opening) => {
+      const hidden = /\bstyle=(['"])([\s\S]*?)\1/i.test(opening) ? opening.replace(/\bstyle=(['"])([\s\S]*?)\1/i, (_full, quote, style) => `style=${quote}${style};display:none!important${quote}`) : opening.replace(/>$/, ' style="display:none!important">');
+      return hidden.replace(/>$/, ' data-rr-launcher-mode="inline">');
+    });
+    return inserted || output !== markup ? includeSurfaceIconStyle(output) : markup;
   }
   let inserted = false;
   const output = markup.replace(launcher, (opening) => {
     inserted = true;
     const className = `rr-surface-launcher-iconized${animated ? " rr-surface-launcher-sparkling" : ""}`;
     const marked = /\bclass="/.test(opening) ? opening.replace(/\bclass="/, `class="${className} `) : opening.replace(/>$/, ` class="${className}">`);
-    const plainGlass = presentation === "plain-glass" ? marked.replace(/>$/, ' data-rr-plain-glass="1">') : marked;
-    return `${plainGlass}${animated ? SPARKS : ""}${icon}`;
+    const coreGlass = family === "core" && (presentation === "glass" || presentation === "plain-glass");
+    const declarations = surfaceLauncherDeclarations(presentation, family === "core");
+    const styled = /\bstyle=(['"])([\s\S]*?)\1/i.test(marked) ? marked.replace(/\bstyle=(['"])([\s\S]*?)\1/i, (_full, quote, style) => `style=${quote}${launcherInlineStyle(style, declarations).replaceAll(quote, quote === '"' ? "&quot;" : "&#39;")}${quote}`) : marked.replace(/>$/, ` style="${declarations.replaceAll('"', "&quot;")}">`);
+    const glass = coreGlass ? styled.replace(/>$/, ' data-rr-glass-launcher="1">') : styled;
+    const plainGlass = presentation === "plain-glass" ? glass.replace(/>$/, ' data-rr-plain-glass="1">') : glass;
+    return `${plainGlass.replace(/>$/, ` data-rr-launcher-mode="${presentation}">`)}${animated ? SPARKS : ""}${icon}`;
   });
   if (!inserted)
     return markup;
   const withoutLegacyIcon = family === "narrative" ? removeLegacyNarrativeLauncherIcon(output, id) : output;
-  return includeSurfaceIconStyle(withoutLegacyIcon);
+  return includeSurfaceIconStyle(withoutLegacyIcon, family === "core" && (presentation === "glass" || presentation === "plain-glass"));
 }
 
 // src/phoneAppPresentation.ts
@@ -4894,13 +5428,29 @@ var PHONE_APP_PRESENTATION_CSS = `
 /* Tinder's source is a responsive app, not another handset nested inside this one. */
 .rrt-root{display:flex!important;flex-direction:column!important;justify-content:stretch!important;width:100%!important;height:100%!important;min-height:0!important;overflow:hidden!important;background:#100e16!important;color:#f4f1f7!important}
 .rrt-phone{display:flex!important;flex:1 1 auto!important;flex-direction:column!important;width:100%!important;height:100%!important;max-height:100%!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;background:#100e16!important;color:#f4f1f7!important}
+.rrt-screen-shell{position:relative!important;display:flex!important;flex:1 1 auto!important;flex-direction:column!important;height:100%!important;min-height:0!important}
+.rrt-top{flex-shrink:0!important}
+.rrt-phone-island,.rrt-phone-status{display:none!important}
 .rrt-profiles{position:relative!important;display:block!important;flex:1 1 auto!important;height:auto!important;min-height:0!important;overflow:auto!important;padding:0 10px 8px!important;background:#100e16!important}
 .rrt-profile{inset:0 10px 8px!important;min-height:0!important}
-.rrt-card{display:flex!important;flex-direction:column!important;width:100%!important;height:100%!important;min-height:0!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
-.rrt-photo{flex:1 1 auto!important;width:100%!important;height:auto!important;min-height:120px!important;background:#24212c!important}
-.rrt-meta{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:34%!important;overflow:auto!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
+.rrt-card{display:flex!important;flex-direction:column!important;width:100%!important;height:calc(100% - 64px)!important;min-height:0!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
+.rrt-photo{flex:1 1 auto!important;width:100%!important;height:auto!important;min-height:0!important;background:#24212c!important}
+.rrt-meta{flex:0 0 auto!important;height:auto!important;min-height:0!important;max-height:50%!important;padding:8px 12px!important;overflow:auto!important;background:#191721!important;color:#f4f1f7!important;border-color:#34303d!important}
+/* The handset root ID scopes these overrides and outranks legacy radio-ID geometry. */
+#rp-phone-tinder .rrt-match-copy h2{top:6%!important;font-size:clamp(22px,8cqi,38px)!important}
+#rp-phone-tinder .rrt-match-copy p{top:22%!important}
+#rp-phone-tinder .rrt-primary{bottom:70px!important}
+#rp-phone-tinder .rrt-secondary{bottom:12px!important}
+.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-photo,.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-user{top:35%!important;width:28%!important;height:auto!important;aspect-ratio:1!important}
+.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-photo{left:19%!important}
+.rrt-root#rp-phone-tinder:has([id^="rrt-match-"]:checked) .rrt-user{left:53%!important}
+#rp-phone-tinder .rrt-message-copy{padding:10px!important;overflow:auto!important}
+#rp-phone-tinder .rrt-message-box{position:relative!important;inset:auto!important;width:100%!important;min-width:0!important}
+#rp-phone-tinder .rrt-return-swipe{position:static!important;transform:none!important}
 .rrt-root .rrt-top,.rrt-root .rrt-top *{color-scheme:dark}
 @container(max-width:440px){
+ .bl-head,.bl-floor,.bl-room-copy dl{grid-template-columns:minmax(0,1fr)!important}
+ .bl-head,.bl-plan-card,.bl-room-copy{padding:10px!important}.bl-body{padding:0 8px 12px!important}
  .rrmail-layout,.rr23-notes-shell,.rr22-ws-shell,.rrdc-shell{grid-template-columns:minmax(0,1fr)!important}
  .rrmail-folders,.rr23-notes-side,.rr22-ws-side,.rrdc-servers,.rrdc-chans{max-width:100%!important;min-width:0!important}
  .rrmail-folders,.rr23-notes-side,.rr22-ws-side{max-height:150px;overflow:auto}
@@ -4956,7 +5506,7 @@ function applyPhoneAppDarkTheme(root) {
   const excluded = new Set(["IMG", "SVG", "VIDEO", "PICTURE", "CANVAS", "IFRAME"]);
   const control = root.querySelector(".rp-app-discussion");
   for (const element of Array.from(root.querySelectorAll("*"))) {
-    if (excluded.has(element.tagName) || element.closest(".rp-app-discussion,.rp-phone-composer,.rp-phone-responder,.rp-phone-bubble,.rp-conversations,.rp-conversation-trigger"))
+    if (excluded.has(element.tagName) || element.closest('.rr-amazon[data-amz-brand-preserve="true"],.rp-app-discussion,.rp-phone-composer,.rp-phone-responder,.rp-phone-bubble,.rp-conversations,.rp-conversation-trigger'))
       continue;
     const style = view.getComputedStyle(element), background = parse(style.backgroundColor), foreground = parse(style.color);
     const light = Boolean(background && background.a > 0.08 && luminance(background) > 0.55);
@@ -5532,6 +6082,297 @@ function phoneOperationId() {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+// src/phoneHomeSwipe.ts
+function mountPhoneHomeSwipe(root, turnPage) {
+  let gesture = null;
+  let suppressClickUntil = 0;
+  const down = (event) => {
+    suppressClickUntil = 0;
+    gesture = null;
+    if (event.isPrimary === false) {
+      gesture = null;
+      return;
+    }
+    if (event.pointerType === "mouse" && event.button !== 0)
+      return;
+    const path = event.composedPath();
+    const screen = path.find((item) => item instanceof window.HTMLElement && item.matches(".home-screen"));
+    if (!screen || Number(screen.dataset.appPages) < 2 || path.some((item) => item instanceof window.HTMLElement && item.matches(".app-pages, .notification, input, select, textarea, a, [contenteditable]")))
+      return;
+    gesture = { id: event.pointerId, screen, x: event.clientX, y: event.clientY, horizontal: false };
+  };
+  const move = (event) => {
+    if (!gesture || gesture.id !== event.pointerId)
+      return;
+    if (!gesture.screen.isConnected) {
+      gesture = null;
+      return;
+    }
+    const dx = Math.abs(event.clientX - gesture.x), dy = Math.abs(event.clientY - gesture.y);
+    if (!gesture.horizontal) {
+      if (dy > 10 && dy >= dx) {
+        gesture = null;
+        return;
+      }
+      if (dx < 12 || dx < dy * 1.3)
+        return;
+      gesture.horizontal = true;
+      gesture.screen.setPointerCapture?.(event.pointerId);
+    }
+    event.preventDefault();
+  };
+  const up = (event) => {
+    if (!gesture || gesture.id !== event.pointerId)
+      return;
+    const completed = gesture;
+    gesture = null;
+    const dx = event.clientX - completed.x, dy = Math.abs(event.clientY - completed.y);
+    if (!completed.screen.isConnected || !completed.horizontal)
+      return;
+    suppressClickUntil = Date.now() + 500;
+    event.preventDefault();
+    if (Math.abs(dx) >= 48 && Math.abs(dx) > dy * 1.3)
+      turnPage(dx < 0 ? 1 : -1);
+  };
+  const cancel = () => {
+    gesture = null;
+  };
+  const click = (event) => {
+    if (event.detail === 0 || Date.now() > suppressClickUntil)
+      return;
+    suppressClickUntil = 0;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  };
+  root.addEventListener("pointerdown", down, true);
+  root.addEventListener("pointermove", move, { capture: true, passive: false });
+  root.addEventListener("pointerup", up, true);
+  root.addEventListener("pointercancel", cancel, true);
+  root.addEventListener("click", click, true);
+  return () => {
+    cancel();
+    root.removeEventListener("pointerdown", down, true);
+    root.removeEventListener("pointermove", move, true);
+    root.removeEventListener("pointerup", up, true);
+    root.removeEventListener("pointercancel", cancel, true);
+    root.removeEventListener("click", click, true);
+  };
+}
+
+// src/amazonPhoneControls.ts
+var amazonNavigation = () => ({ page: "browse", query: "" });
+function mountAmazonPhone(root, view, states, ownerId, ui, pending, queued, dispatch) {
+  const found = root.querySelector(".rr-amazon");
+  if (!found)
+    return;
+  const section = found;
+  section.dataset.mode = "phone";
+  const snapshot = view.snapshot, state = states.find((state) => commerceScopeKey(state) === view.scopeKey), cart = state?.cart || [], wishlist = state?.wishlist || [];
+  const products = section.querySelector(".amz-products"), nativeOrders = section.querySelector(".amz-orders");
+  if (nativeOrders)
+    nativeOrders.hidden = true;
+  const make = (tag, text = "", className = "") => {
+    const el = document.createElement(tag);
+    el.textContent = text;
+    el.className = className;
+    return el;
+  };
+  const send = (action, patch = {}) => {
+    if (!pending)
+      dispatch({ commerceAction: action, commerceScope: view.scopeKey, ...patch });
+  };
+  const button = (text, handler) => {
+    const el = make("button", text);
+    el.type = "button";
+    el.disabled = pending;
+    el.addEventListener("click", handler);
+    return el;
+  };
+  const nav = make("nav", "", "amz-phone-nav"), panel = make("div", "", "amz-phone-panel"), search = make("form", "", "amz-search"), input = make("input"), queue = make("div", "", "amz-phone-queue");
+  nav.setAttribute("aria-label", "Amazon shopping tabs");
+  input.type = "search";
+  input.value = ui.query;
+  input.maxLength = 160;
+  input.placeholder = "Search Amazon";
+  input.setAttribute("aria-label", "Search Amazon products");
+  const icon = (path) => {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    shape.setAttribute("d", path);
+    svg.append(shape);
+    return svg;
+  };
+  const navIcons = { browse: "M3 10 12 3l9 7v11h-6v-7H9v7H3z", wishlist: "M20 5c-3-3-6-1-8 1-2-2-5-4-8-1-5 5 8 15 8 15S25 10 20 5Z", cart: "M2 3h3l3 13h11l3-10H6 M9 20h.01 M19 20h.01", orders: "M5 3h14v18l-3-2-4 2-4-2-3 2z M8 8h8 M8 12h8" };
+  const headerCart = section.querySelector(".amz-header-cart");
+  if (headerCart) {
+    const openCart = button("", () => {
+      ui.page = "cart";
+      delete ui.review;
+      delete ui.detail;
+      render();
+    });
+    openCart.className = "amz-header-cart";
+    openCart.setAttribute("aria-label", "Open shopping cart");
+    openCart.append(...headerCart.childNodes);
+    headerCart.replaceWith(openCart);
+  }
+  function render() {
+    nav.replaceChildren();
+    panel.replaceChildren();
+    queue.replaceChildren();
+    products.hidden = ui.page === "cart" || ui.page === "orders";
+    search.hidden = ui.page !== "browse";
+    input.value = ui.query;
+    const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+    const heading = section.querySelector(".amz-heading h2");
+    if (heading)
+      heading.textContent = ui.page === "wishlist" ? "Your Lists" : ui.page === "cart" ? "Shopping Cart" : ui.page === "orders" ? "Your Orders" : "Results";
+    const caption = section.querySelector(".amz-heading p");
+    if (caption)
+      caption.hidden = ui.page !== "browse";
+    const cartLabel = section.querySelector(".amz-header-cart span");
+    if (cartLabel)
+      cartLabel.textContent = String(cartCount);
+    for (const [id, label] of [["browse", "Browse"], ["wishlist", `Wishlist (${wishlist.length})`], ["cart", `Cart (${cartCount})`], ["orders", "Orders"]]) {
+      const tab = button(label, () => {
+        ui.page = id;
+        delete ui.review;
+        delete ui.detail;
+        render();
+      });
+      tab.setAttribute("aria-pressed", String(ui.page === id));
+      tab.setAttribute("aria-label", label);
+      tab.prepend(icon(navIcons[id]));
+      nav.append(tab);
+    }
+    const inject = button(queued ? "Queued for next story prompt" : "Inject shopping into next story prompt", () => send("inject"));
+    inject.className = "amz-inject";
+    queue.append(inject);
+    for (const product of snapshot.products) {
+      const tile = products.querySelector(`[data-amz-product="${product.id}"]`);
+      if (!tile)
+        continue;
+      tile.hidden = ui.page === "wishlist" && !wishlist.includes(product.id) || ui.page === "browse" && ![product.title, product.brand, product.category, product.description].join(" ").toLocaleLowerCase().includes(ui.query.toLocaleLowerCase());
+      let controls = tile.querySelector(".amz-product-actions");
+      if (!controls) {
+        controls = make("div", "", "amz-product-actions");
+        tile.append(controls);
+      }
+      const add = button("Add to cart", () => send("cart-add", { productId: product.id, quantity: 1 }));
+      add.className = "amz-add";
+      add.disabled = pending || product.availability !== "Available";
+      controls.replaceChildren(button("View details", () => {
+        ui.detail = product.id;
+        send("view", { productId: product.id });
+        render();
+      }), add, button(wishlist.includes(product.id) ? "Remove from wishlist" : "Add to wishlist", () => send(wishlist.includes(product.id) ? "wishlist-remove" : "wishlist-add", { productId: product.id })));
+      if (ui.detail === product.id) {
+        const detail = make("article", "", "amz-phone-row");
+        detail.setAttribute("aria-label", "Amazon product detail");
+        detail.append(make("h3", product.title), make("p", product.description), make("p", product.specs), make("p", `Seller: ${product.seller}`), make("strong", formatMoney(product.amount, snapshot.currency)), make("p", `${product.availability} · ${product.delivery}`), button("Close product details", () => {
+          delete ui.detail;
+          render();
+        }));
+        panel.append(detail);
+      }
+    }
+    if (ui.page === "cart") {
+      if (!cart.length)
+        panel.append(make("p", "Your Amazon cart is empty.", "amz-empty"));
+      for (const line of cart) {
+        const row = make("article", "", "amz-phone-row"), quantity = make("input");
+        quantity.type = "number";
+        quantity.min = "1";
+        quantity.max = "20";
+        quantity.step = "1";
+        quantity.value = String(line.quantity);
+        quantity.disabled = pending;
+        quantity.setAttribute("aria-label", `Quantity for ${line.title}`);
+        quantity.addEventListener("change", () => send("cart-quantity", { productId: line.productId, quantity: Number(quantity.value) }));
+        row.append(make("strong", line.title), make("p", `${formatMoney(line.unitAmount, line.currency)} each · ${formatMoney(line.unitAmount * line.quantity, line.currency)}`), quantity, button("Remove from cart", () => send("cart-remove", { productId: line.productId })));
+        panel.append(row);
+      }
+      let summary;
+      try {
+        if (state)
+          summary = checkoutSummary(state, snapshot);
+      } catch (error) {
+        panel.append(make("p", error instanceof Error ? error.message : String(error)));
+      }
+      if (summary?.lines.length) {
+        const checkout = button("Review in-story checkout", () => {
+          ui.review = summary;
+          render();
+        });
+        checkout.className = "amz-checkout";
+        panel.prepend(make("h3", `Subtotal: ${formatMoney(summary.total, summary.currency)}`), checkout);
+      }
+      if (ui.review) {
+        const review = ui.review, confirm = make("section", "", "amz-confirm");
+        confirm.setAttribute("role", "dialog");
+        confirm.setAttribute("aria-label", "Confirm fictional Amazon checkout");
+        confirm.append(make("h3", "Review in-story purchase"), make("p", "Fictional order only. No real payment, address or Amazon request."));
+        for (const line of review.lines)
+          confirm.append(make("p", `${line.quantity} × ${line.title} — ${formatMoney(line.quantity * line.unitAmount, line.currency)}`));
+        const purchase = button("Confirm in-story purchase", () => {
+          send("purchase", { confirmation: review });
+          delete ui.review;
+        });
+        purchase.className = "amz-checkout";
+        const cancel = button("Cancel checkout", () => {
+          delete ui.review;
+          render();
+        });
+        cancel.className = "amz-inject";
+        confirm.append(make("strong", `Total: ${formatMoney(review.total, review.currency)}`), make("p", "Delivery not confirmed"), purchase, cancel);
+        panel.append(confirm);
+      }
+    }
+    if (ui.page === "orders") {
+      const orders = states.filter((state) => state.scope.ownerId === ownerId).flatMap((state) => state.orders).sort((a, b) => b.at - a.at);
+      if (!orders.length)
+        panel.append(make("p", "No Phone purchases yet."));
+      for (const order of orders) {
+        const row = make("article", "", "amz-phone-row");
+        row.append(make("div", `ORDER PLACED · ${formatMoney(order.total, order.currency)} · ${order.id}`, "amz-order-summary"), make("strong", order.status), make("p", order.lines.map((line) => `${line.quantity} × ${line.title}`).join(" · ")), make("p", order.delivery));
+        panel.append(row);
+      }
+    }
+    queue.append(make("p", `${states.filter((state) => state.scope.ownerId === ownerId).flatMap((state) => state.events).filter((event) => !event.consumedBy).length} shopping actions awaiting story context · Saved for this Phone owner.`));
+    const visible = [...products.querySelectorAll(".amz-product")].filter((tile) => !tile.hidden).length;
+    const resultbar = section.querySelector(".amz-resultbar");
+    if (resultbar) {
+      resultbar.hidden = ui.page === "cart" || ui.page === "orders";
+      resultbar.textContent = ui.page === "wishlist" ? `${visible} saved item${visible === 1 ? "" : "s"}` : `${visible} result${visible === 1 ? "" : "s"} for “${ui.query || snapshot.query}”`;
+    }
+    if (!visible && !products.hidden)
+      panel.append(make("p", ui.page === "wishlist" ? "Your list is empty. Save an item to see it here." : "No saved products match your search.", "amz-empty"));
+  }
+  const searchButton = button("Search", () => {});
+  searchButton.type = "submit";
+  searchButton.setAttribute("aria-label", "Search");
+  searchButton.replaceChildren(icon("M21 21l-5-5 M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0"));
+  search.append(input, searchButton);
+  search.addEventListener("submit", (event) => {
+    event.preventDefault();
+    ui.query = input.value.trim();
+    send("browse", { text: ui.query });
+    render();
+  });
+  section.querySelector(".amz-top")?.after(search);
+  section.querySelector(".amz-heading")?.after(panel);
+  const main = section.querySelector(".amz-main"), footer = section.querySelector(".amz-foot");
+  if (main) {
+    if (footer)
+      main.append(footer);
+    main.append(queue);
+  }
+  section.append(nav);
+  render();
+}
+
 // src/phoneWidget.ts
 var CORE_APP_LABELS = { "forum-thread": "Forum", "email-thread": "Mail", "imessage-chat": "iMessage", "workspace-chat": "Workspace", livestream: "Twitch", "dating-profile": "Tinder", "public-bulletin": "News", "case-file": "Case Files", "relationship-map": "Relationships", "instagram-dm": "Instagram DM", "x-dm": "X Messages", "discord-dm": "Discord DM", "discord-server": "Discord", "google-images": "Google Images", "phone-gallery": "Gallery", "tiktok-post": "TikTok", "naver-article": "Naver", "inline-chat": "Chat", smartphone: "SMS", instagram: "Instagram", twitter: "X", "youtube-thumbnail": "YouTube", "character-profile": "Cast", "music-player": "Music", "location-share": "Maps", "voice-memo": "Voice Memos", "notes-app": "Notes", "market-listing": "Marketplace", "property-listing": "Properties", "codex-entry": "Reference", "diary-app": "Diary", "instagram-profile": "IG Profile", "twitter-profile": "X Profile", "instagram-stories": "IG Stories" };
 var PHONE_ICON = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 5h4M10 19h4"/></svg>';
@@ -5580,7 +6421,8 @@ button:focus-visible,select:focus-visible,textarea:focus-visible { outline:2px s
 .glyph { width:54px;height:54px;border-radius:14px;display:grid;place-items:center;box-shadow:0 4px 10px #0003,inset 0 1px 0 #fff4;background:linear-gradient(145deg,#7e798b,#393442);color:white; }
 .glyph svg { width:34px;height:34px; } .app-messages .glyph { background:linear-gradient(160deg,#6bd878,#20a34b); } .app-contacts .glyph { background:linear-gradient(160deg,#c6b5a0,#8a7967); } .app-photos .glyph { background:#f9f6fb; } .app-saved .glyph { background:linear-gradient(160deg,#ead4aa,#aa8654); } .app-settings .glyph { background:linear-gradient(160deg,#b9bdc8,#5f6473); }
 .glyph .rr-surface-svg-icon{width:34px;height:34px;display:grid;place-items:center;line-height:0}.glyph .rr-surface-svg-icon>svg{display:block;width:100%;height:100%}
-.home-screen { padding-top:12px;background:radial-gradient(ellipse at 22% 26%,#df528740,transparent 60%),radial-gradient(ellipse at 95% 70%,#6454aa70,transparent 64%),linear-gradient(150deg,#312338,#13131f 75%); }
+.home-screen { touch-action:pan-y pinch-zoom;padding-top:12px;background:radial-gradient(ellipse at 22% 26%,#df528740,transparent 60%),radial-gradient(ellipse at 95% 70%,#6454aa70,transparent 64%),linear-gradient(150deg,#312338,#13131f 75%); }
+.home-screen .app-grid{user-select:none;-webkit-user-select:none}
 .home-date { text-align:center;font-size:14px;color:#f4e6f1;margin:8px 0 15px; }.home-head { border-bottom:0;background:#312338; }.home-head .icon:first-child { visibility:hidden; }.home-head strong { text-align:center;font-weight:600;font-size:18px; }.home-phone .owner { background:#312338;color:#dac7dc;font-size:11px; }
 .home-phone .top { background:#312338; }.home-phone .footer { background:#242037; }.phone-dock { display:grid;grid-template-columns:repeat(3,1fr);gap:5px;padding:14px 16px 3px;background:#373044;border-top:1px solid #ffffff0d; }.phone-dock .app { min-height:77px; }.phone-dock .glyph { width:48px;height:48px;border-radius:13px; }
 .app-activity-thread{display:flex;flex-direction:column;gap:4px;min-height:0;overflow:auto;padding:8px 0 18px}.app-activity-source{display:block;width:100%;padding:11px 12px;border:1px solid #ffffff19;border-radius:14px;background:#1e1b27;color:#f4f1f7;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}.app-activity-source.self{margin-left:auto;max-width:88%;background:#233956;border-color:#385a7e}.app-activity-source small{display:block;margin-bottom:4px;color:#c9bfd1;font-size:11px}.app-activity-compose{display:flex;flex-direction:column;gap:8px;padding:10px 0 4px;border-top:1px solid #ffffff1d}.app-activity-compose textarea{min-height:48px;max-height:130px}.resize-menu{position:absolute;z-index:20;top:58px;left:50%;transform:translateX(-50%);width:min(286px,calc(100% - 26px));padding:12px;border:1px solid #765068;border-radius:16px;background:#17131dee;box-shadow:0 14px 38px #000b;backdrop-filter:blur(14px)}.resize-menu[hidden]{display:none}.resize-menu strong{display:block;margin-bottom:9px}.resize-presets{display:flex;gap:6px}.resize-presets button{flex:1;min-height:36px;padding:6px;border:1px solid #ffffff24;border-radius:10px;background:#282130;color:#f5e9f1;font-size:12px}.resize-menu label{margin:10px 0 4px}.resize-menu input[type=range]{width:100%;accent-color:#d76a97}
@@ -5650,6 +6492,9 @@ function mountPhoneWidget(ctx, options = {}) {
   let coreRecordId = "";
   let coreHtml = "";
   let coreLoading = "";
+  let storyMediaSignature = "";
+  let coreAmazon, commercePending = "";
+  const shoppingNavigation = new Map;
   let localAppBrief = "";
   let localCreating = "";
   let localCreateOwner = "";
@@ -5657,6 +6502,7 @@ function mountPhoneWidget(ctx, options = {}) {
   const appImageRetryOperations = new Map, appImageRetriesInFlight = new Set;
   const appImageRetryKey = (recordId, mediaId) => JSON.stringify([recordId, mediaId]);
   let homePage = 0;
+  let unmountHomeSwipe = null;
   let imagePromptDraft = "";
   let imageCaption = "";
   let imageFraming = "auto";
@@ -5693,6 +6539,7 @@ function mountPhoneWidget(ctx, options = {}) {
   let connectionFeedback = "";
   let loadError = "";
   let resizeMenuOpen = false, bubbleReturnPage = "core-app", longPressTimer = null;
+  let phoneLoadOperation = "", sourceReloadQueued = false, sourceReloadTimer = null;
   const PHONE_SCALE_KEY = "reverie-phone-scale-v1";
   let phoneScale = 1;
   try {
@@ -5726,12 +6573,14 @@ function mountPhoneWidget(ctx, options = {}) {
     render();
   }
   const loadRecovery = createPhoneLoadRecovery({
-    request: () => send("load"),
+    request: () => phoneLoadOperation = send("load"),
     exhausted: () => {
+      sourceReloadQueued = false;
       loadError = "The phone connection did not respond. Retry when connected; your saved phones were not changed.";
       render();
     },
     failed: (cause) => {
+      sourceReloadQueued = false;
       loadError = `Phone connection unavailable: ${cause instanceof Error ? cause.message : String(cause)}`;
       render();
     }
@@ -5741,6 +6590,13 @@ function mountPhoneWidget(ctx, options = {}) {
       return;
     loadError = "";
     loadRecovery.start();
+  }
+  function refreshPhoneSources() {
+    if (loadRecovery.owns(phoneLoadOperation)) {
+      sourceReloadQueued = true;
+      return;
+    }
+    loadPhone();
   }
   const launcher = ctx.ui.createFloatWidget({ width: 52, height: 52, chromeless: true, snapToEdge: true, tooltip: "Open Reverie Phone", initialPosition: { x: Math.max(8, window.innerWidth - 70), y: Math.max(16, window.innerHeight - 180) } });
   launcher.root.setAttribute("data-reverie-phone-ui", "launcher");
@@ -5761,6 +6617,12 @@ function mountPhoneWidget(ctx, options = {}) {
   }
   function close() {
     loadRecovery.stop();
+    sourceReloadQueued = false;
+    if (sourceReloadTimer !== null)
+      window.clearTimeout(sourceReloadTimer);
+    sourceReloadTimer = null;
+    unmountHomeSwipe?.();
+    unmountHomeSwipe = null;
     if (longPressTimer !== null)
       window.clearTimeout(longPressTimer);
     longPressTimer = null;
@@ -5793,6 +6655,14 @@ function mountPhoneWidget(ctx, options = {}) {
       overlay = ctx.ui.createFloatWidget({ fullscreen: true, chromeless: true, width: window.innerWidth, height: window.innerHeight });
       overlay.root.setAttribute("data-reverie-phone-ui", "handset");
       overlayRoot = shadow(overlay.root);
+      unmountHomeSwipe = mountPhoneHomeSwipe(overlayRoot, (direction) => {
+        const pages = Number(overlayRoot?.querySelector(".home-screen")?.dataset.appPages) || 1;
+        const next = Math.max(0, Math.min(pages - 1, homePage + direction));
+        if (page === "home" && next !== homePage) {
+          homePage = next;
+          render();
+        }
+      });
       viewportHandler = () => {
         const viewport = window.visualViewport;
         if (overlayRoot && viewport) {
@@ -5875,12 +6745,16 @@ function mountPhoneWidget(ctx, options = {}) {
     render();
     send("read", { from: owner, to: peer });
   }
-  function openCoreRecord(record, targetId = "") {
+  function openCoreRecord(record, targetId = "", refresh = false) {
+    if (coreRecordId !== record.id)
+      storyMediaSignature = "";
     coreRecordId = record.id;
-    coreHtml = "";
+    if (!refresh)
+      coreHtml = "";
     appTargetId = targetId;
     appTargets = [];
-    send("read", { from: owner, recordId: record.id, appId: coreAppId, ...targetId ? { targetId } : {} });
+    if (!refresh)
+      send("read", { from: owner, recordId: record.id, appId: coreAppId, ...targetId ? { targetId } : {} });
     coreLoading = send("app", { appId: coreAppId, recordId: record.id, from: owner, ...targetId ? { targetId } : {} });
     appDraft = "";
     error = "";
@@ -6657,6 +7531,7 @@ Phone alternatives do not rewrite the original chat Surface.`));
       const pages = Math.max(1, Math.ceil(homeApps.length / 16));
       homePage = Math.min(homePage, pages - 1);
       grid.append(...homeApps.slice(homePage * 16, (homePage + 1) * 16));
+      screen.dataset.appPages = String(pages);
       screen.append(grid);
       if (pages > 1) {
         const pager = node("nav", "app-pages");
@@ -6673,7 +7548,10 @@ Phone alternatives do not rewrite the original chat Surface.`));
         });
         next.setAttribute("aria-label", "Next app page");
         next.disabled = homePage === pages - 1;
-        pager.append(previous, node("span", "", `${homePage + 1} / ${pages}`), next);
+        const position = node("span", "", `${homePage + 1} / ${pages}`);
+        position.setAttribute("aria-live", "polite");
+        position.setAttribute("aria-atomic", "true");
+        pager.append(previous, position, next);
         screen.append(pager);
       }
     } else if (page === "apps") {
@@ -6727,7 +7605,21 @@ Phone alternatives do not rewrite the original chat Surface.`));
           template.content.querySelectorAll("details.dg-compact-launch-host,details.srv2-collapse").forEach((el) => {
             el.open = true;
           });
+          template.content.querySelectorAll(".rrt-root>details").forEach((el) => {
+            el.querySelector(":scope>summary")?.remove();
+            el.replaceWith(...Array.from(el.childNodes));
+          });
+          template.content.querySelector(".rrt-root")?.setAttribute("id", "rp-phone-tinder");
           appRoot.append(template.content);
+          if (coreAppId === "amazon" && coreAmazon) {
+            const key = JSON.stringify([chatId, owner, coreRecordId]);
+            if (!shoppingNavigation.has(key))
+              shoppingNavigation.set(key, amazonNavigation());
+            mountAmazonPhone(appRoot, coreAmazon, data.state.commerce || [], owner, shoppingNavigation.get(key), Boolean(commercePending), data.state.commerceRequest?.ownerId === owner, (patch) => {
+              commercePending = send("commerce", { appId: "amazon", recordId: coreRecordId, from: owner, ...patch });
+              render();
+            });
+          }
           const fit = node("style");
           fit.setAttribute("data-reverie-phone-app-presentation", "");
           fit.textContent = PHONE_APP_PRESENTATION_CSS;
@@ -7154,6 +8046,9 @@ Phone alternatives do not rewrite the original chat Surface.`));
     coreRecordId = "";
     coreHtml = "";
     coreLoading = "";
+    coreAmazon = undefined;
+    commercePending = "";
+    shoppingNavigation.clear();
     imagePromptDraft = "";
     imageCaption = "";
     imageMessageId = "";
@@ -7193,10 +8088,22 @@ Phone alternatives do not rewrite the original chat Surface.`));
     const message = raw;
     if (message.chatId !== chatId)
       return;
+    if (raw.type === "state" && page === "core-app" && overlayRoot) {
+      const source = appRecords().find((record) => record.id === coreRecordId && !record.local);
+      if (source && Array.isArray(raw.records)) {
+        const signature = JSON.stringify(raw.records.filter((record) => record.messageId === source.messageId && record.swipeId === source.swipeId).map((record) => [record.key, record.status, record.imageUrl, record.imageId, record.pendingPlacement?.imageUrl]));
+        if (signature !== storyMediaSignature) {
+          storyMediaSignature = signature;
+          refreshPhoneSources();
+        }
+      }
+      return;
+    }
     if (message.type === "phone_app") {
       const app = message;
       if (app.operationId !== coreLoading || app.appId !== coreAppId || app.recordId !== coreRecordId)
         return;
+      coreAmazon = app.amazon;
       coreLoading = "";
       coreHtml = app.html;
       appTargets = app.targets || [];
@@ -7204,9 +8111,20 @@ Phone alternatives do not rewrite the original chat Surface.`));
       appTargetId = app.targetId || "root";
       render();
     } else if (message.type === "phone_state") {
+      if (loadRecovery.owns(message.operationId)) {
+        loadRecovery.stop();
+        if (sourceReloadQueued) {
+          sourceReloadQueued = false;
+          const sourceChat = chatId;
+          sourceReloadTimer = window.setTimeout(() => {
+            sourceReloadTimer = null;
+            if (!disposed && chatId === sourceChat)
+              loadPhone();
+          }, 0);
+        }
+      }
       if (data && message.state.revision < data.state.revision)
         return;
-      loadRecovery.stop();
       loadError = "";
       if (message.operationId === connectionSaving) {
         connectionSaving = "";
@@ -7216,8 +8134,14 @@ Phone alternatives do not rewrite the original chat Surface.`));
         settingsSaving = "";
         settingsFeedback = message.error ? "Settings were not saved. Retry after resolving the error." : settingsEdit === savingEdit ? "Phone settings saved · applies to all chats." : "Earlier changes saved. New changes are not saved yet.";
       }
+      const previousRecords = appRecords(), previousRecord = previousRecords.find((record) => record.id === coreRecordId);
+      const followingLatest = !coreRecordId || previousRecords.at(-1)?.id === coreRecordId;
       registerIncoming(message);
       data = message;
+      if (message.operationId === commercePending) {
+        commercePending = "";
+        error = message.error || "";
+      }
       const retryImage = appImageRetryOperations.get(message.operationId);
       if (retryImage) {
         appImageRetryOperations.delete(message.operationId);
@@ -7240,12 +8164,22 @@ Phone alternatives do not rewrite the original chat Surface.`));
           openCoreRecord(created);
         }
       }
-      if (coreRecordId && !(data.appRecords || []).some((record) => record.id === coreRecordId)) {
+      if (page === "core-app" && !localCreating && !appPosting) {
+        const records = appRecords(), current = records.find((record) => record.id === coreRecordId);
+        const next = !current || followingLatest ? records.at(-1) : current;
+        if (next && (next.id !== coreRecordId || current?.renderFingerprint !== previousRecord?.renderFingerprint))
+          openCoreRecord(next, appTargetId, true);
+        else if (!next) {
+          coreHtml = "";
+          coreLoading = "";
+          coreRecordId = "";
+          appTargets = [];
+          coreBubbles = [];
+        }
+      } else if (coreRecordId && !(data.appRecords || []).some((record) => record.id === coreRecordId)) {
         coreHtml = "";
         coreLoading = "";
         coreRecordId = "";
-        if (page === "core-app")
-          error = "This source was edited or its swipe changed. Choose a current app record.";
       }
       if (!identities().some((person) => person.id === owner))
         owner = identities().find((person) => person.kind === "persona")?.id || identities()[0]?.id || "";
@@ -7329,6 +8263,8 @@ Phone alternatives do not rewrite the original chat Surface.`));
       }
       render();
     } else if (message.type === "phone_error") {
+      if (message.operationId === commercePending)
+        commercePending = "";
       if (message.operationId === connectionSaving) {
         connectionSaving = "";
         connectionFeedback = "Shared connection was not saved. Retry.";
@@ -7379,9 +8315,11 @@ Phone alternatives do not rewrite the original chat Surface.`));
     open({ from: button.dataset.phoneFrom, to: button.dataset.phoneTo, scope: button.dataset.phoneScope || "invalid" });
   };
   document.addEventListener("click", onNotification, true);
-  const offEnded = ctx.events.on("GENERATION_ENDED", () => loadPhone());
-  const offEdited = ctx.events.on("MESSAGE_EDITED", () => loadPhone());
-  const offSwiped = ctx.events.on("MESSAGE_SWIPED", () => loadPhone());
+  const offEnded = ctx.events.on("GENERATION_ENDED", refreshPhoneSources);
+  const offEdited = ctx.events.on("MESSAGE_EDITED", refreshPhoneSources);
+  const offSwiped = ctx.events.on("MESSAGE_SWIPED", refreshPhoneSources);
+  const offSent = ctx.events.on("MESSAGE_SENT", refreshPhoneSources);
+  const offDeleted = ctx.events.on("MESSAGE_DELETED", refreshPhoneSources);
   const recoverConnection = () => {
     if (!disposed && overlay && document.visibilityState !== "hidden") {
       loadPhone();
@@ -7429,6 +8367,8 @@ Phone alternatives do not rewrite the original chat Surface.`));
       offEnded();
       offEdited();
       offSwiped();
+      offSent();
+      offDeleted();
       document.removeEventListener("click", onNotification, true);
       window.removeEventListener("online", recoverConnection);
       document.removeEventListener("visibilitychange", recoverConnection);
@@ -7941,8 +8881,8 @@ function summarizeRelayHealth(checks) {
 }
 
 // src/build.ts
-var EXTENSION_VERSION = "0.5.1";
-var BUILD_ID = "20261009-0.5.1";
+var EXTENSION_VERSION = "0.5.1.35";
+var BUILD_ID = "20261028-0.5.1.35";
 
 // src/orbIconData.ts
 var ORB_IMAGE_DESIGNS = [
@@ -8229,7 +9169,7 @@ var NARRATIVE_GLASS_BUTTON_PRESENTATION_RULES = `
 :host([data-reverie-narrative-surface-stack]){display:flex!important;flex-direction:column!important;gap:12px!important;margin:0 0 12px!important;padding:0!important;line-height:0!important}
 :host([data-reverie-narrative-surface-stack])>[data-reverie-narrative-glass-button]{margin:0 auto!important}
 [data-reverie-narrative-glass-button].r65.r65,[data-reverie-narrative-glass-button].ra66.ra66,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap,[data-reverie-narrative-glass-button].ch-og.ch-og,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway{margin:6px auto!important}
-[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch{position:relative!important;z-index:2!important;isolation:isolate!important;display:flex!important;align-items:center!important;justify-content:center!important;width:max-content!important;max-width:min(calc(100% - 24px),360px)!important;height:40px!important;min-height:40px!important;margin:0 auto!important;padding:0 20px!important;overflow:hidden!important;cursor:pointer!important;pointer-events:auto!important;list-style:none!important;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 7%,transparent)!important;border-radius:13px!important;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 4%,transparent)!important;color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7))!important;font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace)!important;letter-spacing:.18em!important;text-transform:uppercase!important;text-align:center!important;box-shadow:0 0 10px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 3%,transparent)!important;-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch{${GLASS_BUTTON_LAUNCHER_DECLARATIONS}}
 [data-reverie-narrative-glass-button]>summary::-webkit-details-marker{display:none!important}
 [data-reverie-narrative-glass-button].r65.r65>summary.r65-launch::before,[data-reverie-narrative-glass-button].r65.r65>summary.r65-launch::after,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch::before,[data-reverie-narrative-glass-button].ra66.ra66>summary.ra66-launch::after,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch::before,[data-reverie-narrative-glass-button].rrcp-wrap.rrcp-wrap>.rrcp-launch::after,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch::before,[data-reverie-narrative-glass-button].ch-og.ch-og>summary.dg-compact-launch::after,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch::before,[data-reverie-narrative-glass-button].dg-dramatic-cutaway.dg-dramatic-cutaway>summary.dg-compact-launch::after{content:none!important;background:none!important;box-shadow:none!important}
 [data-reverie-narrative-glass-button].rrcp-wrap .rrcp-launch-toggle{position:absolute!important;inline-size:1px!important;block-size:1px!important;opacity:0!important;pointer-events:none!important}
@@ -256454,22 +257394,50 @@ function normalizeR45BracketRuntime(markup) {
 function expandR45Replacement(template, captures, macro) {
   return template.replace(/\{\{lastMessageId\}\}/g, macro).replace(/\$(\d{1,2})/g, (_full, raw) => captures[Number(raw) - 1] || "");
 }
+function renderNotesTemplate(folder, owner, notes, template, macro) {
+  const captures = [folder, owner];
+  for (const note of notes)
+    captures.push(note.title, note.updated, note.body);
+  while (captures.length < 14)
+    captures.push("");
+  let rendered = expandR45Replacement(template, captures, macro);
+  for (let index = notes.length + 1;index <= 4; index += 1) {
+    const id = `rr23-note-${index}-${macro}`;
+    rendered = rendered.replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, "i"), "").replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, "i"), "").replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, "i"), "");
+  }
+  return rendered;
+}
 function renderVariableNotes(markup, template, macro) {
   return markup.replace(/\[notes_app\]\s*\[folder\]\s*([\s\S]*?)\s*\[\/folder\]\s*\[owner\]\s*([\s\S]*?)\s*\[\/owner\]\s*\[nt_list\]([\s\S]*?)\[\/nt_list\]\s*\[\/notes_app\]/gi, (full, folder, owner, body) => {
-    const notes = [...body.matchAll(/\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi)];
-    if (!notes.length || notes.length > 4)
+    const pattern = /\[nt_note\]\s*\[slot\]\s*([1-4])\s*\[\/slot\]\s*\[title\]\s*([\s\S]*?)\s*\[\/title\]\s*\[updated\]\s*([\s\S]*?)\s*\[\/updated\]([\s\S]*?)\[\/nt_note\]/gi;
+    const notes = [...body.matchAll(pattern)];
+    if (!notes.length || notes.length > 4 || notes.some((note, index) => note[1] !== String(index + 1)) || body.replace(pattern, "").trim())
       return full;
-    const captures = [folder, owner];
-    for (const note of notes)
-      captures.push(note[2], note[3], note[4]);
-    while (captures.length < 14)
-      captures.push("");
-    let rendered = expandR45Replacement(template, captures, macro);
-    for (let index = notes.length + 1;index <= 4; index += 1) {
-      const id = `rr23-note-${index}-${macro}`;
-      rendered = rendered.replace(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`, "i"), "").replace(new RegExp(`<label\\b[^>]*\\bfor="${id}"[^>]*>[\\s\\S]*?<\\/label>`, "i"), "").replace(new RegExp(`<section\\b[^>]*class="[^"]*\\bp${index}\\b[^"]*"[^>]*>[\\s\\S]*?<\\/section>`, "i"), "");
+    return renderNotesTemplate(folder, owner, notes.map((note) => ({ title: note[2], updated: note[3], body: note[4] })), template, macro);
+  });
+}
+function renderVariableXmlNotes(markup, template, macro) {
+  return markup.replace(/<notes_app\b[\s\S]*?<\/notes_app>/gi, (full) => {
+    const root = parseSurfaceXml(full);
+    if (!root || root.tag !== "notes_app")
+      return full;
+    const attrs = surfaceXmlAttributes(root.attrs);
+    const rootChildren = xmlChildren(root);
+    const whitespaceOnly = (node) => node.children.every((child) => typeof child !== "string" || !child.trim());
+    if (attrs.folder === undefined || attrs.owner === undefined || !whitespaceOnly(root) || rootChildren.length !== 1 || rootChildren[0].tag !== "nt_list")
+      return full;
+    const list = rootChildren[0];
+    const notes = xmlChildren(list);
+    if (!whitespaceOnly(list) || notes.length < 1 || notes.length > 4)
+      return full;
+    const authored = [];
+    for (const [index, note] of notes.entries()) {
+      const fields = surfaceXmlAttributes(note.attrs);
+      if (note.tag !== "nt_note" || fields.slot !== String(index + 1) || fields.title === undefined || fields.updated === undefined)
+        return full;
+      authored.push({ title: fields.title, updated: fields.updated, body: note.children.map((child) => typeof child === "string" ? child : serializeSurfaceXml(child)).join("") });
     }
-    return rendered;
+    return renderNotesTemplate(attrs.folder, attrs.owner, authored, template, macro);
   });
 }
 function r45LegacyXmlSurfaceAuthorityPack(presentation, color) {
@@ -256550,6 +257518,11 @@ function renderR45SurfaceAuthority(markup, presentation, color, messageId, overr
   const macro = safeMessageId(messageId);
   for (const script of r45RendererScripts("legacy-xml", presentation, color, overrides)) {
     try {
+      const override = overrides[r45ScriptOverrideKey("legacy-xml", presentation, color, script.script_id)];
+      if (script.find_regex.includes("<notes_app") && override?.findRegex === undefined) {
+        output = renderVariableXmlNotes(output, script.replace_string, macro);
+        continue;
+      }
       const flags = script.flags.includes("g") ? script.flags : `${script.flags}g`;
       const replacement = script.replace_string.replace(/\{\{lastMessageId\}\}/g, macro);
       output = output.replace(new RegExp(script.find_regex, flags), replacement);
@@ -256671,7 +257644,19 @@ ${palette}
 </style>`;
 }
 function polishRenderedSurface(rendered) {
-  return styleInstagramMessageBubbles(fitRelationshipMapToHostWidth(compactTextOnlyRelationshipMap(expandTextOnlyCastSheet(removeEmptyEmailAttachmentChrome(rendered)))));
+  return fitMusicPlayerToHostWidth(styleInstagramMessageBubbles(fitRelationshipMapToHostWidth(compactTextOnlyRelationshipMap(expandTextOnlyCastSheet(removeEmptyEmailAttachmentChrome(rendered))))));
+}
+function fitMusicPlayerToHostWidth(rendered) {
+  if (!rendered.includes("rrsp-card") || rendered.includes("data-reverie-player-layout"))
+    return rendered;
+  return `${rendered}<style data-reverie-player-layout>
+.rrsp-card{container-type:inline-size;container-name:reverie-player;box-sizing:border-box;width:100%;max-width:100%;min-width:0}
+.rrsp-top{grid-template-columns:180px minmax(0,1fr);min-width:0}
+.rrsp-meta{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.rrsp-meta h2,.rrsp-meta p,.rrsp-meta small{max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.rrsp-actions,.rrsp-tabs{flex-wrap:wrap}
+@container reverie-player (max-width:480px){.rrsp-top{grid-template-columns:minmax(0,1fr);padding:16px;gap:16px}.rrsp-cover{width:min(180px,100%);justify-self:center}.rrsp-meta h2{font-size:24px}.rrsp-tabs{padding-inline:16px}}
+</style>`;
 }
 function regexSurfaceParityScripts(mode = "plain", color = "realistic", source = "legacy-xml", overrides = {}) {
   const presentation = mode === "collapsible" ? "plain" : mode;
@@ -256679,13 +257664,14 @@ function regexSurfaceParityScripts(mode = "plain", color = "realistic", source =
     scriptId: script.script_id,
     name: script.name,
     find: script.find_regex,
-    replace: script.replace_string,
+    replace: fitMusicPlayerToHostWidth(script.replace_string),
     flags: script.flags,
     order: Number(script.sort_order)
   }));
 }
 function renderRegexSurfaceParity(markup, mode, messageId, color = "realistic", overrides = {}) {
-  let output = String(markup || "");
+  const literalCode = protectInlineCodeSpans(String(markup || ""));
+  let output = literalCode.markup;
   let sawBracketSurface = false;
   const presentation = mode === "collapsible" ? "plain" : mode;
   const bracket = normalizeBracketSurfaceDocument(output, SHIPPED_SURFACE_SPECS, (block) => {
@@ -256693,11 +257679,11 @@ function renderRegexSurfaceParity(markup, mode, messageId, color = "realistic", 
     return block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : polishRenderedSurface(renderR45BracketSurfaceAuthority(block.markup, presentation, messageId, color, overrides));
   });
   if (sawBracketSurface)
-    return bracket.markup;
+    return literalCode.restore(bracket.markup);
   if (!/(?:rrl-card|rrl-resolved|data-rrn-native-request)/.test(output)) {
     output = normalizeSurfaceDocument(output, SHIPPED_SURFACE_SPECS, (block) => block.diagnostics.length ? '<aside class="rrn-contract-recovery" role="status">Relay Surface needs repair. Reparse or rescan in Relay.</aside>' : block.markup).markup;
   }
-  return polishRenderedSurface(renderR45SurfaceAuthority(output, presentation, color, messageId, overrides));
+  return literalCode.restore(polishRenderedSurface(renderR45SurfaceAuthority(output, presentation, color, messageId, overrides)));
 }
 function containsRenderedRegexSurface(markup) {
   return containsR45RenderedSurface(markup) || /(?:rrn-contract-recovery|rrl-card|rrl-resolved)/i.test(String(markup || ""));
@@ -256754,6 +257740,234 @@ function validateDeclarativeSurfaceCss(value, surfaceId) {
   return [...new Set(errors)];
 }
 
+// src/uxCopy.ts
+var SURFACE_RENDER_FAILURE_MESSAGE = "The markup does not match the selected Surface layout. Inspect / Fix shows the original fields; check them against the Surface Library example.";
+function surfaceRepairEditorHelp(diagnostic) {
+  return `${diagnostic ? `${diagnostic}
+
+` : ""}Edit the original markup below, then choose Save Surface. Assisted Repair can preview closing-tag fixes only; it cannot add missing opening tags or fields. Review its preview before applying. Opening this editor makes no model call.`;
+}
+function surfacePresetDisplayName(definition) {
+  return definition.builtIn && /^(?:R4\.5\s+FINAL|FINAL\s+R4\.5)$/i.test(definition.presetName.trim()) ? "Reverie Default" : definition.presetName;
+}
+function rendererScriptDisplayName(name, customName = false) {
+  if (customName)
+    return name;
+  return name.split(/\s+[—–]\s+/).map((part) => part.replace(/\b(?:FINAL\s+)?R\d+(?:\.\d+)+(?:\s+FINAL)?\b/gi, "").trim()).filter(Boolean).join(" — ").replace(/^↳\s*—\s*/, "↳ ").replace(/\s{2,}/g, " ").trim() || "Surface renderer";
+}
+var SURFACE_UTILITY_OVERVIEWS = {
+  amazon: "A fictional Amazon catalog with product-owned images and an interactive Phone cart, wishlist, reviewed in-story purchases, saved orders, and queued shopping receipts. No real Amazon payments or purchases.",
+  "building-layout": "An architectural atlas with variable floors, selectable rooms, owned room images, and manual Add to lorebook actions. Selection never moves a character or writes a Composer draft.",
+  "forum-thread": "A structured discussion board with separate posts, replies, authors, timestamps, and owned attachments.",
+  "email-thread": "An email client view that preserves each message, sender, subject, time, body, and attachment.",
+  "imessage-chat": "A phone-message conversation with ordered sent/received bubbles and message-owned photos.",
+  "workspace-chat": "A team workspace conversation with channels, named participants, messages, files, and media.",
+  livestream: "A live broadcast frame with an ordered chat feed and moderation information.",
+  "dating-profile": "A swipe-style dating profile with three identity-consistent portrait slots and profile details.",
+  "public-bulletin": "An official public notice with urgency, location, instructions, and documentary media.",
+  "case-file": "A tabbed investigative dossier for people, evidence, notes, and a readable timeline.",
+  "relationship-map": "A visual relationship board connecting named characters with labeled bonds and insights.",
+  "instagram-dm": "An Instagram-style private conversation with individual bubbles and attached media.",
+  "x-dm": "An X-style private message thread with sender direction, timestamps, and attachments.",
+  "discord-dm": "A Discord direct-message exchange with participant identity, ordered messages, and files.",
+  "discord-server": "A multi-channel Discord server view with members, messages, reusable avatars, and media.",
+  "google-images": "A search-results grid whose independent image cards match the authored query.",
+  "phone-gallery": "A noncropping phone photo gallery with square thumbnails and full-image viewing.",
+  "tiktok-post": "A vertical short-video post with caption, engagement, comments, and a 9:16 media slot.",
+  "naver-article": "A Naver-style news article with editorial hero media, article body, and separate comments.",
+  newspaper: "A newspaper article layout with publication hierarchy, headline, body, and editorial image.",
+  "inline-chat": "A compact in-story chat exchange that keeps every message and side visually distinct.",
+  "evidence-photo": "A documented evidence photograph with case metadata, source, caption, and investigator note.",
+  smartphone: "A complete smartphone conversation with ordered text and direction-aware image messages.",
+  instagram: "An Instagram post or carousel with account details, caption, likes, and nested comments.",
+  twitter: "An X timeline post with metrics, optional media, comments, threads, and trends.",
+  kakao: "A KakaoTalk group or private chat with participants, independent bubbles, system rows, and images.",
+  "album-cover": "A square release-art card with title, artist, release type, and context-specific cover art.",
+  "magazine-cover": "An editorial magazine cover with masthead hierarchy and portrait-oriented cover art.",
+  "photo-booth-strip": "Four coordinated vertical photo-booth frames from one identity-consistent session.",
+  polaroid: "A single instant photograph with date, location, and handwritten-style caption.",
+  "youtube-thumbnail": "A YouTube watch-page card with channel metadata, video frame, and separate comments.",
+  "character-profile": "A compact Cast Sheet with a persistent portrait, name, role, hook, and trait.",
+  "music-player": "A music-player card with track metadata, square cover art, lyrics, and queue details.",
+  "location-share": "A context-dependent live route card with destination, ETA, map, note, and waypoints.",
+  "voice-memo": "A playable voice-note card with reusable sender avatar, transcript, duration, and call history.",
+  "notes-app": "A notes application view with a folder, owner, and independently readable note entries.",
+  "market-listing": "A marketplace listing with product photo, price, condition, seller, description, and actions.",
+  "property-listing": "A property listing with a full gallery, price and location facts, amenities, and history.",
+  "letter-dispatch": "A formatted personal or official letter with sender, recipient, subject, body, and attachment.",
+  "medical-record": "A fictional clinical record with patient summary, documentary media, vitals, and notes.",
+  "court-transcript": "A readable court transcript with case metadata, ordered speakers, objections, and exhibits.",
+  "codex-entry": "A reference article for a person, place, object, or concept with facts and related entries.",
+  "diary-app": "A private diary with an owner, title, and multiple dated entries kept as separate pages.",
+  "mission-board": "A mission or task board with owner, deadline, status, checklist items, and notes.",
+  "cctv-evidence": "A multi-feed surveillance evidence board with fixed-camera frames and case notes.",
+  "instagram-profile": "A complete Instagram profile with avatar, bio, metrics, posts, comments, and tagged media.",
+  "twitter-profile": "A complete X profile with avatar, banner, metrics, timeline posts, and media grid.",
+  "instagram-stories": "An ordered set of vertical social stories with reusable avatars, media, captions, and times."
+};
+var NARRATIVE_UTILITY_OVERVIEWS = {
+  "Building Layout": "An interactive architectural atlas with floors and rooms. Add the selected room to its building’s lorebook and link it to this chat; never sends movement or changes the Composer.",
+  "Character Phone": "Builds a story-aware character phone with apps, messages, records, and a real multi-image Photos gallery.",
+  "Dramatic Cutaway": "Shows a cinematic parallel beat or interruption without losing the main scene viewpoint.",
+  "Plot Sparks": "Offers ten fresh, optional branches rooted in the current scene: complications, personal turns, opportunities, bargains and overlooked connections.",
+  "Scene Shift": "Summarizes the present scene, active direction, tension, and immediate story anchors.",
+  "Parallel Scene": "Tracks meaningful off-screen developments in a horizontally browsable current.",
+  "Cast Introduction": "Introduces a newly relevant recurring character with scene-safe identity information.",
+  "Backstage Secrets": "Separates what each character knows, suspects, misunderstands, or is hiding.",
+  "Setting the Scene": "Adds concrete, viewpoint-safe details that make the current place and culture feel lived in.",
+  "Off-Stage": "Reveals relevant events happening just outside the focal scene without replacing it.",
+  "Character Dossier": "Maintains a structured dossier of a character’s established story facts and changes.",
+  "Location File": "Maintains a structured record of a location, its features, history, and current state.",
+  "In Another Life": "Explores a clearly labeled hypothetical branch without rewriting canonical events.",
+  "Archive Entry": "Coordinates the enabled Narrative Utilities into one consistent archive payload.",
+  "Relationship Map": "Maps three or more established characters and their current bonds, trust, and pressures.",
+  "Cast Sheet": "Summarizes one established character with a portrait, role, story hook, and traits.",
+  "Persona Wardrobe": "Curates five distinct looks for the current persona or named subject; choose one to draft its outfit description in Composer."
+};
+var SETTING_HELP = {
+  "Relay Enabled": "Master switch for Reverie Relay in this installation. Turn it off to stop Relay from handling new chat events; saved settings and existing images remain intact.",
+  "Slot Mode": "Chooses whether a prepared request inserts automatically or waits for a prompt or image preview. This setting applies to Relay slots.",
+  "High-Res / Polished Capture": "Adds a quality pass to image prompts while preserving the chosen camera framing and subject identity.",
+  "Save completed images to Character Gallery": "Adds completed Relay images to the active character Gallery after Lumiverse confirms the destination. Existing images are not regenerated.",
+  "Generation Settings Source": "Use the active Native ImageGen settings or Relay-specific provider overrides for new generations.",
+  "LoRA Source": "Use Native ImageGen LoRAs, a Relay LoRA stack, or no LoRAs for new Relay images.",
+  "Candidate Count": "Default number of image candidates for a request. More candidates use more provider work.",
+  "Follow Native Parser": "Use the parser connection and instructions selected by Lumiverse instead of Relay-specific parser overrides.",
+  "Parser Retries": "Maximum extra attempts after a Relay parser result fails validation.",
+  "Recent Messages": "How many recent chat messages Relay includes when preparing a parser request.",
+  "Character Context": "Include the current character information in Relay parser context.",
+  "Persona Context": "Include the active user persona in Relay parser context.",
+  "Lorebook Context": "Include relevant lorebook entries in Relay parser context.",
+  "Auto-rescan on chat open": "Look for missed Relay requests when opening a chat. Rescanning does not by itself start image generation.",
+  "Include inactive swipes": "Also inspect non-current message swipes during a manual rescan. They remain labeled as inactive.",
+  "Enable Floating Relay Orb": "Show the floating Relay shortcut near eligible assistant messages.",
+  "Orb Design": "Choose the artwork used by the floating Relay shortcut.",
+  "Orb Size": "Change the size of the floating Relay shortcut without changing generated media.",
+  "Illustrations per Response": "Maximum illustrations Relay may plan for one eligible response.",
+  Search: "Find images by title, description, named subject, location, request ID, or prompt excerpt in the current chat.",
+  Character: "Show only images whose recorded depicted-subject list includes this character. Images with no identified subject remain under All Characters.",
+  Target: "Filter by the request route that produced the image, such as a prose illustration or a Surface image.",
+  Surface: "Filter by the Surface that owns the image. Prose illustrations appear under Prose.",
+  Date: "Filter by when the image was created.",
+  Status: "Filter images that are available, unavailable, or retained after a message was deleted.",
+  "Appearance Memory Strength": "Controls how strongly saved stable appearance is carried into new image prompts. Current-scene details still take priority.",
+  "Current Outfit · clear this when clothing is unknown or changed": "Record only clothing confirmed for the current scene. Clear it when the outfit changes or becomes unknown.",
+  "Stable Appearance · face, body, hair, durable features": "Record persistent visible identity, not temporary clothes, poses, or scene details.",
+  "Negative Identity Tags": "Visual traits to avoid for this character when composing new image prompts.",
+  "Reference Asset IDs · comma-separated": "IDs of accepted images used as appearance references for this character.",
+  "Prompt additions": "Positive visual guidance added to image prompts using this profile. Do not put Story Model prose instructions here.",
+  "Negative additions": "Visual traits to avoid in image prompts using this profile.",
+  "Framing guidance": "Camera and composition guidance for this image prompt profile.",
+  "Automatic Surface Injection": "When on, Relay inserts the shared Surface grammar plus every enabled Utility into the Story Model prompt. Turn it off when you place a Relay macro manually in a preset.",
+  Renderer: "Chooses who turns authored Surface markup into the visible interface. Relay Rendered is the default; Regex Rendered uses the bundled compatibility renderer.",
+  "Default Presentation": "Chooses Inline, Button, Sparkling Button, Glass Button, or Plain Glass. Glass launchers do not force Glass body colors; Plain Glass removes the particles.",
+  "Color Mode": "Chooses Realistic, Lumiverse Primary, or Glass Mode for App and UI Surface bodies without changing the selected launcher.",
+  "Injection Position": "Chooses where Relay places its model instructions in the assembled prompt. Later positions are closer to the newest user message.",
+  "Parser Connection": "The Lumiverse text connection used for Relay planning and parsing. Follow Native Parser mirrors the host selection instead.",
+  "ImageGen Connection": "The Lumiverse Image Generation connection Relay uses. Leaving it on default follows Lumiverse’s active/default image connection.",
+  "Model / Checkpoint": "Optional checkpoint override. Leave empty to use the selected ImageGen connection’s configured model.",
+  Sampler: "The provider sampling algorithm. Use the connection default unless you know the selected checkpoint prefers another sampler.",
+  Scheduler: "Controls how denoising steps are distributed. Use the connection default when unsure.",
+  Steps: "More steps can refine an image but take longer. The useful range depends on the provider and checkpoint.",
+  "CFG / Guidance": "Controls how strongly generation follows the prompt. Very high values can reduce natural detail or cause artifacts.",
+  "Relay Stack": "A reusable ordered set of provider LoRAs, weights, and optional trigger tags applied by Relay.",
+  "Model Weight": "How strongly this LoRA affects the diffusion model. Start near the model author’s recommended value.",
+  "CLIP Weight": "How strongly this LoRA affects text conditioning. Leave at the model weight unless the LoRA documents a different value.",
+  "Auto Generate": "When off, Relay may prepare requests but cannot spend an image-generation job automatically. This is enforced by the backend.",
+  "Concurrent Relay Preprocessing Jobs": "Maximum image-prompt preparation workers at once (1–8), shared across this user’s chats. It controls Surface parsing and illustration prompt preparation. Appearance scans and the Relay Director coordinate separately. Image generation keeps its provider lane; this setting does not make images generate in parallel.",
+  "Appearance Sidecar Source": "Chooses whether Illustrator uses the shared global Appearance Sidecar routing or its own connection, model, and parameter overrides.",
+  "Automatic Appearance Updates": "Shared across chats and planning modes. Initial Appearance Memory setup runs once even with Never selected. Manual rescans always run; saved memory is reused between scheduled updates.",
+  "Update Every X Story Responses": "Refresh Appearance Memory after this many new assistant/story responses since the last full scan (1–1000). User messages, repeated scans, and image slots do not advance the count. Default: every response.",
+  "Global Appearance Sidecar Connection": "Selects the Lumiverse text connection used by the shared Appearance Sidecar. Use Relay Parser Connection to inherit the parser connection instead.",
+  "Global Appearance Sidecar Model": "Selects the model used by the shared Appearance Sidecar. Leave inherited to follow the Relay Parser model or the explicitly selected Sidecar connection default.",
+  "Global Appearance Sidecar Parameters": "Optional JSON parameters sent only with shared Appearance Sidecar requests. An empty object inherits the Relay Parser parameters.",
+  "Appearance Sidecar Connection": "Selects Illustrator’s Sidecar connection when Appearance Sidecar Source is set to Illustrator Override. Leave inherited to use the global Sidecar connection.",
+  "Appearance Sidecar Model": "Selects Illustrator’s Sidecar model when using an override. Leave inherited to use the global Sidecar model or the selected override connection default.",
+  "Appearance Sidecar Parameters": "Optional JSON parameters for Illustrator’s Sidecar override. An empty object inherits the shared global Sidecar parameters.",
+  "Illustration Count": "Choose an exact number or an inclusive range of inline illustrations per response. Opening Frame adds a separate cover image.",
+  "Aspect Policy": "Reserves and generates each illustration at the selected ratio. Adaptive lets Relay choose from scene composition.",
+  "Prompt Profile": "Selects a curated image-prompt style and framing profile before provider submission.",
+  "Image Alignment": "Positions completed prose illustrations within the message column.",
+  "Image Size": "Sets the displayed width of completed prose illustrations without changing the generated source file.",
+  "Candidate Count per Illustration": "Generates multiple choices for review. Higher counts cost more time and provider work.",
+  Frequency: "Controls which eligible assistant messages may receive prose illustrations.",
+  "Every N Eligible Messages": "When Frequency uses Every N, this sets the interval. Skipped or ineligible messages do not count.",
+  "Minimum Message Length": "Messages shorter than this are not considered for automatic illustration planning.",
+  "Surface ID": "A unique stable identifier for this exact Surface preset, for example relationship-map.",
+  "Base Surface ID": "The shared semantic identity for presets that render the same Surface contract.",
+  "XML Surface Root": "The XML root that identifies this Surface. Enter only the name; Reverie supplies the opening and closing XML tags.",
+  "Image Target": "The Relay route used by image requests owned by this Surface. It must match the runtime contract.",
+  "Surface Utility / Model Instructions": "The exact instructions Relay injects into the Story Model when this custom Surface is enabled. Explain when to author it, its required fields, media ownership, and the complete output format.",
+  "Canonical Validation Fixture": "The complete XML example used for validation, preview and model instructions. Keep attributes, child fields and image owners in schema order.",
+  "Utility Category": "Where this custom Surface appears in the Surface Library. The category organizes its toggle; it does not change rendering, validation, or prompt behavior.",
+  "Advanced namespaced CSS": "Optional presentation-only CSS for this Surface. Keep every selector scoped to its wrapper; scripts, event handlers, imports, and JavaScript URLs are rejected.",
+  "Inject Surface Utility": "Includes this custom Surface’s model instructions when its module is enabled.",
+  "Narrative Presentation": "Chooses the approved Narrative launcher style installed by Relay. It does not change Utility content.",
+  "Interface Theme": "Changes only the Relay settings panel appearance; generated Surface designs keep their approved styling.",
+  "Debug logging": "Adds detailed local diagnostics for troubleshooting. It can be noisy and should normally stay off."
+};
+function settingHelp(label, fallback = "") {
+  return fallback || SETTING_HELP[label] || "";
+}
+
+// src/amazonStyle.ts
+var AMAZON_CSS = `
+.rr-amazon{--amz-text:#0f1111;--amz-muted:#565959;--amz-line:#d5d9d9;--amz-panel:#fff;--amz-bg:#fff;--amz-gold:#ffd814;color-scheme:light;color:#0f1111;background:#fff;font:14px/1.4 Arial,Helvetica,sans-serif;width:100%;max-width:1100px;border:1px solid #d5d9d9;border-radius:4px;overflow:hidden;box-sizing:border-box;container-type:inline-size;text-align:left}
+.rr-amazon *{box-sizing:border-box;min-width:0}.rr-amazon [hidden]{display:none!important}.rr-amazon h2,.rr-amazon h3,.rr-amazon p{color:inherit;font-family:inherit;letter-spacing:normal}.rr-amazon button,.rr-amazon input{font:inherit;color:#0f1111}.rr-amazon button{cursor:pointer}.rr-amazon button:disabled{opacity:.5;cursor:not-allowed}.rr-amazon button:focus-visible,.rr-amazon input:focus-visible{outline:3px solid #007185;outline-offset:2px}
+.rr-amazon .amz-top{display:flex;align-items:center;gap:16px;padding:12px 16px;background:#131921;color:#fff;min-height:66px}.rr-amazon .amz-logo{position:relative;font:bold 28px/1 Arial,sans-serif;letter-spacing:-1.5px;flex-shrink:0;padding-bottom:8px;color:#fff}.rr-amazon .amz-logo:after{content:'';position:absolute;left:12px;width:54px;bottom:0;height:12px;border-bottom:3px solid #ff9900;border-radius:0 0 70% 70%;transform:rotate(-5deg)}
+.rr-amazon .amz-deliver{font-size:12px;line-height:1.25;max-width:150px}.rr-amazon .amz-deliver strong{display:block;font-size:13px}.rr-amazon .amz-query{display:flex;align-items:center;flex:1;background:#fff;color:#0f1111;min-height:40px;border-radius:4px;overflow:hidden}.rr-amazon .amz-query>small{align-self:stretch;display:grid;place-items:center;background:#e6e6e6;color:#565959;padding:0 11px;border-right:1px solid #c5c5c5}.rr-amazon .amz-query-text{padding:8px 11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rr-amazon .amz-search-glyph{display:grid;place-items:center;width:43px;align-self:stretch;background:#febd69;color:#111;font-size:27px}.rr-amazon .amz-header-meta{font-size:11px;line-height:1.25;white-space:nowrap}.rr-amazon .amz-header-meta strong{display:block;font-size:13px}.rr-amazon .amz-header-cart{display:flex;align-items:center;gap:5px;font-weight:bold;font-size:13px}.rr-amazon .amz-header-cart svg{width:29px;height:29px;color:#fff}
+.rr-amazon .amz-subnav{display:flex;gap:19px;background:#232f3e;color:#fff;padding:8px 16px;font-size:12px;overflow:hidden;white-space:nowrap}.rr-amazon .amz-subnav strong{font-size:13px}.rr-amazon .amz-area{display:none;padding:10px 14px;background:#c4eeee;font-size:12px;color:#0f1111}.rr-amazon .amz-resultbar{padding:9px 16px;border-bottom:1px solid #d5d9d9;box-shadow:0 2px 3px #00000012;font-size:12px}.rr-amazon .amz-resultbar strong{color:#c45500}.rr-amazon .amz-layout{display:grid;grid-template-columns:155px minmax(0,1fr);gap:18px;padding:19px 16px}.rr-amazon .amz-sidebar{font-size:12px;line-height:1.6}.rr-amazon .amz-sidebar h3{font-size:13px;margin:0 0 5px}.rr-amazon .amz-sidebar p{margin:3px 0}.rr-amazon .amz-sidebar hr{border:0;border-top:1px solid #ddd;margin:14px 0}.rr-amazon .amz-sidebar small{color:#565959}.rr-amazon .amz-heading{padding:0 0 8px}.rr-amazon .amz-heading h2{font-size:21px;margin:0;font-weight:bold}.rr-amazon .amz-heading p{font-size:12px;margin:2px 0;color:#565959}
+.rr-amazon .amz-products{display:grid;gap:8px}.rr-amazon .amz-product,.rr-amazon amz_product{display:grid;grid-template-columns:minmax(130px,31%) minmax(0,1fr);gap:14px;border:1px solid #f0f0f0;border-radius:4px;background:#fff;padding:0;overflow:hidden;overflow-wrap:anywhere;align-content:start}.rr-amazon .amz-image,.rr-amazon amz_media{display:grid;place-items:center;background:#f7f7f7;position:relative;min-height:190px;aspect-ratio:1;align-self:stretch;overflow:hidden}.rr-amazon .amz-image img,.rr-amazon amz_media img{width:100%;height:100%;object-fit:contain}.rr-amazon .amz-image>.rrl-island,.rr-amazon .amz-image>.rrl-resolved,.rr-amazon amz_media>.rrl-island,.rr-amazon amz_media>.rrl-resolved{width:100%;height:100%}.rr-amazon amz_media image_request,.rr-amazon amz_media scene_brief{display:none!important}.rr-amazon amz_media:has(image_request):before{content:'Product image pending';color:#565959;font-size:12px}.rr-amazon .amz-product-copy{padding:12px 12px 12px 0}.rr-amazon .amz-product-copy h3{font-size:18px;line-height:1.35;margin:3px 0 5px;font-weight:400}.rr-amazon .amz-product-copy small{font-size:11px;color:#565959}.rr-amazon .amz-product-copy p{font-size:12px;margin:5px 0}.rr-amazon .amz-rating{display:flex;align-items:center;gap:5px;font-size:12px;color:#007185;margin:5px 0}.rr-amazon .amz-stars{position:relative;color:#ddd;font-size:18px;line-height:1;letter-spacing:1px}.rr-amazon .amz-stars:after{content:'★★★★★';color:#de7921;position:absolute;inset:0 auto 0 0;width:var(--amz-stars,0%);overflow:hidden;white-space:nowrap}.rr-amazon .amz-price{display:block;font-size:27px;font-weight:400;margin:7px 0;color:#0f1111}.rr-amazon .amz-available{color:#007600!important}.rr-amazon .amz-product-copy details{font-size:12px;color:#565959;margin-top:8px}.rr-amazon .amz-product-actions{display:flex;gap:8px;flex-wrap:wrap;grid-column:2;padding:0 12px 12px 0}.rr-amazon .amz-product-actions button{border:0;background:none;color:#007185;padding:5px 0;font-size:12px}.rr-amazon .amz-product-actions .amz-add{border:1px solid #fcd200;background:#ffd814;color:#0f1111;border-radius:22px;padding:7px 17px;min-height:32px}.rr-amazon .amz-orders{margin:0 16px 16px;padding:14px;border:1px solid #d5d9d9;border-radius:8px;background:#fff;font-size:12px}.rr-amazon .amz-orders summary{cursor:pointer;font-weight:bold}.rr-amazon .amz-foot{padding:10px 16px;color:#565959;background:#f3f3f3;font-size:11px;border-top:1px solid #d5d9d9}
+/* Regex presents actual XML children; no catalog facts are fabricated. */
+.rr-amazon amz_product>*{grid-column:2;margin-right:12px}.rr-amazon amz_product_id,.rr-amazon amz_category{display:none}.rr-amazon amz_media{grid-column:1;grid-row:1/15;margin:0}.rr-amazon amz_title{font-size:18px;margin-top:12px;line-height:1.35}.rr-amazon amz_brand{font-size:11px;color:#565959}.rr-amazon amz_amount{font-size:27px}.rr-amazon amz_amount:before{content:var(--amz-currency) ' ';font-size:12px}.rr-amazon amz_rating,.rr-amazon amz_reviews{font-size:12px;color:#007185}.rr-amazon amz_rating:before{content:'Rating: ';color:#de7921}.rr-amazon amz_reviews:after{content:' reviews'}.rr-amazon amz_availability{color:#007600;font-size:12px}.rr-amazon amz_delivery,.rr-amazon amz_description,.rr-amazon amz_specs,.rr-amazon amz_seller{font-size:12px}.rr-amazon amz_seller:before{content:'Seller: '}.rr-amazon amz_seller{margin-bottom:12px}.rr-amazon amz_order{display:grid;padding:12px 0;border-top:1px solid #ddd;gap:4px}.rr-amazon amz_order_id{font-size:11px;color:#565959}.rr-amazon .amz-orders:has(amz_order) .amz-no-orders{display:none}
+/* Phone is deliberately brand-light, exempt only this subtree from auto darkening. */
+.rr-amazon[data-mode=phone]{max-width:none;border:0;border-radius:0;min-height:100%;display:flex;flex-direction:column;background:#fff}.rr-amazon[data-mode=phone] .amz-top{background:#9ce0db;color:#0f1111;min-height:49px;padding:12px 14px 7px}.rr-amazon[data-mode=phone] .amz-logo{font-size:25px;color:#0f1111}.rr-amazon[data-mode=phone] .amz-header-cart{margin-left:auto}.rr-amazon[data-mode=phone] .amz-header-cart svg{color:#0f1111}.rr-amazon[data-mode=phone] .amz-query,.rr-amazon[data-mode=phone] .amz-deliver,.rr-amazon[data-mode=phone] .amz-header-meta,.rr-amazon[data-mode=phone] .amz-subnav,.rr-amazon[data-mode=phone] .amz-sidebar{display:none}.rr-amazon[data-mode=phone] .amz-area{display:block}.rr-amazon[data-mode=phone] .amz-search{display:flex;gap:0;background:#9ce0db;padding:3px 12px 11px}.rr-amazon[data-mode=phone] .amz-search input{flex:1;min-width:0;background:#fff;border:1px solid #bbb;border-right:0;border-radius:7px 0 0 7px;color:#0f1111;padding:10px;font-size:14px;min-height:40px}.rr-amazon[data-mode=phone] .amz-search button{background:#fff;color:#111;border:1px solid #bbb;border-left:0;border-radius:0 7px 7px 0;padding:8px 11px}.rr-amazon[data-mode=phone] .amz-resultbar{box-shadow:none;font-size:11px;padding:9px 12px}.rr-amazon[data-mode=phone] .amz-layout{display:block;padding:12px 10px;flex:1}.rr-amazon[data-mode=phone] .amz-heading h2{font-size:19px}.rr-amazon[data-mode=phone] .amz-products{gap:0}.rr-amazon[data-mode=phone] .amz-product{grid-template-columns:112px minmax(0,1fr);gap:10px;border:0;border-bottom:1px solid #e7e7e7;border-radius:0;padding:10px 0}.rr-amazon[data-mode=phone] .amz-image{aspect-ratio:1;min-height:112px;align-self:start;border-radius:5px}.rr-amazon[data-mode=phone] .amz-product-copy{padding:0}.rr-amazon[data-mode=phone] .amz-product-copy h3{font-size:14px;margin-top:0}.rr-amazon[data-mode=phone] .amz-product-copy>.amz-description,.rr-amazon[data-mode=phone] .amz-product-copy>small{display:none}.rr-amazon[data-mode=phone] .amz-price{font-size:24px;margin:5px 0}.rr-amazon[data-mode=phone] .amz-rating{font-size:11px;flex-wrap:wrap;gap:4px}.rr-amazon[data-mode=phone] .amz-product-actions{grid-column:1/-1;padding:5px 0 0;gap:12px;align-items:center}.rr-amazon[data-mode=phone] .amz-product-actions .amz-add{order:-1}.rr-amazon[data-mode=phone] .amz-phone-nav{order:10;position:sticky;bottom:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;padding:0;background:#fff;border-top:1px solid #d5d9d9;z-index:2}.rr-amazon .amz-phone-nav button{position:relative;background:#fff;color:#0f1111;border:0;border-radius:0;display:grid;justify-items:center;gap:3px;font-size:10px;padding:10px 2px 7px;min-height:57px}.rr-amazon .amz-phone-nav button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.rr-amazon .amz-phone-nav button[aria-pressed=true]{color:#007185}.rr-amazon .amz-phone-nav button[aria-pressed=true]:before{content:'';position:absolute;top:0;width:30px;height:3px;background:#007185;border-radius:0 0 4px 4px}.rr-amazon .amz-phone-panel:empty{display:none}.rr-amazon .amz-phone-panel{color:#0f1111;background:#fff}.rr-amazon .amz-phone-panel>h3{font-size:22px;font-weight:400;margin:4px 0 14px}.rr-amazon .amz-phone-row{padding:14px 0;border-bottom:1px solid #e7e7e7;overflow-wrap:anywhere}.rr-amazon .amz-phone-row strong{display:block;font-size:14px}.rr-amazon .amz-phone-row p{font-size:12px;margin:7px 0}.rr-amazon .amz-phone-row input{font:inherit;width:67px;min-height:32px;background:#f0f2f2;color:#0f1111;border:1px solid #d5d9d9;border-radius:7px;padding:5px 8px}.rr-amazon .amz-phone-row button{background:#fff;color:#007185;border:0;font-size:12px;padding:6px 9px}.rr-amazon .amz-checkout{display:block;width:100%;border:1px solid #fcd200;border-radius:22px;background:#ffd814;color:#0f1111;padding:10px 12px;min-height:40px}.rr-amazon .amz-confirm{border:1px solid #d5d9d9;border-radius:8px;padding:14px;margin-top:16px;background:#fff;color:#0f1111}.rr-amazon .amz-confirm h3{font-size:20px;font-weight:400;margin:0 0 12px}.rr-amazon .amz-confirm p{font-size:12px}.rr-amazon .amz-confirm strong{display:block;color:#b12704;margin:12px 0}.rr-amazon .amz-confirm button{margin-top:10px}.rr-amazon .amz-phone-queue{font-size:11px;color:#565959;padding:12px;margin:0;border-top:1px solid #d5d9d9;background:#f3f3f3}.rr-amazon .amz-inject{background:#fff;color:#007185;border:1px solid #d5d9d9;border-radius:7px;font:inherit;font-size:11px;padding:8px 10px;margin:10px 12px 0;min-height:34px}.rr-amazon .amz-order-summary{padding:10px;background:#f0f2f2;border:1px solid #d5d9d9;border-radius:8px;font-size:11px;color:#565959}.rr-amazon .amz-empty{padding:24px 0;font-size:14px;color:#565959}
+.rr-amazon .amz-image,.rr-amazon amz_media{width:100%;height:auto;align-self:start}.rr-amazon[data-mode=phone]{height:100%;min-height:0}.rr-amazon[data-mode=phone]>.amz-top,.rr-amazon[data-mode=phone]>.amz-search,.rr-amazon[data-mode=phone]>.amz-area,.rr-amazon[data-mode=phone]>.amz-resultbar,.rr-amazon[data-mode=phone]>.amz-phone-nav{flex-shrink:0}.rr-amazon[data-mode=phone]>.amz-layout{min-height:0;overflow:auto}.rr-amazon[data-mode=phone] .amz-foot{margin-top:14px;padding:10px 0;background:#fff}.rr-amazon[data-mode=phone] .amz-phone-queue{padding:0 0 10px;background:#fff}.rr-amazon[data-mode=phone] .amz-inject{margin:10px 0 0}.rr-amazon[data-mode=phone] .amz-heading p{display:none}
+.rr-amazon[data-mode=phone] button.amz-header-cart{border:0;padding:0;background:transparent;min-height:30px;font-size:12px}.rr-amazon .amz-search button svg{display:block;width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round}
+@container(max-width:640px){.rr-amazon:not([data-mode=phone]) .amz-deliver,.rr-amazon:not([data-mode=phone]) .amz-header-meta{display:none}.rr-amazon .amz-layout{grid-template-columns:minmax(0,1fr)}.rr-amazon .amz-sidebar{display:none}.rr-amazon .amz-top{gap:12px;padding:12px}.rr-amazon .amz-subnav{gap:14px;padding-inline:12px}}
+@container(max-width:350px){.rr-amazon[data-mode=phone] .amz-product{grid-template-columns:92px minmax(0,1fr)}.rr-amazon[data-mode=phone] .amz-image{min-height:92px}.rr-amazon:not([data-mode=phone]) .amz-header-cart{display:none}.rr-amazon .amz-product-copy h3{font-size:15px}}
+`;
+
+// src/amazonSurface.ts
+var AMAZON_LAUNCHER_CSS = `<style data-reverie-amazon-launcher>
+.amz-regex-launcher{display:block;width:100%;min-width:0;margin:0 auto;padding:4px 0;border:0;background:transparent}
+.amz-regex-launcher>summary{position:relative;isolation:isolate;box-sizing:border-box;display:flex;align-items:center;justify-content:center;width:max-content;max-width:100%;height:40px;min-height:40px;margin:0 auto;padding:0 18px;overflow:hidden;list-style:none;cursor:pointer;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 76%,#e8dce4 24%);border-radius:999px;background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 17%,#1a1519 83%),color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 8%,#121014 92%));color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 14%,#fff 86%);font:850 12.1px/1 system-ui,sans-serif;letter-spacing:.015em;text-transform:none;box-shadow:0 3px 10px #0005,0 0 5px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 10%,transparent)}
+.amz-regex-launcher>summary::-webkit-details-marker{display:none}.amz-regex-launcher>summary:focus-visible{outline:2px solid currentColor;outline-offset:3px}.amz-regex-launcher>.rr-amazon{margin-top:10px}
+.amz-regex-launcher[data-amz-presentation=sparkling]>summary{border-color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 58%,var(--lumiverse-border,#55424c) 42%);background:radial-gradient(circle at 20% 18%,color-mix(in srgb,var(--lumiverse-primary-text,#fff) 8%,transparent),transparent 34%),linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-elevated,#251720) 80%,var(--lumiverse-primary,#d45b9f) 20%),color-mix(in srgb,var(--lumiverse-bg-deep,#100b0f) 92%,var(--lumiverse-primary,#d45b9f) 8%));color:color-mix(in srgb,var(--lumiverse-primary-text,#fff) 90%,var(--lumiverse-text,#fff) 10%);font-size:12.7px;letter-spacing:.018em;box-shadow:0 4px 12px #0005,0 0 8px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 15%,transparent),inset 0 1px 0 #ffffff14}
+.amz-regex-launcher[data-reverie-glass-button]>summary{max-width:min(calc(100% - 24px),360px);margin:14px auto 0;padding:0 20px;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 10%,transparent);border-radius:13px;background:color-mix(in srgb,var(--lumiverse-bg-deep,#0b0710) 4%,transparent);color:var(--lumiverse-primary-text,var(--lumiverse-text,#f6f1f7));font:800 10px/1 var(--lumiverse-font-mono,"Courier New",monospace);letter-spacing:.18em;text-transform:uppercase;box-shadow:0 0 10px color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 3%,transparent);-webkit-backdrop-filter:blur(9px) saturate(1.05);backdrop-filter:blur(9px) saturate(1.05)}
+.amz-regex-launcher[data-amz-presentation=plain]>summary{font:850 12.7px/1 system-ui;box-shadow:0 3px 8px rgba(0,0,0,.30),0 0 3px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 9%,transparent)}
+.amz-regex-launcher[data-amz-presentation=sparkling]>summary{font-family:system-ui;box-shadow:0 4px 12px rgba(0,0,0,.34),0 0 8px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 15%,transparent),inset 0 1px 0 rgba(255,255,255,.08)}
+.amz-regex-launcher[data-amz-presentation=plain][open]>summary{border-color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 90%,#fff 10%);box-shadow:0 4px 10px rgba(0,0,0,.32),0 0 4px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 11%,transparent)}
+.amz-regex-launcher[data-amz-presentation=sparkling][open]>summary{border-color:color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 82%,#fff 18%);box-shadow:0 5px 14px rgba(0,0,0,.38),0 0 10px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 19%,transparent),inset 0 1px 0 rgba(255,255,255,.1)}
+.amz-regex-launcher[data-reverie-glass-button]>summary{margin-top:0;padding:0 18px}
+.amz-regex-launcher[data-amz-color=glass][data-amz-presentation=plain]>summary{background:linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-primary,#d45b9f1f) 17%,#1a15191f 83%),color-mix(in srgb,var(--lumiverse-primary,#d45b9f1f) 8%,#1210141f 92%));box-shadow:0 3px 8px rgba(0,0,0,.16),0 0 3px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 9%,transparent)}
+.amz-regex-launcher[data-amz-color=glass][data-amz-presentation=plain][open]>summary{box-shadow:0 4px 10px rgba(0,0,0,.16),0 0 4px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 11%,transparent)}
+.amz-regex-launcher[data-amz-color=glass][data-amz-presentation=sparkling]>summary{background:radial-gradient(circle at 20% 18%,color-mix(in srgb,var(--lumiverse-primary-text,#ffffff1f) 8%,transparent),transparent 34%),linear-gradient(180deg,color-mix(in srgb,var(--lumiverse-bg-elevated,#2517201f) 80%,var(--lumiverse-primary,#d45b9f1f) 20%),color-mix(in srgb,var(--lumiverse-bg-deep,#100b0f1f) 92%,var(--lumiverse-primary,#d45b9f1f) 8%));box-shadow:0 4px 12px rgba(0,0,0,.16),0 0 8px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 15%,transparent),inset 0 1px 0 rgba(255,255,255,.08)}
+.amz-regex-launcher[data-amz-color=glass][data-amz-presentation=sparkling][open]>summary{box-shadow:0 5px 14px rgba(0,0,0,.16),0 0 10px color-mix(in srgb,var(--lumiverse-primary,#d45b9f) 19%,transparent),inset 0 1px 0 rgba(255,255,255,.1)}
+</style>`;
+function amazonSurfacePresentation(rendered, label, mode, open = false, color = "realistic") {
+  if (mode === "inline")
+    return rendered;
+  const presentation = mode === "collapsible" ? "plain" : mode;
+  const glass = presentation === "glass" || presentation === "plain-glass";
+  return `<details class="amz-regex-launcher" data-amz-presentation="${presentation}" data-amz-color="${color}"${glass ? ' data-reverie-glass-button="1"' : ""}${open ? " open" : ""}><summary>${escapeXml(label)}</summary>${AMAZON_LAUNCHER_CSS}${rendered}</details>`;
+}
+var AMAZON_CART_ICON = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h3l3 13h11l3-10H6"/><circle cx="9" cy="21" r="1"/><circle cx="19" cy="21" r="1"/></svg>';
+function amazonShell(id, query, currency, area, products, orders, sidebar, count) {
+  return `<style>${AMAZON_CSS}</style><section class="rr-amazon" data-amz-brand-preserve="true" data-amz-snapshot="${id}" style="--amz-currency:'${currency}'"><header class="amz-top"><span class="amz-logo">amazon</span><div class="amz-deliver">Deliver to<strong>${area}</strong></div><div class="amz-query" aria-label="Saved catalog search"><small>All</small><span class="amz-query-text">${query}</span><span class="amz-search-glyph" aria-hidden="true">⌕</span></div><div class="amz-header-meta">In-story shopping<strong>Account &amp; Lists</strong></div><div class="amz-header-meta">Returns<strong>&amp; Orders</strong></div><div class="amz-header-cart">${AMAZON_CART_ICON}<span>Cart</span></div></header><div class="amz-subnav"><strong>☰ All</strong><span>Saved catalog</span><span>In-story shopping</span><span>Prices in ${currency}</span></div><div class="amz-area">⌖ Deliver to ${area}</div><div class="amz-resultbar">${count === undefined ? "Saved results" : `${count} result${count === 1 ? "" : "s"}`} for <strong>“${query}”</strong></div><div class="amz-layout"><aside class="amz-sidebar">${sidebar}</aside><main class="amz-main"><div class="amz-heading"><h2>Results</h2><p>Product information from the current story catalog.</p></div><div class="amz-products">${products}</div></main></div><details class="amz-orders"><summary>Recorded orders</summary>${orders}</details><footer class="amz-foot">Fictional Amazon · No real payment or Amazon connection. Phone controls save cart, wishlist and in-story orders.</footer></section>`;
+}
+function renderAmazonSurface(source, media) {
+  const snapshot = parseAmazon(source);
+  const products = snapshot.products.map((product) => {
+    const rating = Number.parseFloat(product.rating), rated = Number.isFinite(rating) && rating >= 0 && rating <= 5;
+    const stars = rated ? `<span class="amz-stars" aria-hidden="true" style="--amz-stars:${rating * 20}%">★★★★★</span>` : "";
+    return `<article class="amz-product" data-amz-product="${product.id}"><div class="amz-image">${media(product.media)}</div><div class="amz-product-copy"><small>${escapeXml(product.brand)} · ${escapeXml(product.category)}</small><h3>${escapeXml(product.title)}</h3><div class="amz-rating" aria-label="Rating ${escapeXml(product.rating)}, ${escapeXml(product.reviews)} reviews">${escapeXml(product.rating)} ${stars}<span>${escapeXml(product.reviews)} reviews</span></div><strong class="amz-price">${escapeXml(formatMoney(product.amount, snapshot.currency))}</strong><p class="amz-available">${escapeXml(product.availability)}</p><p>${escapeXml(product.delivery)}</p><p class="amz-description">${escapeXml(product.description)}</p><details><summary>Product details</summary><p>${escapeXml(product.specs)}</p><p>Seller: ${escapeXml(product.seller)}</p></details></div></article>`;
+  }).join("");
+  const sidebar = `<h3>Department</h3>${[...new Set(snapshot.products.map((p) => p.category))].map((v) => `<p>${escapeXml(v)}</p>`).join("")}<hr><h3>Brands in this catalog</h3>${[...new Set(snapshot.products.map((p) => p.brand))].map((v) => `<p>${escapeXml(v)}</p>`).join("")}<hr><h3>Delivery</h3><p>${escapeXml(snapshot.deliveryArea)}</p><small>Availability and delivery remain as established in the story.</small>`;
+  const orders = snapshot.orders.length ? snapshot.orders.map((order) => `<p>${escapeXml(order.summary)} · ${escapeXml(order.status)} · ${escapeXml(order.delivery)}</p>`).join("") : "<p>No established orders in this snapshot.</p>";
+  return amazonShell(escapeXml(snapshot.id), escapeXml(snapshot.query), snapshot.currency, escapeXml(snapshot.deliveryArea), products, orders, sidebar, snapshot.products.length);
+}
+
 // src/nativeSurfaces.ts
 var STYLE_MARKER = 'data-reverie-native-surface-style="release"';
 var NATIVE_SURFACE_CSS = `<style ${STYLE_MARKER}>
@@ -256772,7 +257986,7 @@ var LIFECYCLE_CARD_CSS = `<style data-reverie-lifecycle-style="release">
 .rrl-card[data-rrn-live-status="provider-waiting"] .rrl-spinner{display:block}.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-state-icon{display:none}.rrl-card[data-rrn-live-status="provider-waiting"] .rrl-status:before{animation:rrlPulse 1.05s ease-in-out infinite}
 </style>`;
 var STABLE_MEDIA_SLOT_CSS = `${SURFACE_MEDIA_GEOMETRY_STYLE}<style data-reverie-stable-media-slot="2">
-.rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media],.dgir-prose-lifecycle-projection{overflow-anchor:none}.dgir-prose-lifecycle-projection{display:flex;width:100%;max-width:100%;justify-content:var(--dgir-prose-image-justify,center);margin:10px 0;box-sizing:border-box}.dgir-prose-lifecycle-projection>.rrl-island{flex:0 1 var(--dgir-prose-image-width,66%);width:var(--dgir-prose-image-width,66%);max-width:var(--dgir-prose-image-max-width,720px);margin:8px 0}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.dgir-prose-lifecycle-projection>.rrl-island{width:min(100%,var(--dgir-prose-image-width,66%));max-width:min(100%,var(--dgir-prose-image-max-width,720px))}.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
+.rrn-editable-surface,.rrl-island,.rrn-media,.rrl-media-slot,[data-reverie-r45-lifecycle-media],.dgir-prose-lifecycle-projection{overflow-anchor:none}.dgir-prose-lifecycle-projection{display:flex;width:100%;max-width:100%;justify-content:var(--dgir-prose-image-justify,center);margin:10px 0;box-sizing:border-box}.dgir-prose-lifecycle-projection>.rrl-island{flex:0 1 var(--dgir-prose-image-width,66%);width:var(--dgir-prose-image-width,66%);max-width:var(--dgir-prose-image-max-width,720px);margin:8px 0}.rrn-media{aspect-ratio:var(--reverie-media-aspect,16/9);min-height:0;contain:layout paint}.rrn-media img{width:100%;height:100%;object-fit:var(--rrn-fit,contain)}.rrl-card>.rrl-media-slot{grid-column:1/-1}.rrl-media-slot{--reverie-media-aspect:1/1;--rr-primary:var(--lumiverse-primary,var(--rrl-accent));--rr-secondary:var(--lumiverse-secondary,var(--rrl-accent));--rr-text:var(--lumiverse-text,var(--rrl-text));--rr-accent:var(--lumiverse-secondary,var(--rrl-accent));--rr-accent-text:var(--lumiverse-primary,var(--rrl-text));--rr-border:var(--lumiverse-border,var(--rrl-border));--rr-bg:var(--lumiverse-bg-deep-080,var(--rrl-bg));position:relative;display:block;width:100%;aspect-ratio:var(--reverie-media-aspect);min-height:0;overflow:hidden;border:1px solid var(--rr-border);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.045),rgba(255,255,255,.015)),var(--rr-bg);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 16px 50px rgba(0,0,0,.32),inset 0 1px rgba(255,255,255,.055);contain:layout paint;overflow-anchor:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-resolved{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;border-radius:0;background:transparent}.rrl-media-slot .rrl-preview{max-height:none}.rrl-media-slot .rrl-preview[hidden]{display:none}.rrl-media-slot .rrl-preview-image,.rrl-media-slot .rrl-slot-image,.rrl-media-slot .rrl-resolved img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;background:#070507;border-radius:0}.rrl-actions button[data-rrn-action]{touch-action:manipulation;pointer-events:auto}.rrl-actions button[data-rrl-submitting="true"]{opacity:.68;cursor:progress}.rrl-media-skeleton{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;padding:0;color:transparent;pointer-events:none}.rrl-media-slot[data-rrn-media-empty="false"] .rrl-media-skeleton,.rrl-media-slot[data-rrn-media-state="previewing"] .rrl-media-skeleton{opacity:0;pointer-events:none}.rrl-card{position:relative;display:block;min-height:0;padding:0;border:0;border-radius:18px;background:transparent;box-shadow:none;overflow:visible}.rrl-main{position:absolute;z-index:3;left:8px;top:8px;max-width:calc(100% - 16px);padding:4px 7px;border-radius:999px;background:rgba(5,3,6,.62);backdrop-filter:blur(7px);pointer-events:none}.rrl-main .rrl-icon{width:18px;height:18px;flex-basis:18px;border:0;background:transparent}.rrl-main .rrl-title{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.rrl-main .rrl-copy{display:block}.rrl-main .rrl-status{padding:0;border:0;color:#fff;font-size:9px}.rrl-stream-status,.rrl-progress{display:none!important}.rrl-actions{position:absolute;z-index:4;right:8px;bottom:8px;max-width:calc(100% - 16px);padding:4px;border-radius:10px;background:rgba(5,3,6,.68);backdrop-filter:blur(7px);opacity:0;transform:translateY(3px);pointer-events:none;transition:opacity .16s ease,transform .16s ease}.rrl-card:hover .rrl-actions,.rrl-card:focus-within .rrl-actions,.rrl-card[data-rrn-live-status="completed"] .rrl-actions,.rrl-card[data-rrn-live-status="failed"] .rrl-actions,.rrl-card[data-rrn-live-status="image-unavailable"] .rrl-actions,.rrl-card[data-rrn-live-status="cancelled"] .rrl-actions,.rrl-card[data-rrn-live-status="placement-repair-needed"] .rrl-actions{opacity:1;transform:none;pointer-events:auto}.rrl-detail{display:none}.rrl-card[data-rrn-live-status="completed"] .rrl-main{opacity:0;transition:opacity .16s ease}.rrl-card[data-rrn-live-status="completed"]:hover .rrl-main,.rrl-card[data-rrn-live-status="completed"]:focus-within .rrl-main{opacity:.9}.rrn-message[data-rr-kakao-color] .rrn-avatar{background:color-mix(in srgb,var(--kk-color) 38%,var(--rrn-panel));border-color:color-mix(in srgb,var(--kk-color) 54%,transparent)}.rrn-message[data-rr-kakao-color] .rrn-meta b{color:color-mix(in srgb,var(--kk-color) 65%,var(--rrn-text))}.rrn-message[data-rr-kakao-color] .rrn-bubble{border:1px solid color-mix(in srgb,var(--kk-color) 35%,var(--rrn-border));background:color-mix(in srgb,var(--rrn-panel) 82%,var(--kk-color) 18%)}.rrn-message[data-rr-kakao-color] .rrn-bubble.is-sent{background:color-mix(in srgb,var(--rrn-panel) 68%,var(--kk-color) 32%)}@media(max-width:560px){.dgir-prose-lifecycle-projection>.rrl-island{width:min(100%,var(--dgir-prose-image-width,66%));max-width:min(100%,var(--dgir-prose-image-max-width,720px))}.rrl-media-slot{width:100%;max-height:none}.rrl-media-slot .rrl-preview,.rrl-media-slot .rrl-preview-image{max-height:none}}
 .rrn-editable-surface>.rrn-contract-recovery{--rrr-accent:var(--lumiverse-primary,#c24b78);--rrr-panel:var(--lumiverse-bg-elevated,#24131d);--rrr-deep:var(--lumiverse-bg-deep,#150a11);--rrr-border:var(--lumiverse-border,rgba(194,75,120,.34));--rrr-text:var(--lumiverse-text-primary,var(--lumiverse-text,#f7eaf0));--rrr-muted:var(--lumiverse-text-secondary,var(--lumiverse-text-muted,#c8aeb9));box-sizing:border-box;display:grid;gap:7px;width:min(100%,680px);margin:10px auto;padding:14px 15px;border:1px solid color-mix(in srgb,var(--rrr-accent) 42%,var(--rrr-border));border-left:3px solid var(--rrr-accent);border-radius:16px;background:radial-gradient(circle at 0 0,color-mix(in srgb,var(--rrr-accent) 14%,transparent),transparent 48%),linear-gradient(145deg,color-mix(in srgb,var(--rrr-panel) 94%,transparent),color-mix(in srgb,var(--rrr-deep) 98%,transparent));color:var(--rrr-text);font-family:var(--lumiverse-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);box-shadow:0 10px 28px rgba(0,0,0,.24),inset 0 1px rgba(255,255,255,.045)}.rrn-contract-recovery>b{font:800 13px/1.25 var(--lumiverse-font-family,system-ui,sans-serif);letter-spacing:.01em}.rrn-contract-recovery>span{color:var(--rrr-text);font-size:12px;line-height:1.45}.rrn-contract-recovery>small{color:var(--rrr-muted);font-size:10px;line-height:1.4}.rrn-contract-recovery>div{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}.rrn-contract-recovery button[data-rrn-action]{appearance:none;min-height:31px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--rrr-accent) 34%,var(--rrr-border));border-radius:9px;background:color-mix(in srgb,var(--rrr-panel) 88%,transparent);color:var(--rrr-text);font:750 10px/1 var(--lumiverse-font-family,system-ui,sans-serif);cursor:pointer;touch-action:manipulation;pointer-events:auto}.rrn-contract-recovery button[data-rrn-action]:hover,.rrn-contract-recovery button[data-rrn-action]:focus-visible{border-color:color-mix(in srgb,var(--rrr-accent) 72%,var(--rrr-border));background:color-mix(in srgb,var(--rrr-accent) 20%,var(--rrr-panel));outline:none}.rrn-contract-recovery button[data-rrn-action="edit-surface"]{background:color-mix(in srgb,var(--rrr-accent) 27%,var(--rrr-panel));border-color:color-mix(in srgb,var(--rrr-accent) 62%,var(--rrr-border))}@media(max-width:560px){.rrn-editable-surface>.rrn-contract-recovery{margin:8px 0;padding:12px}.rrn-contract-recovery>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.rrn-contract-recovery button[data-rrn-action]{width:100%}}
 .rrl-media-slot .rrl-slot-image.rrl-final-reveal{animation:rrlFinalReveal 1.35s cubic-bezier(.22,.61,.36,1) both;will-change:filter,opacity,transform}@keyframes rrlFinalReveal{from{opacity:.42;transform:scale(1.006);filter:blur(14px) brightness(.96)}to{opacity:1;transform:none;filter:none}}
 .rrl-generation-placeholder .rr-spinner{width:19px;height:19px;border-radius:50%;border:2px solid rgba(255,255,255,.12);border-top-color:var(--rr-primary);border-right-color:var(--rr-secondary);animation:rr-spin 1.15s linear infinite}@keyframes rr-spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
@@ -256814,7 +258028,14 @@ function lifecycleCardShell(card) {
 }
 function proseLifecycleProjection(record, card) {
   const key = record?.key ? ` data-dgir-prose-projection="${escapeAttr(record.key)}"` : "";
-  return `<div class="dgir-prose-lifecycle-projection"${key}>${lifecycleCardIsland(card)}</div>`;
+  const opening = record?.proseAnchor?.insertionSide === "opening";
+  const cover = opening ? `<style>
+.rr-opening-cover{position:relative;overflow:hidden;border:1px solid color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 28%,transparent);border-radius:18px;background:linear-gradient(145deg,rgba(255,255,255,.045),rgba(10,8,14,.7));box-shadow:0 8px 30px rgba(0,0,0,.14)}
+.rr-opening-cover>header{padding:clamp(18px,4vw,32px);text-align:center;background:radial-gradient(ellipse at top,color-mix(in srgb,var(--lumiverse-primary,#ff70bd) 12%,transparent),transparent 75%)}
+.rr-opening-cover header>h2{margin:0;font:500 clamp(22px,4vw,36px)/1.18 Georgia,serif;color:var(--lumiverse-text-color,#f4eef5);text-wrap:balance;overflow-wrap:anywhere}
+.rr-opening-cover>.rrl-card{margin:0!important;border:0!important;border-radius:0!important}.rr-opening-cover .rrl-media-slot{border-radius:0!important;border:0!important}
+</style><section class="rr-opening-cover" data-rr-opening-cover="1"><header><h2>${escapeHtml((record?.caption || record?.alt || "A new chapter").slice(0, 180))}</h2></header>${card}</section>` : card;
+  return `<div class="dgir-prose-lifecycle-projection"${key}>${lifecycleCardIsland(cover)}</div>`;
 }
 function renderCompletedProseLifecycleProjection(record, context) {
   if (record.status !== "completed" || !record.imageUrl)
@@ -256824,7 +258045,7 @@ function renderCompletedProseLifecycleProjection(record, context) {
     title: "Illustration requested",
     brief: "",
     requestId: record.requestId,
-    aspect: record.aspectRatio || record.requestAspect || "4:3",
+    aspect: record.requestAspect || "4:3",
     rootTag: "image_request",
     baseSurfaceId: "prose-illustration",
     context: completedContext
@@ -256859,7 +258080,7 @@ function titleCaseToken(value) {
   return value.replace(/^\w+_/, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 function renderShippedSurface(spec, _attrs, _body, _preset, _context) {
-  return reviewedContractError(spec.id, "The FINAL R4.5 renderer did not consume this approved Surface.");
+  return reviewedContractError(spec.id, SURFACE_RENDER_FAILURE_MESSAGE);
 }
 function renderCaseFileDossier(attrs, body, preset, context) {
   const sheet = firstTagText2(body, "cf_sheet") || body;
@@ -257173,17 +258394,32 @@ function preserveKakaoColorAttributes(rendered) {
     return color ? `<${name}${attrs} data-rr-kakao-color="${escapeAttr(color)}">` : tag;
   });
 }
-function reviewedContractError(surfaceId, reason, displayName = surfaceId, guidance = "") {
+function reviewedContractError(surfaceId, reason, displayName = titleCase(surfaceId.replace(/-/g, " ")), guidance = "") {
   reviewedSurfaceDiagnostics.set(surfaceId, reason);
   recordSurfacePipelineDiagnostic(surfaceId, "final", `repair fallback: ${reason}`);
   while (reviewedSurfaceDiagnostics.size > 128)
     reviewedSurfaceDiagnostics.delete(reviewedSurfaceDiagnostics.keys().next().value);
   return `<aside class="rrn-contract-recovery" role="status" data-reverie-surface-contract="failed" data-reverie-surface-id="${escapeAttr(surfaceId)}"><b>${escapeHtml(displayName)} · Format error</b><span>${escapeHtml(reason)}</span><small>${guidance ? `${escapeHtml(guidance)} ` : ""}Original markup and existing media were preserved.</small><div><button type="button" data-rrn-action="edit-surface">Inspect / Fix</button><button type="button" data-rrn-action="repair-surface">Assisted Repair</button><button type="button" data-rrn-action="reparse">Reparse</button><button type="button" data-rrn-action="rescan">Rescan</button></div></aside>`;
 }
-function renderParityOwnedSurface(baseSurfaceId, rootTag, fullMarkup, preset, context) {
+function renderParityOwnedSurface(baseSurfaceId, rootTag, fullMarkup, preset, context, originalMarkup = fullMarkup) {
   recordSurfacePipelineDiagnostic(baseSurfaceId, "detected-root", `<${rootTag}>`);
+  if (baseSurfaceId === "amazon") {
+    try {
+      const rendered = renderAmazonSurface(fullMarkup, (raw) => hydrateParityRequests(raw, baseSurfaceId, context));
+      const shellMode = context.defaultShellMode || preset?.shellMode || defaultShellMode(baseSurfaceId);
+      const mode = shellMode === "collapsible" ? "plain" : shellMode;
+      const shell = amazonSurfacePresentation(rendered, preset?.launcherLabel || "Open Amazon", mode, preset?.defaultOpen, context.colorMode);
+      recordSurfacePipelineDiagnostic(baseSurfaceId, "resolved-surface", baseSurfaceId);
+      recordSurfacePipelineDiagnostic(baseSurfaceId, "selected-renderer", "Amazon catalog");
+      recordSurfacePipelineDiagnostic(baseSurfaceId, "validator", "passed ordered Amazon contract");
+      recordSurfacePipelineDiagnostic(baseSurfaceId, "final", "rendered");
+      return editableRelaySurface(decorateParityImages(decorateSurfaceLauncherMarkup(shell, "core", baseSurfaceId, mode), context), fullMarkup, rootTag, baseSurfaceId, context, originalMarkup);
+    } catch (error) {
+      return editableRelaySurface(reviewedContractError(baseSurfaceId, error instanceof Error ? error.message : String(error)), fullMarkup, rootTag, baseSurfaceId, context, originalMarkup);
+    }
+  }
   recordSurfacePipelineDiagnostic(baseSurfaceId, "resolved-surface", baseSurfaceId);
-  recordSurfacePipelineDiagnostic(baseSurfaceId, "selected-renderer", `R4.5 regex parity (${parityModeForSurface(baseSurfaceId, preset, context)})`);
+  recordSurfacePipelineDiagnostic(baseSurfaceId, "selected-renderer", `Surface renderer (${parityModeForSurface(baseSurfaceId, preset, context)})`);
   const canonicalMarkup = baseSurfaceId === "twitter" ? normalizeTwitterContract(fullMarkup) : baseSurfaceId === "smartphone" ? normalizeSmartphoneContract(fullMarkup) : baseSurfaceId === "character-profile" ? normalizeCharacterProfileContract(fullMarkup) : fullMarkup;
   if (baseSurfaceId === "kakao")
     recordKakaoNormalizationTrace(fullMarkup, canonicalMarkup);
@@ -257200,14 +258436,16 @@ function renderParityOwnedSurface(baseSurfaceId, rootTag, fullMarkup, preset, co
   recordSurfacePipelineDiagnostic(baseSurfaceId, "selected-contract", contract ? `${contract.id} <${contract.wrapper}>` : "missing");
   recordSurfacePipelineDiagnostic(baseSurfaceId, "validator", residual.length ? `failed residual root: ${residual.join(", ")}` : "passed root-consumption check");
   if (residual.length && containsRenderedRegexSurface(rendered))
-    return editableRelaySurface(reviewedContractError(baseSurfaceId, `The renderer left unconsumed Surface elements: ${residual.join(", ")}.`), canonicalMarkup, rootTag, baseSurfaceId, context, fullMarkup);
+    return editableRelaySurface(reviewedContractError(baseSurfaceId, `The renderer left unconsumed Surface elements: ${residual.join(", ")}.`), canonicalMarkup, rootTag, baseSurfaceId, context, originalMarkup);
   if (!containsRenderedRegexSurface(rendered))
-    return editableRelaySurface(reviewedContractError(baseSurfaceId, "The FINAL R4.5 renderer did not consume this approved Surface."), canonicalMarkup, rootTag, baseSurfaceId, context, fullMarkup);
+    return editableRelaySurface(reviewedContractError(baseSurfaceId, SURFACE_RENDER_FAILURE_MESSAGE), canonicalMarkup, rootTag, baseSurfaceId, context, originalMarkup);
   rendered = decorateParityImages(decorateSurfaceLauncherMarkup(rendered, "core", baseSurfaceId, shellMode === "collapsible" ? "plain" : shellMode), context);
   recordSurfacePipelineDiagnostic(baseSurfaceId, "final", "rendered");
-  return editableRelaySurface(rendered, canonicalMarkup, rootTag, baseSurfaceId, context, fullMarkup);
+  return editableRelaySurface(rendered, canonicalMarkup, rootTag, baseSurfaceId, context, originalMarkup);
 }
 function renderNativeSurfaceMarkup(input, studio, context) {
+  const literalCode = protectInlineCodeSpans(input);
+  input = literalCode.markup;
   const buildingBlocks = buildingLayoutBlocks(input, NATIVE_SURFACE_ROOT_TAGS);
   for (let index = buildingBlocks.length - 1;index >= 0; index--) {
     const block = buildingBlocks[index];
@@ -257233,7 +258471,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     const instanceContext = { ...renderContext, streamIslandOrdinal: index };
     const parsed = parseBuildingLayout(block.source);
     const preset = activePreset(studio, "building-layout");
-    const configuredMode = preset?.shellMode || renderContext.defaultShellMode || "plain";
+    const configuredMode = renderContext.defaultShellMode || preset?.shellMode || "plain";
     const mode = configuredMode === "collapsible" ? "plain" : configuredMode;
     const rendered = parsed.layout ? decorateSurfaceLauncherMarkup(renderBuildingLayout(parsed.layout, (media) => hydrateParityRequests(media, "building-layout", instanceContext).replace(/<details\b[^>]*class="rrl-detail"[^>]*>[\s\S]*?<\/details>/gi, ""), mode), "core", "building-layout", mode) : reviewedContractError("building-layout", parsed.diagnostics.join("; "));
     return editableRelaySurface(NATIVE_SURFACE_CSS + rendered, block.source, "building_layout", "building-layout", instanceContext, block.source);
@@ -257275,6 +258513,8 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     const instanceContext = { ...renderContext, streamIslandOrdinal: bracketBlocks.length };
     if (block.diagnostics.length)
       return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original);
+    if (block.spec.id === "amazon")
+      return renderParityOwnedSurface("amazon", "amazon_store", xmlSurfaceExamples(block.markup), activePreset(studio, "amazon"), instanceContext, block.original);
     const hydrated = hydrateParityRequests(block.markup, block.spec.id, renderContext);
     const preset = customRuntimeIds.has(block.spec.id) ? studio.definitions[studio.activePresetIds?.[block.spec.id] || ""] || customByBase.get(block.spec.id) : activePreset(studio, block.spec.id);
     if (customRuntimeIds.has(block.spec.id) && preset) {
@@ -257287,7 +258527,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
     const residualRoot = new RegExp(`\\[${escapeRegExp(block.spec.wrapper)}(?:\\s+[^\\]]*)?\\]`, "i").test(rendered);
     const rendererFailedClosed = /data-reverie-surface-contract=["']failed["']|Relay Surface needs repair/i.test(rendered);
     if (residualRoot || rendererFailedClosed) {
-      const reason = "The FINAL R4.5 renderer did not consume this approved Surface shape.";
+      const reason = SURFACE_RENDER_FAILURE_MESSAGE;
       block.diagnostics.push(`${block.spec.id}: ${reason}`);
       return editableRelaySurface(reviewedContractError(block.spec.id, reason), block.original, block.spec.wrapper, block.spec.id, instanceContext, block.original);
     }
@@ -257301,7 +258541,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       recordSurfacePipelineDiagnostic(block.spec.id, "detected-root", `[${block.spec.wrapper}]`);
       recordSurfacePipelineDiagnostic(block.spec.id, "resolved-surface", block.spec.id);
       recordSurfacePipelineDiagnostic(block.spec.id, "normalization", block.diagnostics.length ? `failed: ${block.diagnostics.join("; ")}` : block.original === block.markup ? "bypassed: canonical bracket" : `repaired: bracket drift${block.warnings.length ? ` (${block.warnings.join("; ")})` : ""}`);
-      recordSurfacePipelineDiagnostic(block.spec.id, "selected-renderer", `R4.5 bracket regex parity (${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`);
+      recordSurfacePipelineDiagnostic(block.spec.id, "selected-renderer", `Surface renderer (bracket, ${parityModeForSurface(block.spec.id, activePreset(studio, block.spec.id), renderContext)})`);
       recordSurfacePipelineDiagnostic(block.spec.id, "final", block.diagnostics.length ? "repair fallback" : "rendered");
     }
     input = decorateParityImages(renderRegexSurfaceParity(bracketNormalized.markup, parityModeForSurface("message", undefined, renderContext), renderContext.messageId || "bracket-surface", renderContext.colorMode || "realistic", renderContext.rendererScriptOverrides), renderContext);
@@ -257314,6 +258554,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
   input = input.replace(/\[reddit_thread\][\s\S]*?\[\/reddit_thread\](?:\s*\[reddit_comment\][\s\S]*?\[\/reddit_comment\])*/gi, (full) => claimUnsupportedAppDialect("forum-thread", "forum_thread", "reddit_thread / reddit_comment", full));
   input = input.replace(/\[(tweet:feed|tweet_feed)\][\s\S]*?\[\/\1\]/gi, (full, rawRoot) => claimUnsupportedAppDialect("twitter", "twitter_app", rawRoot, full));
   const normalizationFailures = [];
+  const repairedTinderSources = new Map;
   const normalizedSurface = normalizeSurfaceDocument(input, SHIPPED_SURFACE_SPECS, (block) => {
     recordSurfacePipelineDiagnostic(block.spec.id, "detected-root", `<${block.spec.wrapper}>`);
     recordSurfacePipelineDiagnostic(block.spec.id, "resolved-surface", block.spec.id);
@@ -257325,8 +258566,14 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       recordKakaoNormalizationTrace(block.original, block.markup);
     if (renderContext.rendererMode === "legacy-regex")
       return block.original;
-    if (!block.diagnostics.length)
+    if (!block.diagnostics.length) {
+      if (block.spec.id === "dating-profile" && block.original !== block.markup) {
+        const originals = repairedTinderSources.get(block.markup) || [];
+        originals.push(block.original);
+        repairedTinderSources.set(block.markup, originals);
+      }
       return block.markup;
+    }
     normalizationFailures.push(block.spec.id);
     recordSurfacePipelineDiagnostic(block.spec.id, "repair", "invoked: unrecoverable normalization failure");
     return editableRelaySurface(reviewedContractError(block.spec.id, block.diagnostics.join("; ")), block.original, block.spec.wrapper, block.spec.id, { ...renderContext, streamIslandOrdinal: normalizationFailures.length });
@@ -257351,6 +258598,11 @@ function renderNativeSurfaceMarkup(input, studio, context) {
       const preset = customRuntimeIds.has(baseSurfaceId) ? studio.definitions[studio.activePresetIds?.[baseSurfaceId] || ""] || customByBase.get(baseSurfaceId) : activePreset(studio, baseSurfaceId);
       if (!customRuntimeIds.has(baseSurfaceId) && preset?.enabled === false)
         return fullMatch;
+      if (baseSurfaceId === "amazon") {
+        renderedCount++;
+        renderedSurfaceIds.push(baseSurfaceId);
+        return renderParityOwnedSurface(baseSurfaceId, tagName, String(fullMatch || ""), preset, { ...renderContext, streamIslandOrdinal: renderedCount });
+      }
       if (renderContext.rendererMode === "legacy-regex") {
         const token = `<!--rrl-protected-regex:${protectedRegexSurfaces.size}-->`;
         protectedRegexSurfaces.set(token, hydrateParityRequests(String(fullMatch || ""), baseSurfaceId, renderContext));
@@ -257365,7 +258617,8 @@ function renderNativeSurfaceMarkup(input, studio, context) {
         return editableRelaySurface(renderCustomSurface(String(fullMatch || ""), preset, instanceContext), String(fullMatch || ""), tagName, baseSurfaceId, instanceContext, String(fullMatch || ""));
       }
       if (REGEX_PARITY_SURFACE_IDS.has(baseSurfaceId)) {
-        return renderParityOwnedSurface(baseSurfaceId, tagName, String(fullMatch || ""), preset, instanceContext);
+        const original = baseSurfaceId === "dating-profile" ? repairedTinderSources.get(String(fullMatch || ""))?.shift() : undefined;
+        return renderParityOwnedSurface(baseSurfaceId, tagName, String(fullMatch || ""), preset, instanceContext, original);
       }
       const originalMarkup = String(fullMatch || "");
       const canonicalMarkup = baseSurfaceId === "character-profile" ? normalizeCharacterProfileContract(originalMarkup) : originalMarkup;
@@ -257472,7 +258725,7 @@ function renderNativeSurfaceMarkup(input, studio, context) {
   buildingMarkup.forEach((html, index) => {
     content = content.replace(`<!--rrl-building-owner:${index}-->`, html);
   });
-  return { content, renderedCount, renderedSurfaceIds };
+  return { content: literalCode.restore(content), renderedCount, renderedSurfaceIds };
 }
 function baseSurfaceIdForTarget(target) {
   if (target === "prose.illustration")
@@ -257899,7 +259152,7 @@ function renderRequestCard(input, bare = false) {
   const liveStatus = record?.status || (input.failed ? "failed" : fallbackStatus);
   const readyToInsert = liveStatus === "placement-pending" && Boolean(record?.pendingPlacement);
   const statusLabels = {
-    "recovered-pending": "Discovered",
+    "recovered-pending": "Not generated",
     preparing: "Preparing",
     queued: "Queued",
     "awaiting-native-settings": "Waiting for settings",
@@ -258164,159 +259417,6 @@ function normalizeCharacterPhoneDefaultApps(value, options = {}) {
       break;
   }
   return unique;
-}
-
-// src/uxCopy.ts
-var SURFACE_UTILITY_OVERVIEWS = {
-  "building-layout": "An architectural atlas with variable floors, selectable rooms, owned room images, and manual Add to lorebook actions. Selection never moves a character or writes a Composer draft.",
-  "forum-thread": "A structured discussion board with separate posts, replies, authors, timestamps, and owned attachments.",
-  "email-thread": "An email client view that preserves each message, sender, subject, time, body, and attachment.",
-  "imessage-chat": "A phone-message conversation with ordered sent/received bubbles and message-owned photos.",
-  "workspace-chat": "A team workspace conversation with channels, named participants, messages, files, and media.",
-  livestream: "A live broadcast frame with an ordered chat feed and moderation information.",
-  "dating-profile": "A swipe-style dating profile with three identity-consistent portrait slots and profile details.",
-  "public-bulletin": "An official public notice with urgency, location, instructions, and documentary media.",
-  "case-file": "A tabbed investigative dossier for people, evidence, notes, and a readable timeline.",
-  "relationship-map": "A visual relationship board connecting named characters with labeled bonds and insights.",
-  "instagram-dm": "An Instagram-style private conversation with individual bubbles and attached media.",
-  "x-dm": "An X-style private message thread with sender direction, timestamps, and attachments.",
-  "discord-dm": "A Discord direct-message exchange with participant identity, ordered messages, and files.",
-  "discord-server": "A multi-channel Discord server view with members, messages, reusable avatars, and media.",
-  "google-images": "A search-results grid whose independent image cards match the authored query.",
-  "phone-gallery": "A noncropping phone photo gallery with square thumbnails and full-image viewing.",
-  "tiktok-post": "A vertical short-video post with caption, engagement, comments, and a 9:16 media slot.",
-  "naver-article": "A Naver-style news article with editorial hero media, article body, and separate comments.",
-  newspaper: "A newspaper article layout with publication hierarchy, headline, body, and editorial image.",
-  "inline-chat": "A compact in-story chat exchange that keeps every message and side visually distinct.",
-  "evidence-photo": "A documented evidence photograph with case metadata, source, caption, and investigator note.",
-  smartphone: "A complete smartphone conversation with ordered text and direction-aware image messages.",
-  instagram: "An Instagram post or carousel with account details, caption, likes, and nested comments.",
-  twitter: "An X timeline post with metrics, optional media, comments, threads, and trends.",
-  kakao: "A KakaoTalk group or private chat with participants, independent bubbles, system rows, and images.",
-  "album-cover": "A square release-art card with title, artist, release type, and context-specific cover art.",
-  "magazine-cover": "An editorial magazine cover with masthead hierarchy and portrait-oriented cover art.",
-  "photo-booth-strip": "Four coordinated vertical photo-booth frames from one identity-consistent session.",
-  polaroid: "A single instant photograph with date, location, and handwritten-style caption.",
-  "youtube-thumbnail": "A YouTube watch-page card with channel metadata, video frame, and separate comments.",
-  "character-profile": "A compact Cast Sheet with a persistent portrait, name, role, hook, and trait.",
-  "music-player": "A music-player card with track metadata, square cover art, lyrics, and queue details.",
-  "location-share": "A context-dependent live route card with destination, ETA, map, note, and waypoints.",
-  "voice-memo": "A playable voice-note card with reusable sender avatar, transcript, duration, and call history.",
-  "notes-app": "A notes application view with a folder, owner, and independently readable note entries.",
-  "market-listing": "A marketplace listing with product photo, price, condition, seller, description, and actions.",
-  "property-listing": "A property listing with a full gallery, price and location facts, amenities, and history.",
-  "letter-dispatch": "A formatted personal or official letter with sender, recipient, subject, body, and attachment.",
-  "medical-record": "A fictional clinical record with patient summary, documentary media, vitals, and notes.",
-  "court-transcript": "A readable court transcript with case metadata, ordered speakers, objections, and exhibits.",
-  "codex-entry": "A reference article for a person, place, object, or concept with facts and related entries.",
-  "diary-app": "A private diary with an owner, title, and multiple dated entries kept as separate pages.",
-  "mission-board": "A mission or task board with owner, deadline, status, checklist items, and notes.",
-  "cctv-evidence": "A multi-feed surveillance evidence board with fixed-camera frames and case notes.",
-  "instagram-profile": "A complete Instagram profile with avatar, bio, metrics, posts, comments, and tagged media.",
-  "twitter-profile": "A complete X profile with avatar, banner, metrics, timeline posts, and media grid.",
-  "instagram-stories": "An ordered set of vertical social stories with reusable avatars, media, captions, and times."
-};
-var NARRATIVE_UTILITY_OVERVIEWS = {
-  "Character Phone": "Builds a story-aware character phone with apps, messages, records, and a real multi-image Photos gallery.",
-  "Dramatic Cutaway": "Shows a cinematic parallel beat or interruption without losing the main scene viewpoint.",
-  "Plot Sparks": "Offers ten fresh, optional branches rooted in the current scene: complications, personal turns, opportunities, bargains and overlooked connections.",
-  "Scene Shift": "Summarizes the present scene, active direction, tension, and immediate story anchors.",
-  "Parallel Scene": "Tracks meaningful off-screen developments in a horizontally browsable current.",
-  "Cast Introduction": "Introduces a newly relevant recurring character with scene-safe identity information.",
-  "Backstage Secrets": "Separates what each character knows, suspects, misunderstands, or is hiding.",
-  "Setting the Scene": "Adds concrete, viewpoint-safe details that make the current place and culture feel lived in.",
-  "Off-Stage": "Reveals relevant events happening just outside the focal scene without replacing it.",
-  "Character Dossier": "Maintains a structured dossier of a character’s established story facts and changes.",
-  "Location File": "Maintains a structured record of a location, its features, history, and current state.",
-  "In Another Life": "Explores a clearly labeled hypothetical branch without rewriting canonical events.",
-  "Archive Entry": "Coordinates the enabled Narrative Utilities into one consistent archive payload.",
-  "Relationship Map": "Maps three or more established characters and their current bonds, trust, and pressures.",
-  "Cast Sheet": "Summarizes one established character with a portrait, role, story hook, and traits.",
-  "Persona Wardrobe": "Curates five distinct looks for the current persona or named subject; choose one to draft its outfit description in Composer."
-};
-var SETTING_HELP = {
-  "Relay Enabled": "Master switch for Reverie Relay in this installation. Turn it off to stop Relay from handling new chat events; saved settings and existing images remain intact.",
-  "Slot Mode": "Chooses whether a prepared request inserts automatically or waits for a prompt or image preview. This setting applies to Relay slots.",
-  "High-Res / Polished Capture": "Adds a quality pass to image prompts while preserving the chosen camera framing and subject identity.",
-  "Save completed images to Character Gallery": "Adds completed Relay images to the active character Gallery after Lumiverse confirms the destination. Existing images are not regenerated.",
-  "Generation Settings Source": "Use the active Native ImageGen settings or Relay-specific provider overrides for new generations.",
-  "NovelAI Resolution": "Only affects NovelAI while Native ImageGen settings are active. Keep the saved connection resolution, follow each image request, or choose a fixed aspect. Other providers are unchanged.",
-  "LoRA Source": "Use Native ImageGen LoRAs, a Relay LoRA stack, or no LoRAs for new Relay images.",
-  "Candidate Count": "Default number of image candidates for a request. More candidates use more provider work.",
-  "Follow Native Parser": "Use the parser connection and instructions selected by Lumiverse instead of Relay-specific parser overrides.",
-  "Parser Retries": "Maximum extra attempts after a Relay parser result fails validation.",
-  "Recent Messages": "How many recent chat messages Relay includes when preparing a parser request.",
-  "Character Context": "Include the current character information in Relay parser context.",
-  "Persona Context": "Include the active user persona in Relay parser context.",
-  "Lorebook Context": "Include relevant lorebook entries in Relay parser context.",
-  "Auto-rescan on chat open": "Look for missed Relay requests when opening a chat. Rescanning does not by itself start image generation.",
-  "Include inactive swipes": "Also inspect non-current message swipes during a manual rescan. They remain labeled as inactive.",
-  "Enable Floating Relay Orb": "Show the floating Relay shortcut near eligible assistant messages.",
-  "Orb Design": "Choose the artwork used by the floating Relay shortcut.",
-  "Orb Size": "Change the size of the floating Relay shortcut without changing generated media.",
-  "Illustrations per Response": "Maximum illustrations Relay may plan for one eligible response.",
-  Search: "Find images by title, description, named subject, location, request ID, or prompt excerpt in the current chat.",
-  Character: "Show only images whose recorded depicted-subject list includes this character. Images with no identified subject remain under All Characters.",
-  Target: "Filter by the request route that produced the image, such as a prose illustration or a Surface image.",
-  Surface: "Filter by the Surface that owns the image. Prose illustrations appear under Prose.",
-  Date: "Filter by when the image was created.",
-  Status: "Filter images that are available, unavailable, or retained after a message was deleted.",
-  "Appearance Memory Strength": "Controls how strongly saved stable appearance is carried into new image prompts. Current-scene details still take priority.",
-  "Current Outfit · clear this when clothing is unknown or changed": "Record only clothing confirmed for the current scene. Clear it when the outfit changes or becomes unknown.",
-  "Stable Appearance · face, body, hair, durable features": "Record persistent visible identity, not temporary clothes, poses, or scene details.",
-  "Negative Identity Tags": "Visual traits to avoid for this character when composing new image prompts.",
-  "Reference Asset IDs · comma-separated": "IDs of accepted images used as appearance references for this character.",
-  "Prompt additions": "Positive visual guidance added to image prompts using this profile. Do not put Story Model prose instructions here.",
-  "Negative additions": "Visual traits to avoid in image prompts using this profile.",
-  "Framing guidance": "Camera and composition guidance for this image prompt profile.",
-  "Automatic Surface Injection": "When on, Relay inserts the shared Surface grammar plus every enabled Utility into the Story Model prompt. Turn it off when you place a Relay macro manually in a preset.",
-  Renderer: "Chooses who turns authored Surface markup into the visible interface. Relay Rendered is the default; Regex Rendered uses the bundled compatibility renderer.",
-  "Default Presentation": "Chooses Inline, Button, Sparkling Button, Glass Button, or Plain Glass. Glass launchers do not force Glass body colors; Plain Glass removes the particles.",
-  "Color Mode": "Chooses Realistic, Lumiverse Primary, or Glass Mode for App and UI Surface bodies without changing the selected launcher.",
-  "Injection Position": "Chooses where Relay places its model instructions in the assembled prompt. Later positions are closer to the newest user message.",
-  "Parser Connection": "The Lumiverse text connection used for Relay planning and parsing. Follow Native Parser mirrors the host selection instead.",
-  "ImageGen Connection": "The Lumiverse Image Generation connection Relay uses. Leaving it on default follows Lumiverse’s active/default image connection.",
-  "Model / Checkpoint": "Optional checkpoint override. Leave empty to use the selected ImageGen connection’s configured model.",
-  Sampler: "The provider sampling algorithm. Use the connection default unless you know the selected checkpoint prefers another sampler.",
-  Scheduler: "Controls how denoising steps are distributed. Use the connection default when unsure.",
-  Steps: "More steps can refine an image but take longer. The useful range depends on the provider and checkpoint.",
-  "CFG / Guidance": "Controls how strongly generation follows the prompt. Very high values can reduce natural detail or cause artifacts.",
-  "Relay Stack": "A reusable ordered set of provider LoRAs, weights, and optional trigger tags applied by Relay.",
-  "Model Weight": "How strongly this LoRA affects the diffusion model. Start near the model author’s recommended value.",
-  "CLIP Weight": "How strongly this LoRA affects text conditioning. Leave at the model weight unless the LoRA documents a different value.",
-  "Auto Generate": "When off, Relay may prepare requests but cannot spend an image-generation job automatically. This is enforced by the backend.",
-  "Concurrent Relay Preprocessing Jobs": "Maximum Relay jobs that may analyze, parse, and prepare prompts at the same time (1–8). ImageGen requests still follow each provider’s safe lane, so raising this does not necessarily make images generate in parallel.",
-  "Appearance Sidecar Source": "Chooses whether Illustrator uses the shared global Appearance Sidecar routing or its own connection, model, and parameter overrides.",
-  "Global Appearance Sidecar Connection": "Selects the Lumiverse text connection used by the shared Appearance Sidecar. Use Relay Parser Connection to inherit the parser connection instead.",
-  "Global Appearance Sidecar Model": "Selects the model used by the shared Appearance Sidecar. Leave inherited to follow the Relay Parser model or the explicitly selected Sidecar connection default.",
-  "Global Appearance Sidecar Parameters": "Optional JSON parameters sent only with shared Appearance Sidecar requests. An empty object inherits the Relay Parser parameters.",
-  "Appearance Sidecar Connection": "Selects Illustrator’s Sidecar connection when Appearance Sidecar Source is set to Illustrator Override. Leave inherited to use the global Sidecar connection.",
-  "Appearance Sidecar Model": "Selects Illustrator’s Sidecar model when using an override. Leave inherited to use the global Sidecar model or the selected override connection default.",
-  "Appearance Sidecar Parameters": "Optional JSON parameters for Illustrator’s Sidecar override. An empty object inherits the shared global Sidecar parameters.",
-  "Illustration Count": "Choose an exact number or an inclusive range for Model Planned illustrations.",
-  "Aspect Policy": "Reserves and generates each illustration at the selected ratio. Adaptive lets Relay choose from scene composition.",
-  "Prompt Profile": "Selects a curated image-prompt style and framing profile before provider submission.",
-  "Image Alignment": "Positions completed prose illustrations within the message column.",
-  "Image Size": "Sets the displayed width of completed prose illustrations without changing the generated source file.",
-  "Candidate Count per Illustration": "Generates multiple choices for review. Higher counts cost more time and provider work.",
-  Frequency: "Controls which eligible assistant messages may receive prose illustrations.",
-  "Every N Eligible Messages": "When Frequency uses Every N, this sets the interval. Skipped or ineligible messages do not count.",
-  "Minimum Message Length": "Messages shorter than this are not considered for automatic illustration planning.",
-  "Surface ID": "A unique stable identifier for this exact Surface preset, for example relationship-map.",
-  "Base Surface ID": "The shared semantic identity for presets that render the same Surface contract.",
-  "XML Surface Root": "The XML root that identifies this Surface. Enter only the name; Reverie supplies the opening and closing XML tags.",
-  "Image Target": "The Relay route used by image requests owned by this Surface. It must match the runtime contract.",
-  "Surface Utility / Model Instructions": "The exact instructions Relay injects into the Story Model when this custom Surface is enabled. Explain when to author it, its required fields, media ownership, and the complete output format.",
-  "Canonical Validation Fixture": "The complete XML example used for validation, preview and model instructions. Keep attributes, child fields and image owners in schema order.",
-  "Utility Category": "Where this custom Surface appears in the Surface Library. The category organizes its toggle; it does not change rendering, validation, or prompt behavior.",
-  "Advanced namespaced CSS": "Optional presentation-only CSS for this Surface. Keep every selector scoped to its wrapper; scripts, event handlers, imports, and JavaScript URLs are rejected.",
-  "Inject Surface Utility": "Includes this custom Surface’s model instructions when its module is enabled.",
-  "Narrative Presentation": "Chooses the approved Narrative launcher style installed by Relay. It does not change Utility content.",
-  "Interface Theme": "Changes only the Relay settings panel appearance; generated Surface designs keep their approved styling.",
-  "Debug logging": "Adds detailed local diagnostics for troubleshooting. It can be noisy and should normally stay off."
-};
-function settingHelp(label, fallback = "") {
-  return fallback || SETTING_HELP[label] || "";
 }
 // regex-packs/Narrative/Reverie-Narrative-Utilities.json
 var Reverie_Narrative_Utilities_default = {
@@ -259619,6 +260719,66 @@ var PERSONA_WARDROBE_STYLE = `${SURFACE_MEDIA_GEOMETRY_STYLE}<style data-reverie
 @media(prefers-reduced-motion:reduce){.pw-wardrobe *{animation:none!important;transition:none!important}}
 </style>`;
 
+// src/plotSparksUtility.ts
+var LENSES = {
+  a: "An active tension crosses a threshold; the present situation becomes harder to contain.",
+  b: "An established character makes an unexpected, revealing personal move without a personality reversal.",
+  c: "Something actually present does not add up; noticing it opens a question, not invented evidence.",
+  d: "An already-established person, obligation or nearby system interrupts what is happening now.",
+  e: "A pending choice can no longer be postponed; use existing pressure, not an arbitrary new deadline.",
+  f: "A real visible or audible signal could be misread by someone plausibly able to observe it.",
+  g: "Recombine current people, props or unfinished actions into the strangest causally natural next beat.",
+  h: "An earned opportunity opens: a skill, resource or connection already in play can achieve something unexpectedly desirable. Invite initiative, delight or ingenuity, not another emergency.",
+  i: "A tempting bargain appears between established interests: gain something wanted by accepting a concrete, meaningful cost. Leave acceptance open; do not force agreement or invent leverage.",
+  j: "An overlooked established detail, unfinished promise or earlier choice becomes newly useful or consequential in this moment. Reveal a fresh connection, not retroactive secret history."
+};
+var PLOT_SPARKS_NARRATIVE_VOICE = `PLOT SPARKS NARRATIVE VOICE
+Write each Text as an actual in-scene narrative opening, not an instruction, synopsis, quest objective or choice-menu label. Use the same narrative person and tense as the active story unless the user explicitly requests a different Spark POV: first-person stays first-person, third-person stays third-person, and second-person stays descriptive narration rather than an imperative.
+Use one or two narrative sentences, at most 45 words, showing the possible opening action, sensation or brief character dialogue. Do not use player-directed commands such as "Quietly admit...", "Sign the sheet and dare...", "Choose to..." or "You should...". Commands spoken within character dialogue are allowed; coaching the player is not. Do not summarize or guarantee another character's future reaction.
+Voice-only examples, not scene facts to copy: first-person — I loosen my grip. "I never said I was leaving." Third-person — She loosens her grip. "I never said I was leaving." Second-person — You loosen your grip. "I never said I was leaving." Adapt person, tense, actions and dialogue to the supplied story; never import these example events or invent identities.
+These prose openings are mutually exclusive possibilities inside unchosen Sparks. They do not execute the player's choice, establish an outcome or become canon until selected and actually played in the story.`;
+function plotSparksUtilityPrompt(images) {
+  const media = (key) => images ? `<reverie-illustration request="generate" slot="plot-spark-${key}-unique-id" aspect="16:9" cast="char" alt="Opening action"><visual_prompt>The established character, with confirmed appearance and current clothing, performs this branch's opening action in the current setting; describe the expression, position and relevant props.</visual_prompt></reverie-illustration>` : "";
+  return xmlAuthoringInstructions(`[PLOT SPARKS — TEN CURRENT-SCENE POSSIBILITIES]
+Offer ten concise, exciting, playable NEXT BRANCHES after the main narrative. They are alternatives, not events that have happened or guaranteed outcomes. The prose owns the present moment.
+When this utility is enabled, append one complete ten-option board to each story reply unless the current user explicitly declines Sparks. A brief prose word limit does not reduce or omit the board. Sparks are reader-facing possibilities, not an in-world screen or document; no in-world opening trigger is required.
+
+${PLOT_SPARKS_NARRATIVE_VOICE}
+
+GROUNDING
+Each branch must use two concrete anchors from the active scene, including one from this response. Preserve location, time, current clothing, injuries, object positions, emotional state and character knowledge. Use only supplied identities; an unnamed established person stays an unnamed role. Never invent, rename, or substitute a person, username, or handle. No invented evidence, secret history, arbitrary crises, new strangers or unrelated time/location jumps merely to fill a lens. Open the next action or exchange; leave its outcome and the human's choices unresolved.
+
+FRESHNESS — NOT TEN RESKINS
+Compare against the last two Plot Sparks boards in available history or the recent-ideas reference. Retire their unused premises: changing wording, names, the prop or the vector label is not a new idea. Change the causal trigger AND the playable choice or consequence. Do not keep recycling knocks, phone buzzes, confessions, dropped objects or discoveries. A selected branch may continue only from what actually became story prose, never from its unplayed proposed outcome.
+Within this board, give each option a distinct mechanism and payoff. Mix practical, emotional, social, playful, hopeful and unsettling possibilities according to this scene's tone; exciting does not always mean dangerous. H–J are full creative alternatives, not leftover versions of A–G. If a lens resembles a recent idea, find a different use of the scene's established facts rather than importing a random event.
+
+TEN LENSES — EXACT KEY/VECTOR PAIRS
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `${key.toUpperCase()} — ${vector}: ${LENSES[key]}`).join(`
+`)}
+
+COMPACT OUTPUT — FINISH THE WHOLE BOARD
+Each [Text] is one or two narrative sentences of at most 45 words in total, following the narrative voice rule above. In image mode, each visual_prompt is one concise scene-specific sentence of at most 55 words. Spend those image words on the branch's actual visible action, distinct actor positions/contact, expression and essential setting/props; include only the confirmed appearance and current clothing needed to identify visible actors. Do not add introductions or commentary between options.
+
+${images ? `IMAGES
+Each [Media] contains exactly one complete Reverie illustration of that branch's opening instant. Repeat confirmed appearance and current clothing independently for every visible actor. Depict their actual action and expression, not a UI card, captions, labels or borders. Cast selects only the bound Character/Persona, not an arbitrary head count; describe other established actors explicitly. Use a unique slot for each letter. Follow the active Natural Language or Booru format inside visual_prompt.` : `TEXT ONLY
+Keep every [Media] empty. Do not output any image request.`}
+
+PER-OPTION CLOSING ORDER
+${images ? "End EVERY option with this exact structural tail: </visual_prompt></reverie-illustration>[/Media][/Spark]. The illustration closer does not close Media: [/Media] must appear before [/Spark], including option J. Finish these closers before starting the next option or any tracker." : "End EVERY option with [Media][/Media][/Spark], including option J."}
+
+FORMAT — ONE BOARD, KEYS A–J IN ORDER
+Brackets delimit named fields only. Write ordinary text directly between [Text] and [/Text], and the image description directly inside visual_prompt. Do not surround either value with another decorative pair of brackets. Replace the demonstration ID, slot, cast, Text and image values below with scene-specific values; they are examples, not content to copy.
+[Plot_Sparks]
+[ID]fresh-lowercase-id[/ID]
+[Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]
+${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]One original scene-specific possible opening move for ${key.toUpperCase()}.[/Text][Media]${media(key)}[/Media][/Spark]`).join(`
+`)}
+[/Plot_Sparks]
+
+CHECK BEFORE SENDING
+Exactly ten Sparks, keys a–j once each, correct vectors, non-empty Text, balanced tags${images ? ", exactly ten complete illustrations" : ", empty Media"}. For each option ask: "This can happen next because what is already true?" Reject unsupported or repeated premises and replace them. Unused Sparks dissolve: never carry them into memories, character knowledge, off-screen facts or future canon.`);
+}
+
 // src/plotSparksContract.ts
 var PLOT_SPARKS_REPAIR_EXAMPLE = `[Plot_Sparks][ID]spark-board[/ID][Lifecycle]Unused Plot Sparks dissolve after this response.[/Lifecycle]${Object.entries(PLOT_SPARK_VECTOR_BY_KEY).map(([key, vector]) => `[Spark][Key]${key}[/Key][Vector]${vector}[/Vector][Text]Possible branch ${key.toUpperCase()}.[/Text][Media][/Media][/Spark]`).join("")}[/Plot_Sparks]`;
 var PLOT_SPARKS_XML_REPAIR_EXAMPLE = xmlSurfaceExamples(PLOT_SPARKS_REPAIR_EXAMPLE);
@@ -259673,10 +260833,11 @@ if (!RELATIONSHIP_MAP_PROMPT || !CAST_SHEET_PROMPT)
 var NARRATIVE_UTILITY_PACK = {
   ...Reverie_Narrative_Utilities_default,
   loomItems: [
-    ...Reverie_Narrative_Utilities_default.loomItems,
+    ...Reverie_Narrative_Utilities_default.loomItems.map((item) => item.loomName === "Plot Sparks" ? { ...item, loomContent: plotSparksUtilityPrompt(true) } : item),
     { loomName: "Relationship Map", loomContent: RELATIONSHIP_MAP_PROMPT },
     { loomName: "Cast Sheet", loomContent: CAST_SHEET_PROMPT },
-    { loomName: "Persona Wardrobe", loomContent: PERSONA_WARDROBE_UTILITY_PROMPT }
+    { loomName: "Persona Wardrobe", loomContent: PERSONA_WARDROBE_UTILITY_PROMPT },
+    { loomName: "Building Layout", loomContent: BUILDING_LAYOUT_CONTRACT }
   ]
 };
 var NARRATIVE_UTILITY_FORMAT_CONTRACTS = {
@@ -259695,7 +260856,8 @@ var NARRATIVE_UTILITY_FORMAT_CONTRACTS = {
   "Archive Entry": ["[dossier_ui]", "[category]", "[archive_head]", "[archive_media]", "[archive_stats]", "[archive_details]", "[archive_export]", "[/dossier_ui]"],
   "Relationship Map": ["[relationship_map]", "[character_one]", "[character_two]", "[character_three]", "[connections]", "[/relationship_map]"],
   "Cast Sheet": ["[character_profile]", "[portrait]", "[name]", "[role]", "[hook]", "[trait]", "[/character_profile]"],
-  "Persona Wardrobe": ["[persona_wardrobe]", "[wardrobe_context]", "[outfit_option]", "[pieces]", "[wear_text]", "[media]", "[/persona_wardrobe]"]
+  "Persona Wardrobe": ["[persona_wardrobe]", "[wardrobe_context]", "[outfit_option]", "[pieces]", "[wear_text]", "[media]", "[/persona_wardrobe]"],
+  "Building Layout": ["<building_layout>", "<building_context>", "<floor>", "<room>", "<media>", "</building_layout>"]
 };
 for (const [name, markers] of Object.entries(NARRATIVE_UTILITY_FORMAT_CONTRACTS)) {
   NARRATIVE_UTILITY_FORMAT_CONTRACTS[name] = markers.map((marker) => marker.replace(/^\[\[(\/?)(else|npc|place)\s?\]?\]?$/, (_m, closing, tag) => closing ? `</${tag}>` : `<${tag} `).replace(/^\[(SCENE|PARALLEL|SECRET|WORLD|WHATIF)\|$/, "<$1 ").replace("[NPC:", "<NPC ").replace(/\[(\/?)([A-Za-z][\w-]*)\]/g, "<$1$2>"));
@@ -259715,6 +260877,34 @@ var LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS = {
 };
 function narrativeUtilityDisplayName(internalName) {
   return LEGACY_NARRATIVE_UTILITY_NAME_MIGRATIONS[internalName] || internalName;
+}
+
+// src/surfaceLibrary.ts
+var APP_SURFACE_GROUPS = [
+  { id: "social", label: "Social", ids: ["discord-dm", "discord-server", "forum-thread", "instagram", "instagram-profile", "instagram-stories", "tiktok-post", "dating-profile", "livestream", "twitter", "twitter-profile"] },
+  { id: "messaging", label: "Messaging & Communication", ids: ["email-thread", "imessage-chat", "inline-chat", "instagram-dm", "kakao", "smartphone", "voice-memo", "workspace-chat", "x-dm"] },
+  { id: "media", label: "Media", ids: ["album-cover", "music-player", "magazine-cover", "youtube-thumbnail", "google-images", "phone-gallery", "location-share"] },
+  { id: "shopping", label: "Shopping", ids: ["amazon", "market-listing", "property-listing"] },
+  { id: "evidence", label: "Evidence", ids: ["case-file", "cctv-evidence", "court-transcript", "evidence-photo", "medical-record"] },
+  { id: "keepsakes", label: "Photography & Keepsakes", ids: ["photo-booth-strip", "polaroid", "letter-dispatch", "diary-app", "notes-app"] },
+  { id: "misc", label: "Misc", ids: ["newspaper", "naver-article", "public-bulletin", "codex-entry", "mission-board"] }
+];
+var NARRATIVE_OWNED_SURFACE_IDS = new Set(["relationship-map", "character-profile", "building-layout"]);
+function appSurfaceGroups(definitions) {
+  const available = definitions.filter((definition) => definition.baseSurfaceId !== "prose-illustration" && !NARRATIVE_OWNED_SURFACE_IDS.has(definition.baseSurfaceId));
+  const assigned = new Set;
+  const groups = APP_SURFACE_GROUPS.map((group) => {
+    const rows = group.ids.flatMap((id) => available.filter((definition) => definition.baseSurfaceId === id));
+    rows.forEach((definition) => assigned.add(definition.surfaceId));
+    return { id: group.id, label: group.label, definitions: rows };
+  });
+  const custom = available.filter((definition) => !assigned.has(definition.surfaceId));
+  if (custom.length)
+    groups.push({ id: "custom", label: "Custom Surfaces", definitions: custom });
+  return groups.filter((group) => group.definitions.length > 0);
+}
+function surfaceLibraryName(definition) {
+  return definition.baseSurfaceId === "codex-entry" && definition.displayName === "Reference Article" ? "Wikipedia" : definition.displayName;
 }
 
 // src/narrativeUtilitySelection.ts
@@ -259765,89 +260955,12 @@ function activeSurfaceDefinitions(studio) {
 }
 
 // src/storyState.ts
-var EVENT_TYPES = new Set(["social", "relationship", "public", "conflict", "discovery", "milestone", "location", "media", "injury", "possession", "promise", "status-change", "other"]);
-var IMPORTANCES = new Set(["background", "notable", "major", "arc-defining"]);
-var BELIEFS = new Set(["knows", "suspects", "rumor", "misinformed", "unaware", "unknown"]);
-var ACQUISITIONS = new Set(["involved", "witnessed", "told", "evidence", "inferred", "public-broadcast", "manual"]);
-var ROLES = new Set(["subject", "participant", "witness", "instigator", "affected", "source", "recipient", "other"]);
-var ECHO_KINDS = new Set(["phone-message", "phone-notification", "phone-call", "phone-photo", "kakao", "instagram", "twitter", "news", "discord", "email", "voice-memo", "surface", "scene-reference", "manual", "other"]);
 function activeStoryEvents(state) {
   return Object.values(state.events).filter((event) => event.canonState === "confirmed" && event.timelineId === state.activeTimelineId && (event.sourceState === "active" || event.sourceState === "deleted" || event.sourceState === "edited"));
 }
 function visibleStoryPhoneEntries(state) {
   const activeEventIds = new Set(activeStoryEvents(state).map((event) => event.eventId));
   return Object.values(state.phoneEntries).filter((entry) => entry.sourceRef.sourceState === "active" && (!entry.eventId || activeEventIds.has(entry.eventId))).sort((a, b) => a.createdAt - b.createdAt);
-}
-
-// src/storyReel.ts
-function projectStoryReel(state, sourceOrder = {}) {
-  return activeStoryEvents(state).flatMap((event) => {
-    const override = state.reelOverrides[event.eventId];
-    if (override?.hidden)
-      return [];
-    return [{
-      eventId: event.eventId,
-      title: event.title,
-      caption: override?.captionOverride || event.summary,
-      chapterLabel: override?.chapterLabelOverride,
-      storyTimeLabel: event.storyTimeLabel,
-      location: event.location,
-      participantNames: event.participants.map((participant) => state.actors[participant.actorId]?.displayName || "Unresolved character"),
-      heroAssetId: override?.preferredHeroAssetId || event.linkedAssetIds[0],
-      echoIds: [...event.echoIds],
-      pinned: override?.pinned === true,
-      sourceWarning: event.sourceWarning,
-      sourceOrder: sourceOrder[event.eventId] ?? event.createdAt
-    }];
-  }).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.sourceOrder - b.sourceOrder);
-}
-
-// src/storyPresentation.ts
-function storyEventImageIds(state, event) {
-  const echoAssets = event.echoIds.flatMap((id) => {
-    const echo = state.echoes[id];
-    return echo?.linkState === "confirmed" && echo.sourceRef.sourceState === "active" && echo.assetId ? [echo.assetId] : [];
-  });
-  return [...new Set([state.reelOverrides[event.eventId]?.preferredHeroAssetId, ...event.linkedAssetIds, ...echoAssets].filter((id) => Boolean(id)))];
-}
-function bindStoryGraphGeometry(root) {
-  const graphs = Array.from(root.querySelectorAll(".dg-story-constellation"));
-  const draw = () => {
-    for (const graph of graphs) {
-      if (!graph.isConnected)
-        continue;
-      const bounds = graph.getBoundingClientRect();
-      const center = graph.querySelector(".dg-story-center")?.getBoundingClientRect();
-      if (!center || !bounds.width || !bounds.height)
-        continue;
-      const edge = (rect, toward) => {
-        const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
-        const dx = toward.left + toward.width / 2 - cx, dy = toward.top + toward.height / 2 - cy;
-        const scale = Math.min(dx ? rect.width / 2 / Math.abs(dx) : Infinity, dy ? rect.height / 2 / Math.abs(dy) : Infinity);
-        const offset = Number.isFinite(scale) ? Math.min(scale, 1) : 0;
-        return [100 * (cx + dx * offset - bounds.left) / bounds.width, 100 * (cy + dy * offset - bounds.top) / bounds.height];
-      };
-      for (const node of graph.querySelectorAll(".dg-story-actor[data-story-actor-id]")) {
-        const line = Array.from(graph.querySelectorAll("line")).find((value) => value.dataset.storyActorId === node.dataset.storyActorId);
-        if (!line)
-          continue;
-        const actor = node.getBoundingClientRect();
-        const [x1, y1] = edge(center, actor);
-        const [x2, y2] = edge(actor, center);
-        for (const [key, value] of Object.entries({ x1, y1, x2, y2 }))
-          line.setAttribute(key, String(value));
-      }
-    }
-  };
-  const frame = graphs.length ? window.requestAnimationFrame(draw) : 0;
-  const observer = graphs.length && typeof ResizeObserver !== "undefined" ? new ResizeObserver(draw) : null;
-  for (const graph of graphs)
-    observer?.observe(graph);
-  return () => {
-    if (frame)
-      window.cancelAnimationFrame(frame);
-    observer?.disconnect();
-  };
 }
 
 // src/frontend.ts
@@ -260057,6 +261170,23 @@ function setup(ctx) {
   runtimeHost.__REVERIE_RELAY_HEALTH__ = health;
   console.info(`Reverie Relay frontend loaded - v${EXTENSION_VERSION} / ${BUILD_ID}`);
   let records = [];
+  const archivedRenderRecords = new Map;
+  let renderCatalogFingerprint = "";
+  function displayRecords() {
+    const merged = new Map(archivedRenderRecords);
+    for (const record of records)
+      merged.set(record.key, record);
+    const reservedOpportunities = new Set([...merged.values()].map((record) => record.prosePlanId ? proseIllustrator.plans[record.prosePlanId]?.opportunityId : undefined).filter(Boolean));
+    for (const task of Object.values(backgroundQueue.items)) {
+      if (task.chatId !== activeChatId || task.source !== "analysis" || !["analyzing", "completed"].includes(task.stage))
+        continue;
+      for (const preview of task.planningPreviews || []) {
+        if (!reservedOpportunities.has(preview.prosePlanningOpportunityId))
+          merged.set(preview.key, preview);
+      }
+    }
+    return [...merged.values()];
+  }
   let stats = emptyRelayChatStats();
   let queueSafety = { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 };
   let candidateBatches = [];
@@ -260065,10 +261195,10 @@ function setup(ctx) {
   let versionTrees = [];
   let continuityVault = { chatId: "", strength: "off", characters: {}, characterSheets: {}, visualIdentity: {}, wardrobe: {}, currentAppearance: {}, suggestions: {}, quarantine: {}, history: [], migrationPreview: null, ignoredForSlotKeys: [], deliberateBreaks: {}, appearanceSidecar: { revision: 0, processedTurnKeys: {}, lastRunAt: 0 }, updatedAt: 0 };
   let storyConstellations = { schemaVersion: 1, activeTimelineId: "main", actors: {}, events: {}, proposals: {}, echoes: {}, knowledgeEdges: {}, conflicts: {}, phoneEntries: {}, reelOverrides: {}, processedMessageFingerprints: {}, updatedAt: 0 };
-  let storyBackfillStatus = null;
   let customSurfaces = frontendSurfaceFallback();
   let proseIllustrator = { settings: {}, opportunities: {}, plans: {}, records: {}, processedMessageKeys: {}, autoCounters: {}, frequencyDecisions: {}, activeOpportunityIdByChat: {}, activePlanIdByChat: {} };
   let backgroundQueue = { items: {}, abortRequestedAt: 0, updatedAt: 0 };
+  const abortProjectionBarriers = new Map;
   let imageWorkerRecovery = { active: false, draining: false, resetAvailable: false, laneResetCount: 0, waiterCount: 0 };
   let galleryLinks = [];
   let lastDryRun = null;
@@ -260092,10 +261222,23 @@ function setup(ctx) {
   const optimisticSlotActions = new Map;
   const replacementStatusProjections = new Map;
   const activeSwipeByMessage = new Map;
+  const activeSwipeReads = new Map;
+  const activeSwipeReadRetries = new Map;
+  const clearActiveSwipeReadRetries = () => {
+    for (const retry of activeSwipeReadRetries.values())
+      if (retry.timer)
+        window.clearTimeout(retry.timer);
+    activeSwipeReadRetries.clear();
+  };
+  lifecycle.track(clearActiveSwipeReadRetries, "timer");
+  const streamingProseMessages = new Map;
   const openedSlotPreviewKeys = new Set;
   let activeSlotPreviewKey = null;
   let parserConnections = [];
   let frontendParserConnections = null;
+  let backendParserConnections = [];
+  let frontendParserConnectionsLoading = null;
+  const repairConnectionFields = new Map;
   let imageConnections = [];
   let imageProviders = [];
   let loraCatalogState = { requestId: "", connectionId: "", status: "idle", items: [], error: "" };
@@ -260123,15 +261266,6 @@ function setup(ctx) {
   let config = null;
   let activeChatId = ctx.getActiveChat().chatId;
   let activeTab = "slots";
-  let selectedStoryEventId = "";
-  let storyGraphCleanup;
-  lifecycle.track(() => storyGraphCleanup?.(), "observer");
-  let pendingStoryEventNavigation = "";
-  let storyIncludeInactiveSwipes = false;
-  let storyAnalysisExpanded = false;
-  let storySettingsExpanded = false;
-  let storyProposalVisibleLimit = 80;
-  let storyEventVisibleLimit = 80;
   const storyPhoneVisibleByOwner = new Map;
   let nativeImageSettingsCache = {};
   let nativeImageSettingsCachedAt = 0;
@@ -260304,12 +261438,14 @@ function setup(ctx) {
   let relayOrbLongPressTimer = 0;
   let relayOrbLongPressTriggered = false;
   let relayOrbIsDragging = false;
+  let orbSizePreview = null;
   let sidecarNoticeEl = null;
+  const dismissedSidecarNotices = new Set;
   let sidecarNoticeTimer = 0;
-  let illustratorAdvancedOpen = false;
   let modelPlacedMissingRequest = null;
   let relayOrbStatus = "idle";
-  let localSidecarAnalysisStartedAt = 0;
+  let pendingProseAction = null;
+  let abortRequestPending = false;
   let quickStartAutoOpened = false;
   let deferredPanelRenderElement = null;
   const logFilters = { severity: "all", stage: "all", requestId: "", target: "all", providerModel: "", order: "newest" };
@@ -260336,7 +261472,9 @@ function setup(ctx) {
     if (!chatId || !messageId)
       return;
     const liveSettings = currentProseSettings();
-    const instantStreaming = payload.isStreaming === true && String(payload.tagName || "").toLocaleLowerCase() === "reverie-illustration" && String(payload.attrs?.request || "").toLocaleLowerCase() === "generate" && chatId === activeChatId && liveSettings.enabled && liveSettings.mode === "inline-protocol" && liveSettings.instantIllustrationDispatch;
+    const proseTag = String(payload.tagName || "").toLocaleLowerCase() === "reverie-illustration";
+    const surfaceTag = !proseTag && containsImageRequestMarkup(String(payload.fullMatch || ""));
+    const instantStreaming = payload.isStreaming === true && (surfaceTag || proseTag && String(payload.attrs?.request || "").toLocaleLowerCase() === "generate" && liveSettings.enabled && liveSettings.mode === "inline-protocol") && chatId === activeChatId && liveSettings.instantIllustrationDispatch;
     if (instantStreaming)
       ctx.sendToBackend({
         type: "instant_stream_probe",
@@ -260384,7 +261522,8 @@ function setup(ctx) {
   }
   async function scanInstantStreamingModelPlannedMessage(chatId, messageId, key, payload, retry, epoch) {
     const settings = currentProseSettings();
-    if (epoch !== instantStreamEpoch || !settings.enabled || settings.mode !== "inline-protocol" || !settings.instantIllustrationDispatch || chatId !== activeChatId)
+    const surfaceTag = String(payload.tagName || "").toLocaleLowerCase() !== "reverie-illustration";
+    if (epoch !== instantStreamEpoch || !settings.instantIllustrationDispatch || chatId !== activeChatId || !surfaceTag && (!settings.enabled || settings.mode !== "inline-protocol"))
       return;
     try {
       const domApi = ctx.dom;
@@ -260393,7 +261532,7 @@ function setup(ctx) {
       const renderedText = String(messageContent?.innerText || messageContent?.textContent || "");
       const anchor = messageContent ? findInstantIllustrationAnchor(messageContent, String(payload.attrs?.slot || payload.attrs?.id || "")) : { cardFound: false, text: null };
       const precedingAnchorText = anchor.text;
-      const sourceContent = payload.sourceContent || buildInstantIllustrationSource(renderedText, payload, precedingAnchorText);
+      const sourceContent = payload.sourceContent || (surfaceTag ? String(payload.fullMatch || "") : buildInstantIllustrationSource(renderedText, payload, precedingAnchorText));
       ctx.sendToBackend({
         type: "instant_stream_probe",
         chatId,
@@ -260458,8 +261597,22 @@ function setup(ctx) {
   lifecycle.track(ctx.events.on("GENERATION_STARTED", (payload) => {
     if (payload?.chatId !== activeChatId)
       return;
+    syncNativeSettings(true).catch(() => null);
     cancelPendingLifecycleScans();
     lifecycleStreamingSignatures.clear();
+    const messageId = String(payload.targetMessageId || "").trim();
+    const swipeId = Number(payload.targetSwipeId);
+    if (messageId && Number.isFinite(swipeId)) {
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes);
+    }
+    if (messageId && currentProseSettings().mode === "relay-planned") {
+      streamingProseMessages.set(messageId, String(payload.generationId || ""));
+      const root = ctx.dom.findMessageElement(messageId);
+      if (root && payload.generationType !== "continue") {
+        for (const projection of deepQueryAll(root, ".dgir-prose-lifecycle-projection"))
+          projection.remove();
+      }
+    }
     bracketIllustrationStream.start(String(payload.generationId || ""), String(payload.chatId || ""), String(payload.targetMessageId || ""), Number(payload.targetSwipeId) || 0);
   }), "subscription");
   lifecycle.track(ctx.events.on("STREAM_TOKEN_RECEIVED", (payload) => {
@@ -260479,6 +261632,17 @@ function setup(ctx) {
       if (payload?.chatId !== activeChatId)
         return;
       bracketIllustrationStream.clear();
+      const generationId = String(payload.generationId || "");
+      const messageId = String(payload.targetMessageId || payload.messageId || "").trim();
+      let releasedProjection = false;
+      for (const [target, generation] of streamingProseMessages) {
+        if (generationId ? generation === generationId : target === messageId) {
+          streamingProseMessages.delete(target);
+          releasedProjection = true;
+        }
+      }
+      if (releasedProjection)
+        scheduleBindInlineImages();
     }), "subscription");
   const removeStyle = ctx.dom.addStyle(`
     ${phoneHostLayerCss}
@@ -260598,39 +261762,14 @@ function setup(ctx) {
     .dg-router-panel .dg-story-copy { margin:0 0 8px; color:var(--dgir-text-muted); font-size:11px; line-height:1.45; overflow-wrap:anywhere; }
     .dg-router-panel .dg-story-meta { display:flex; flex-wrap:wrap; gap:5px; margin:5px 0 8px; color:var(--dgir-text-dim); font-size:10px; }
     .dg-router-panel .dg-story-pill { padding:3px 7px; border:1px solid color-mix(in srgb,var(--dgir-border) 60%,transparent); border-radius:999px; background:color-mix(in srgb,var(--dgir-surface) 52%,transparent); }
-    .dg-router-panel .dg-story-constellation { position:relative; display:grid; grid-template-rows:auto auto auto; gap:34px; min-width:0; padding:18px 3px; isolation:isolate; background:radial-gradient(ellipse at center,color-mix(in srgb,var(--dgir-accent) 10%,transparent),transparent 72%); }
-    .dg-router-panel .dg-story-orbit { z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; min-width:0; }
-    .dg-router-panel .dg-story-orbit > :last-child:nth-child(odd) { grid-column:1/-1; justify-self:center; width:min(100%,145px); }
-    .dg-router-panel .dg-story-lines { position:absolute; inset:0; z-index:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
-    .dg-router-panel .dg-story-lines line { stroke:var(--dgir-accent); stroke-width:1.2; vector-effect:non-scaling-stroke; }
-    .dg-router-panel .dg-story-lines line[data-belief="suspects"] { stroke-dasharray:2 3; }
-    .dg-router-panel .dg-story-lines line[data-belief="rumor"] { stroke-dasharray:6 5; opacity:.62; }
-    .dg-router-panel .dg-story-lines line[data-belief="misinformed"] { stroke-dasharray:7 2 1 2; stroke:var(--dgir-danger); }
-    .dg-router-panel .dg-story-lines line[data-belief="unaware"] { opacity:.28; }
-    .dg-router-panel .dg-story-lines line[data-belief="unknown"] { stroke-dasharray:1 5; opacity:.4; }
-    .dg-router-panel .dg-story-center { z-index:1; justify-self:center; width:min(100%,220px); padding:18px 14px; border:1px solid var(--dgir-border-bright); border-radius:32px; background:color-mix(in srgb,var(--dgir-accent-soft) 60%,var(--dgir-surface)); box-shadow:0 6px 20px color-mix(in srgb,var(--dgir-accent-glow) 25%,transparent); text-align:center; font-size:12px; font-weight:800; overflow-wrap:anywhere; }
-    .dg-router-panel .dg-story-actor { z-index:1; display:grid; justify-items:center; text-align:center; gap:5px; min-width:0; padding:12px 8px; border:1px solid color-mix(in srgb,var(--dgir-border-bright) 66%,transparent); border-radius:24px; background:color-mix(in srgb,var(--dgir-surface-raised) 94%,var(--dgir-surface)); font-size:11px; overflow-wrap:anywhere; }
-    .dg-router-panel .dg-story-initial { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:var(--dgir-accent-soft); border:1px solid var(--dgir-border-bright); font-size:14px; font-weight:800; }
-    .dg-router-panel .dg-story-link { color:var(--dgir-text-muted); font-size:9px; }
-    .dg-router-panel .dg-story-merge { min-width:0; }
-    .dg-router-panel .dg-story-merge summary { cursor:pointer; color:var(--dgir-text-muted); }
     .dg-router-panel .dg-story-media { display:block; width:100%; max-height:240px; object-fit:contain; border-radius:var(--dgir-radius-md); background:color-mix(in srgb,var(--dgir-surface) 75%,transparent); }
-    .dg-router-panel .dg-story-selected { border-color:var(--dgir-border-bright); }
-    .dg-router-panel .dg-story-field { display:grid; gap:4px; min-width:0; color:var(--dgir-text-muted); font-size:10px; }
-    .dg-router-panel .dg-story-field select,.dg-router-panel .dg-story-field input { min-width:0; width:100%; }
-    .dg-router-panel .dg-story-gallery { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
     .dg-router-panel .dg-story-image-button { display:block; width:100%; min-width:0; padding:0; overflow:hidden; border:1px solid var(--dgir-border); border-radius:var(--dgir-radius-md); background:var(--dgir-surface); cursor:zoom-in; }
     .dg-router-panel .dg-story-image-button:focus-visible { outline:2px solid var(--dgir-accent); outline-offset:3px; }
     .dg-router-panel .dg-story-image-button .dg-story-media { margin:0; }
-    .dg-router-panel .dg-story-gallery .dg-story-media { height:100px; object-fit:cover; }
-    .dg-router-panel .dg-story-manage { margin-top:12px; }
-    .dg-router-panel .dg-story-manage > summary { cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:700; }
-    .dg-router-panel .dg-story-manage .dg-actions select { width:100%; min-width:0; }
-    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-story-card, .dg-router-panel .dg-story-constellation { scroll-behavior:auto; animation:none!important; transition:none!important; } }
     .dg-router-panel .dg-field-help { margin-top: 5px; color: var(--dgir-text-dim); font-size: 10px; line-height: 1.45; }
     .dg-router-panel .dg-label-with-help,.dg-router-panel .dg-toggle-title-row { display:flex; align-items:center; gap:6px; min-width:0; }
-    .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon { display:inline-grid; place-items:center; flex:0 0 17px; width:17px; height:17px; color:var(--lumiverse-primary,#ff70bd); }
-    .dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon svg { display:block; width:100%; height:100%; }
+    .dg-router-panel [data-surface-library-id] .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon { display:inline-grid; place-items:center; flex:0 0 17px; width:17px; height:17px; color:var(--lumiverse-primary,#ff70bd); }
+    .dg-router-panel [data-surface-library-id] .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-row .rr-surface-svg-icon svg,.dg-router-panel .dg-narrative-utility-heading .rr-surface-svg-icon svg { display:block; width:100%; height:100%; }
     .dg-router-panel .dg-narrative-utility-heading { display:flex; align-items:center; gap:8px; }
     .dg-router-panel .dg-toggle-title-row .dg-toggle-title { min-width:0; }
     .dg-router-panel .dg-help { position:relative; display:inline-grid; flex:0 0 auto; place-items:center; vertical-align:middle; }
@@ -260744,15 +261883,16 @@ function setup(ctx) {
     .dg-router-panel .dg-btn:hover:not(:disabled) { border-color: var(--dgir-border-bright); background: color-mix(in srgb, var(--dgir-surface-raised) 82%, var(--dgir-accent-soft)); }
     .dg-router-panel .dg-btn:active:not(:disabled) { transform: translateY(1px); }
     .dg-router-panel .dg-btn:focus-visible, .dg-router-panel .dg-tab:focus-visible, .dg-router-panel .dg-toggle:focus-within { outline: 2px solid var(--dgir-accent); outline-offset: 2px; }
-    .dg-toast-stack { position: fixed; z-index: 2147483500; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); display: grid; gap: 8px; width: min(380px, calc(100vw - 24px)); pointer-events: none; }
-    .dg-toast { display: grid; grid-template-columns: 8px minmax(0, 1fr) 26px; align-items: start; gap: 10px; padding: 11px 10px; border: 1px solid color-mix(in srgb, var(--dgir-accent) 34%, var(--dgir-glass-line)); border-radius: var(--dgir-radius-lg); color: var(--dgir-text); background: radial-gradient(ellipse at 0 0, color-mix(in srgb, var(--dgir-accent) 15%, transparent), transparent 62%), linear-gradient(145deg, color-mix(in srgb, var(--dgir-surface-raised) 90%, transparent), color-mix(in srgb, var(--dgir-surface) 92%, transparent)); box-shadow: 0 14px 36px rgba(0,0,0,.38), inset 0 1px var(--dgir-glass-highlight); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); font: 650 12px/1.45 var(--lumiverse-font-family, system-ui, sans-serif); pointer-events: auto; }
-    .dg-toast::before { content: ''; width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--dgir-lavender); box-shadow: 0 0 10px currentColor; }
-    .dg-toast[data-level="success"]::before { background: var(--dgir-success); }
-    .dg-toast[data-level="warning"]::before { background: var(--dgir-warning); }
-    .dg-toast[data-level="error"]::before { background: var(--dgir-danger); }
+    .dg-toast-stack { position: fixed; z-index: 2147483500; top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right)); display: grid; gap: 7px; width: min(340px, calc(100vw - 24px)); pointer-events: none; }
+    .dg-toast { display: grid; position: relative; grid-template-columns: 6px minmax(0, 1fr) 22px; align-items: start; gap: 9px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--lumiverse-primary, #e980b7) 18%, rgba(255,255,255,.13)); border-radius: 14px; color: var(--lumiverse-text, #fff7fb); background: linear-gradient(155deg, rgba(255,255,255,.08), transparent 48%), color-mix(in srgb, var(--lumiverse-bg-elevated, #18131d) 90%, transparent); box-shadow: 0 8px 24px rgba(0,0,0,.25), inset 0 1px rgba(255,255,255,.1); -webkit-backdrop-filter: blur(20px) saturate(135%); backdrop-filter: blur(20px) saturate(135%); font: 500 12px/1.45 var(--lumiverse-font-family, system-ui, sans-serif); pointer-events: auto; overflow: hidden; }
+    .dg-toast::before { content: ''; width: 5px; height: 5px; margin-top: 6px; border-radius: 50%; background: var(--lumiverse-primary, #e980b7); box-shadow: 0 0 8px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 45%, transparent); }
+    .dg-toast[data-level="success"]::before { background: #91d7bd; }
+    .dg-toast[data-level="warning"]::before { background: #e9c68d; }
+    .dg-toast[data-level="error"]::before { background: #e88396; }
     .dg-toast-copy { min-width: 0; overflow-wrap: anywhere; }
-    .dg-toast-dismiss { display: grid; place-items: center; width: 26px; height: 26px; margin: -4px -3px 0 0; padding: 0; border: 1px solid transparent; border-radius: 50%; color: var(--dgir-text-muted); background: transparent; font: 500 18px/1 system-ui,sans-serif; cursor: pointer; }
-    .dg-toast-dismiss:hover { border-color: var(--dgir-glass-line); color: var(--dgir-text); background: var(--dgir-accent-soft); }
+    .dg-toast-dismiss { display: grid; place-items: center; width: 22px; height: 22px; margin: -2px -3px 0 0; padding: 0; border: 0; border-radius: 6px; color: var(--lumiverse-text-muted, #c2b3c5); background: transparent; font: 400 16px/1 system-ui,sans-serif; cursor: pointer; }
+    .dg-toast-dismiss:hover { color: var(--lumiverse-text, #fff7fb); background: rgba(255,255,255,.08); }
+
     .dg-router-panel .dg-btn:disabled { opacity: .64; color: var(--dgir-text-dim); cursor: not-allowed; filter: saturate(.55); }
     .dg-router-panel .dg-btn-primary { color: var(--dgir-accent-text); border-color: color-mix(in srgb, var(--dgir-accent) 28%, var(--dgir-glass-line)); background: linear-gradient(135deg, color-mix(in srgb, var(--dgir-accent) 17%, transparent), color-mix(in srgb, var(--dgir-surface-soft) 55%, transparent)); box-shadow: inset 0 1px rgba(255,255,255,.07), 0 5px 16px rgba(5,2,12,.12); }
     .dg-router-panel .dg-btn-subtle { color: var(--dgir-text-muted); background: transparent; }
@@ -260969,6 +262109,12 @@ function setup(ctx) {
     .dg-router-panel .dg-illustrator-mode-card strong { font-size: 12px; }
     .dg-router-panel .dg-illustrator-mode-card small { color: var(--dgir-text-muted); font-size: 10px; line-height: 1.35; }
     .dg-router-panel .dg-illustrator-mode-card.is-active { border-color: var(--dgir-accent); background: color-mix(in srgb, var(--dgir-accent-soft) 58%, var(--dgir-surface)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--dgir-accent) 28%, transparent), inset 0 0 20px color-mix(in srgb, var(--dgir-accent-soft) 36%, transparent); }
+    .dg-router-panel .dg-framing-choice { position: relative; min-width: 0; }
+    .dg-router-panel .dg-choice-compact .dg-framing-choice > .dg-illustrator-mode-card { width: 100%; height: 100%; padding-inline: 34px; }
+    .dg-router-panel .dg-framing-choice > .dg-help { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); }
+    .dg-router-panel .dg-framing-choice .dg-help-trigger { width: 26px; height: 26px; font-size: 12px; touch-action: manipulation; }
+    .dg-router-panel .dg-slot-lightbox-status { width: min(100%, 520px); margin-inline: auto; }
+    .dg-router-panel .dg-slot-lightbox-status .rrl-card { width: 100%; margin: 0; }
     .dg-router-panel .dg-choice-compact { gap: 6px; }
     .dg-router-panel .dg-choice-compact.dg-choice-two { grid-template-columns: repeat(2, minmax(0,1fr)); }
     .dg-router-panel .dg-choice-compact.dg-choice-three { grid-template-columns: repeat(3, minmax(0,1fr)); }
@@ -261014,45 +262160,32 @@ function setup(ctx) {
     .dg-lab-edit-placeholder { min-height: 88px; display: grid; place-items: center; border: 1px dashed var(--dgir-border); border-radius: var(--dgir-radius-sm); color: var(--dgir-text-dim); font-size: 11px; }
     .dg-mask-editor { display: grid; gap: 10px; }
     .dg-mask-canvas { width: 100%; max-height: 70dvh; object-fit: contain; border: 1px solid var(--dgir-border-bright); border-radius: var(--dgir-radius-md); background-repeat: no-repeat; background-position: center; background-size: contain; touch-action: none; cursor: crosshair; }
-    .dg-sidecar-global-notice { position: fixed; top: max(48px, calc(env(safe-area-inset-top) + 10px)); left: 50%; transform: translateX(-50%); z-index: 2147482500; pointer-events: none; display: grid; grid-template-columns: 8px auto auto minmax(0, 1fr); align-items: center; gap: 8px; width: min(680px, calc(100vw - 40px)); min-width: 0; padding: 10px 14px 12px; border: 1px solid color-mix(in srgb, var(--lumiverse-primary, #e980b7) 30%, var(--lcs-glass-border, var(--lumiverse-border, rgba(255,255,255,.18)))); border-radius: 999px; background: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 9%, var(--lcs-glass-bg, var(--lumiverse-bg-elevated, rgba(20,12,18,.94)))); color: var(--lumiverse-text, #fff7fb); box-shadow: var(--lumiverse-shadow-sm, 0 10px 28px rgba(0,0,0,.32)), 0 0 0 1px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 14%, transparent); overflow: hidden; white-space: nowrap; backdrop-filter: blur(var(--lcs-glass-blur, 8px)); -webkit-backdrop-filter: blur(var(--lcs-glass-blur, 8px)); font-family: var(--lumiverse-font-family, system-ui, sans-serif); }
-    .dg-sidecar-global-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--lumiverse-primary, #e980b7); box-shadow: 0 0 0 4px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 16%, transparent); }
-    .dg-sidecar-global-title { min-width: 0; max-width: 9ch; overflow: hidden; text-overflow: ellipsis; font-size: calc(12px * var(--lumiverse-font-scale, 1)); font-weight: 700; }
-    .dg-sidecar-global-separator { width: 1ch; text-align: center; color: var(--lumiverse-text-dim, #9d8fa3); }
-    .dg-sidecar-global-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--lumiverse-text-muted, #c2b3c5); font-size: calc(12px * var(--lumiverse-font-scale, 1)); }
-    .dg-sidecar-global-bar { position: absolute; left: 12px; right: 12px; bottom: 6px; height: 2px; overflow: hidden; border-radius: 999px; background: color-mix(in srgb, var(--lumiverse-border, #5a465d) 70%, transparent); }
-    .dg-sidecar-global-fill { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, var(--lumiverse-primary, #e980b7), color-mix(in srgb, var(--lumiverse-primary, #e980b7) 60%, white)); animation: dg-sidecar-progress 1.7s ease-in-out infinite; }
+    .dg-sidecar-global-notice { padding-bottom: 12px; }
+    .dg-sidecar-global-detail { display: block; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .dg-sidecar-global-timing { display: block; margin-top: 2px; font-size: 10px; color: var(--lumiverse-text-muted, #c2b3c5); }
+    .dg-sidecar-global-bar { position: absolute; left: 12px; right: 12px; bottom: 4px; height: 1px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+    .dg-sidecar-global-fill { position: absolute; inset: 0; transform-origin: left center; background: linear-gradient(90deg, transparent, var(--lumiverse-primary, #e980b7), transparent); animation: dg-sidecar-progress 1.7s ease-in-out infinite; }
     @keyframes dg-sidecar-progress { 0% { transform: translateX(-75%) scaleX(.28); } 50% { transform: translateX(22%) scaleX(.72); } 100% { transform: translateX(105%) scaleX(.28); } }
-    .dg-relay-orb { position: fixed; z-index: 2147482000; left: 0; top: 0; width: 52px; height: 52px; display: grid; place-items: center; border: 1px solid color-mix(in srgb, var(--lumiverse-primary, #e980b7) 72%, #c8b5ff); border-radius: 50%; background: linear-gradient(145deg, color-mix(in srgb, var(--lumiverse-fill, #211825) 88%, #09070d), color-mix(in srgb, var(--lumiverse-primary, #e980b7) 23%, #17121a)); color: var(--lumiverse-text, #fff7fb); font: 800 15px/1 ui-serif, Georgia, serif; letter-spacing: 0; cursor: grab; box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 18px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 28%, transparent); transition: box-shadow .16s ease, opacity .16s ease, filter .16s ease; touch-action: none; user-select: none; }
-    .dg-relay-orb::before { content: ''; position: absolute; inset: 7px; border: 1px solid color-mix(in srgb, #c8b5ff 42%, transparent); border-radius: 50%; transform: rotate(45deg); pointer-events: none; }
-    .dg-relay-orb::after { content: none; }
-    .dg-relay-orb-mark { position: relative; z-index: 2; }
-    .dg-relay-orb-icon { position: absolute; inset: 1px; z-index: 1; display: none; border-radius: 50%; background-image: var(--dg-relay-orb-icon); background-position: center; background-size: contain; background-repeat: no-repeat; filter: saturate(1.08) brightness(1.06); pointer-events: none; }
-    .dg-relay-orb-image-design { overflow: visible; background: transparent; border-color: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 70%, #ffd5a3); }
-    .dg-relay-orb-image-design .dg-relay-orb-mark { opacity: 0; }
+    .dg-router-panel input[type="range"][aria-label="Orb Size"] { width: 100%; margin: 6px 0; accent-color: var(--dgir-accent); cursor: ew-resize; }
+    .dg-relay-orb { position: fixed; z-index: 2147482000; left: 0; top: 0; width: max(44px, var(--dg-relay-orb-size, 52px)); height: max(44px, var(--dg-relay-orb-size, 52px)); display: grid; place-items: center; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--lumiverse-primary, #e980b7); font: 800 calc(var(--dg-relay-orb-size, 52px) * .3)/1 ui-serif, Georgia, serif; letter-spacing: 0; cursor: grab; box-shadow: none; transition: opacity .16s ease, filter .16s ease; touch-action: none; user-select: none; }
+    .dg-relay-orb::before, .dg-relay-orb::after { content: none; }
+    .dg-relay-orb-mark, .dg-relay-orb-icon { width: var(--dg-relay-orb-size, 52px); height: var(--dg-relay-orb-size, 52px); grid-area: 1 / 1; pointer-events: none; filter: drop-shadow(0 2px 5px rgba(0,0,0,.3)); }
+    .dg-relay-orb-mark { display: grid; place-items: center; }
+    .dg-relay-orb-mark svg { display: block; width: 100%; height: 100%; }
+    .dg-relay-orb-icon { display: none; background-image: var(--dg-relay-orb-icon); background-position: center; background-size: contain; background-repeat: no-repeat; }
+    .dg-relay-orb-image-design .dg-relay-orb-mark { visibility: hidden; }
     .dg-relay-orb-image-design .dg-relay-orb-icon { display: block; }
-    .dg-relay-orb-image-design::before, .dg-relay-orb-image-design::after { opacity: 0; }
-    .dg-relay-orb:hover { box-shadow: 0 11px 30px rgba(4,2,8,.44), 0 0 22px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 42%, transparent); }
+    .dg-relay-orb:hover { filter: brightness(1.15); }
     .dg-relay-orb:focus-visible { outline: 2px solid var(--lumiverse-primary, #e980b7); outline-offset: 4px; }
     .dg-relay-orb[aria-busy="true"] { cursor: grab; opacity: .92; }
-    .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before { animation: dg-relay-orbit 1.5s linear infinite; }
-    .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating { animation: dg-relay-orb-active 1.05s ease-in-out infinite alternate; filter: saturate(1.08); }
-    .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.15s linear infinite; }
-    .dg-relay-orb-image-design.dg-relay-orb-analyzing { border-style: dashed; box-shadow: 0 0 0 1px color-mix(in srgb, #ffd5a3 36%, transparent), 0 0 18px color-mix(in srgb, #ffd5a3 34%, transparent); }
-    .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: dg-relay-orb-icon-analyze 1.05s ease-in-out infinite alternate; transform-origin: center; }
-    .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.15s linear infinite; transform-origin: center; }
-    .dg-relay-orb-dragging { cursor: grabbing; transition: none; animation: none !important; }
+    .dg-relay-orb[aria-busy="true"] .dg-relay-orb-mark, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon { animation: dg-relay-orb-icon-spin 1.5s linear infinite; }
+    .dg-relay-orb-dragging { cursor: grabbing; transition: none; }
+    .dg-relay-orb-dragging .dg-relay-orb-mark, .dg-relay-orb-dragging .dg-relay-orb-icon { animation-play-state: paused; }
     .dg-relay-orb-modal-suppressed { opacity: .42; }
-    .dg-relay-orb-size-small { width: 44px; height: 44px; font-size: 12px; }
-    .dg-relay-orb-size-medium { width: 52px; height: 52px; font-size: 15px; }
-    .dg-relay-orb-size-large { width: 62px; height: 62px; font-size: 18px; }
-    .dg-relay-orb-design-minimal { background: color-mix(in srgb, var(--lumiverse-fill, #211825) 94%, #09070d); box-shadow: 0 7px 18px rgba(4,2,8,.34); }
-    .dg-relay-orb-design-minimal::before, .dg-relay-orb-design-minimal::after { opacity: .35; }
-    .dg-relay-orb-design-glow { box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 28px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 62%, transparent); }
-    .dg-relay-orb-design-glass { background: color-mix(in srgb, var(--lumiverse-fill, #211825) 62%, transparent); backdrop-filter: blur(10px); box-shadow: 0 10px 28px rgba(4,2,8,.36), inset 0 1px rgba(255,255,255,.16); }
-    .dg-relay-orb-ready { box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 22px color-mix(in srgb, var(--dgir-success, #91d7bd) 42%, transparent); }
-    .dg-relay-orb-failed { box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 0 1px rgba(255,255,255,.06) inset, 0 0 22px color-mix(in srgb, var(--dgir-danger, #e88396) 48%, transparent); }
-    .dg-relay-orb-badge { position: absolute; z-index: 3; min-width: 16px; height: 16px; display: grid; place-items: center; right: -3px; top: -4px; padding: 0 4px; border-radius: 999px; border: 1px solid rgba(255,255,255,.28); background: color-mix(in srgb, var(--lumiverse-primary, #e980b7) 72%, #211825); color: #fff; font: 800 9px/1 system-ui, sans-serif; }
+    .dg-relay-orb-ready { color: var(--dgir-success, #91d7bd); }
+    .dg-relay-orb-failed { color: var(--dgir-danger, #e88396); }
     .dg-relay-orb-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
     .dg-relay-review { max-height: min(72vh, 680px); overflow: auto; }
     .dg-relay-candidate { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; padding: 9px; border: 1px solid var(--dgir-border); border-radius: var(--dgir-radius-md); background: var(--dgir-surface-soft); }
     .dg-relay-candidate-head { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--dgir-text-muted); font-size: 11px; }
@@ -261082,7 +262215,8 @@ function setup(ctx) {
     @keyframes dg-relay-orb-active { from { filter: saturate(1.02) brightness(1); box-shadow: 0 8px 26px rgba(4,2,8,.38), 0 0 18px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 28%, transparent); } to { filter: saturate(1.16) brightness(1.06); box-shadow: 0 10px 30px rgba(4,2,8,.42), 0 0 28px color-mix(in srgb, var(--lumiverse-primary, #e980b7) 46%, transparent); } }
     @keyframes dg-relay-orb-icon-spin { to { transform: rotate(360deg); } }
     @keyframes dg-relay-orb-icon-analyze { from { transform: scale(.88) rotate(-7deg); opacity: .72; filter: saturate(.9) brightness(.95); } to { transform: scale(1.08) rotate(7deg); opacity: 1; filter: saturate(1.25) brightness(1.12); } }
-    @media (prefers-reduced-motion: reduce) { .dg-router-panel .dg-sidecar-indicator::before, .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before, .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .dg-relay-orb .dg-relay-orb-mark, .dg-relay-orb .dg-relay-orb-icon, .dg-router-panel .dg-sidecar-indicator::before, .dg-relay-orb[aria-busy="true"]::before, .dg-relay-orb-scanning::before, .dg-relay-orb-analyzing::before, .dg-relay-orb-preparing::before, .dg-relay-orb-generating::before, .dg-relay-orb-scanning, .dg-relay-orb-analyzing, .dg-relay-orb-preparing, .dg-relay-orb-generating, .dg-relay-orb-image-design[aria-busy="true"] .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-generating .dg-relay-orb-icon, .dg-relay-orb-image-design.dg-relay-orb-analyzing .dg-relay-orb-icon { animation: none; } }
+    @media (prefers-reduced-motion: reduce) { .dg-relay-orb .dg-relay-orb-mark, .dg-relay-orb .dg-relay-orb-icon { animation: none !important; } .dg-sidecar-global-fill { animation: none; opacity: .4; } }
     @keyframes dg-prism-shimmer { from { transform: translateX(-45%); } to { transform: translateX(45%); } }
 
     /* Reverie Suite · Reverie Suite shell. Inspired by LumiBooks' calm hierarchy,
@@ -261316,7 +262450,11 @@ function setup(ctx) {
     .dg-router-panel .dg-btn { min-height: 36px; border-radius: var(--dgir-radius-md); }
     .dg-router-panel .dg-btn-subtle { background-color: transparent !important; }
     .dg-router-panel .dg-help-popover { background-color: var(--dgir-surface-raised) !important; }
-    .dg-router-panel .dg-menu { background-color: var(--dgir-surface) !important; }
+    /* Menus are reading surfaces, never panel glass. Include the themed root
+       selector so Clean Panel cannot win with a translucent host fill. */
+    .dg-router-panel.dg-menu,
+    :root[data-dgir-theme="clean-panel"] .dg-router-panel.dg-menu,
+    .dg-router-panel .dg-menu { background: #211820 !important; opacity: 1 !important; }
     .dg-router-panel .dg-beat-review-controls,
     .dg-router-panel .dg-modal-footer { background-color: var(--dgir-bg) !important; }
     .dg-router-panel .dg-history-track::before,
@@ -261325,12 +262463,10 @@ function setup(ctx) {
     .dg-router-panel .dg-section-title::before,
     .dg-router-panel .dg-section-title::after { background-color: var(--dgir-border-bright) !important; }
     .dg-router-panel .dg-thumb-processing::after { content: none !important; animation: none !important; }
-    .dg-sidecar-global-notice,
     .dg-relay-orb,
     .dg-relay-orb-design-glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-    .dg-sidecar-global-fill { background: var(--lumiverse-primary, #e980b7) !important; }
     .dg-relay-orb,
-    .dg-relay-orb-design-glass { background-image: none !important; background-color: color-mix(in srgb, var(--lumiverse-fill, #211825) 92%, var(--lumiverse-primary, #e980b7)) !important; }
+    .dg-relay-orb-design-glass { background-image: none !important; background-color: transparent !important; }
   `);
   const removeLifecycleStyle = ctx.dom.addStyle(lifecycleRuntimeCss());
   const tab = ctx.ui.registerDrawerTab({
@@ -261354,7 +262490,7 @@ function setup(ctx) {
   });
   const unsubInputRelay = inputRelayAction.onClick(() => tab.activate());
   const unsubInputSurfaces = inputSurfacesAction.onClick(() => {
-    activeTab = "surfaces";
+    activeTab = "surface-library";
     tab.activate();
     renderPanel();
   });
@@ -261362,11 +262498,44 @@ function setup(ctx) {
   const offPhoneToolRenderSync = mountPhoneToolRenderSync(ctx);
   const unsubBackend = lifecycle.track(lifecycle.track(ctx.onBackendMessage((payload) => {
     const message = payload;
+    if (message.type === "portrait_insight_avatar") {
+      if (message.chatId !== activeChatId)
+        return;
+      readPortraitAvatar(message.url).then((image) => ctx.sendToBackend({ type: "portrait_insight_reply", ticket: message.ticket, chatId: message.chatId, imageId: message.imageId, image }));
+      return;
+    }
+    if (message.type === "state_unchanged") {
+      if (message.chatId === activeChatId && message.revision === stateRevision) {
+        lastChatStateReceivedAt = Date.now();
+        scheduleBindInlineImages();
+      }
+      return;
+    }
+    if (message.type === "render_records") {
+      const catalog = message;
+      if (catalog.chatId !== activeChatId || catalog.fingerprint !== renderCatalogFingerprint)
+        return;
+      if (catalog.cursor === 0)
+        archivedRenderRecords.clear();
+      for (const record of catalog.records)
+        archivedRenderRecords.set(record.key, record);
+      recordByKey = new Map(displayRecords().filter((record) => !record.prosePlanningOpportunityId).map((record) => [record.key, record]));
+      scheduleBindInlineImages();
+      if (catalog.nextCursor !== null)
+        ctx.sendToBackend({ type: "list_render_records", chatId: catalog.chatId, cursor: catalog.nextCursor });
+      else if (activeTab === "illustrator")
+        renderPanel();
+      return;
+    }
     if (message.type === "state") {
       if (!message.chatId || message.chatId === activeChatId) {
         if (message.chatId && message.revision < stateRevision)
           return;
-        const hasChatProjection = Boolean(message.chatId);
+        const abortBarrier = message.chatId ? abortProjectionBarriers.get(message.chatId) : undefined;
+        const abortPersisted = abortBarrier !== undefined && (message.backgroundQueue?.abortRequestedAt || 0) >= abortBarrier;
+        if (abortPersisted)
+          abortProjectionBarriers.delete(message.chatId);
+        const hasChatProjection = Boolean(message.chatId) && (abortBarrier === undefined || abortPersisted);
         if (hasChatProjection) {
           stateRevision = message.revision;
           lastChatStateReceivedAt = Date.now();
@@ -261402,20 +262571,27 @@ function setup(ctx) {
           });
           stats = message.stats || emptyRelayChatStats();
           queueSafety = message.queueSafety || { rawPendingRecords: 0, uniquePendingJobs: 0, duplicateRecordsCollapsed: 0, oldestPendingAgeMs: 0, pausedBacklog: false, updatedAt: 0 };
-          recordByKey = new Map(records.map((record) => [record.key, record]));
+          recordByKey = new Map(displayRecords().filter((record) => !record.prosePlanningOpportunityId).map((record) => [record.key, record]));
+          const catalogFingerprint = message.renderCatalogFingerprint;
+          if (catalogFingerprint && catalogFingerprint !== renderCatalogFingerprint) {
+            renderCatalogFingerprint = catalogFingerprint;
+            ctx.sendToBackend({ type: "list_render_records", chatId: message.chatId });
+          }
         }
-        const incomingProseSettings = message.config.proseIllustratorSettings;
+        const settingsResponseIsStale = (message.config.settingsRevision || 0) < (config?.settingsRevision || 0);
+        const incomingConfig = settingsResponseIsStale ? config : message.config;
+        const incomingProseSettings = incomingConfig.proseIllustratorSettings;
         const pendingStillFresh = Boolean(pendingProseSettingsWrite && Date.now() - pendingProseSettingsWrite.sentAt < 15000);
-        const pendingMatchesIncoming = Boolean(pendingProseSettingsWrite && JSON.stringify(incomingProseSettings) === JSON.stringify(pendingProseSettingsWrite.settings));
+        const pendingMatchesIncoming = !settingsResponseIsStale && Boolean(pendingProseSettingsWrite && JSON.stringify(incomingProseSettings) === JSON.stringify(pendingProseSettingsWrite.settings));
         if (pendingMatchesIncoming || pendingProseSettingsWrite && !pendingStillFresh)
           pendingProseSettingsWrite = null;
         const effectiveProseSettings = pendingStillFresh && pendingProseSettingsWrite ? pendingProseSettingsWrite.settings : incomingProseSettings;
         const now = Date.now();
         pendingConfigPatches = pendingConfigPatches.filter((pending) => {
-          const confirmed = Object.entries(pending.patch).every(([key, value]) => JSON.stringify(message.config[key]) === JSON.stringify(value));
+          const confirmed = !settingsResponseIsStale && Object.entries(pending.patch).every(([key, value]) => JSON.stringify(incomingConfig[key]) === JSON.stringify(value));
           return !confirmed && now - pending.sentAt < 15000;
         });
-        const effectiveConfig = pendingConfigPatches.reduce((resolved, pending) => ({ ...resolved, ...pending.patch }), message.config);
+        const effectiveConfig = pendingConfigPatches.reduce((resolved, pending) => ({ ...resolved, ...pending.patch }), incomingConfig);
         config = { ...effectiveConfig, proseIllustratorSettings: effectiveProseSettings };
         phoneWidget?.setEnabled(config.phoneEnabled !== false);
         if (hasChatProjection)
@@ -261428,9 +262604,14 @@ function setup(ctx) {
             ...activeChatId ? { [activeChatId]: { ...effectiveProseSettings, paused: proseIllustrator.settings?.[activeChatId]?.paused === true } } : {}
           }
         };
-        parserConnections = frontendParserConnections ?? message.parserConnections;
-        imageConnections = message.imageConnections || [];
-        imageProviders = message.imageProviders || [];
+        if (!message.bootstrap || !backendParserConnections.length)
+          backendParserConnections = message.parserConnections || [];
+        parserConnections = frontendParserConnections?.length ? frontendParserConnections : backendParserConnections;
+        refreshRepairConnectionFields();
+        if (!message.bootstrap || !imageConnections.length)
+          imageConnections = message.imageConnections || [];
+        if (!message.bootstrap || !imageProviders.length)
+          imageProviders = message.imageProviders || [];
         if (hasChatProjection) {
           logs = message.logs;
           candidateBatches = message.candidateBatches || [];
@@ -261441,7 +262622,7 @@ function setup(ctx) {
           storyConstellations = message.storyConstellations || { schemaVersion: 1, activeTimelineId: "main", actors: {}, events: {}, proposals: {}, echoes: {}, knowledgeEdges: {}, conflicts: {}, phoneEntries: {}, reelOverrides: {}, processedMessageFingerprints: {}, updatedAt: 0 };
         }
         continuityVault.strength = effectiveConfig.vaultStrength;
-        const receivedSurfaceState = message.chatId ? message.customSurfaces : message.config.globalSurfaceStudio;
+        const receivedSurfaceState = settingsResponseIsStale ? customSurfaces : message.chatId ? message.customSurfaces : incomingConfig.globalSurfaceStudio;
         const receivedDefinitions = Object.keys(receivedSurfaceState?.definitions || {}).length;
         const responseIsStale = Boolean(receivedSurfaceState && customSurfaces.updatedAt && receivedSurfaceState.updatedAt < customSurfaces.updatedAt);
         const stableSurfaceState = responseIsStale ? customSurfaces : receivedDefinitions ? receivedSurfaceState : frontendSurfaceFallback();
@@ -261468,19 +262649,21 @@ function setup(ctx) {
           lastDryRun = message.lastDryRun || null;
           lastGenerationBlockers = message.lastGenerationBlockers || [];
         }
-        processPendingGalleryLinks();
-        enforceNativeAutoGenerationGuard();
+        if (!message.bootstrap) {
+          processPendingGalleryLinks();
+          enforceNativeAutoGenerationGuard();
+        }
         backendBuild = message.build;
         schemaVersion = message.schemaVersion;
         renderPanel();
-        if (!nativeSettingsLastSyncedAt)
+        if (!message.bootstrap && !nativeSettingsLastSyncedAt)
           syncNativeSettings(true).catch(() => null);
         window.setTimeout(maybeOpenQuickStartOverview, 80);
         scheduleBindInlineImages();
         renderRelayOrb();
         maybeOpenSlotImagePreviews();
         updateSidecarTicker();
-        if (activeChatId && message.chatId === activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
+        if (hasChatProjection && !message.bootstrap && activeChatId && message.chatId === activeChatId && config.autoRescanOnChatOpen && !autoRescannedChats.has(activeChatId)) {
           autoRescannedChats.add(activeChatId);
           const chatId = activeChatId;
           window.setTimeout(() => {
@@ -261504,21 +262687,32 @@ function setup(ctx) {
         window.setTimeout(() => void processPendingGalleryLinks(), 250);
       return;
     }
-    if (message.type === "story_backfill_status") {
-      if (message.chatId === activeChatId) {
-        storyBackfillStatus = message;
-        if (activeTab.startsWith("story-"))
-          renderPanel();
+    if (message.type === "prose_action_feedback") {
+      if (message.requestId !== pendingProseAction?.requestId || message.chatId !== pendingProseAction.chatId)
+        return;
+      if (message.status !== "accepted") {
+        pendingProseAction = null;
+        if (message.status === "failed")
+          lastStatus = message.message || "Illustration planning failed.";
       }
+      updateSidecarTicker();
+      renderPanel();
+      renderRelayOrb();
       return;
     }
     if (message.type === "queue_abort_ack") {
+      abortRequestPending = false;
+      lastStatus = "Relay work stopped.";
+      if (message.abortedAt)
+        for (const chatId of message.chatIds || (activeChatId ? [activeChatId] : [])) {
+          abortProjectionBarriers.set(chatId, Math.max(message.abortedAt, abortProjectionBarriers.get(chatId) || 0));
+        }
       cancelPendingLifecycleScans();
       rescanInProgress = false;
-      localSidecarAnalysisStartedAt = 0;
+      pendingProseAction = null;
       optimisticSlotActions.clear();
       records = records.map((record) => isGenerationActiveStatus(record.status) ? { ...record, status: "cancelled", updatedAt: Date.now() } : record);
-      recordByKey = new Map(records.map((record) => [record.key, record]));
+      recordByKey = new Map(displayRecords().filter((record) => !record.prosePlanningOpportunityId).map((record) => [record.key, record]));
       candidateBatches = candidateBatches.map((batch) => batch.status === "processing" ? {
         ...batch,
         status: "discarded",
@@ -261529,7 +262723,7 @@ function setup(ctx) {
         ...backgroundQueue,
         items: Object.fromEntries(Object.entries(backgroundQueue.items || {}).map(([id, item]) => [
           id,
-          ["completed", "failed", "cancelled"].includes(item.stage) ? item : { ...item, stage: "cancelled", statusText: "Cancelled by Abort All", etaSeconds: null, updatedAt: Date.now() }
+          ["completed", "failed", "cancelled"].includes(item.stage) ? { ...item, planningPreviews: undefined } : { ...item, stage: "cancelled", statusText: "Cancelled by Abort All", etaSeconds: null, updatedAt: Date.now() }
         ]))
       };
       for (const [key, preview] of streamPreviews) {
@@ -261537,6 +262731,7 @@ function setup(ctx) {
           streamPreviews.set(key, { ...preview, streaming: false, statusText: "Generation stopped.", updatedAt: Date.now() });
       }
       updateSidecarTicker();
+      scheduleBindInlineImages();
       renderPanel();
       renderRelayOrb();
       return;
@@ -261544,7 +262739,7 @@ function setup(ctx) {
     if (message.type === "prose_opportunities_ready") {
       if (message.chatId !== activeChatId)
         return;
-      localSidecarAnalysisStartedAt = 0;
+      pendingProseAction = null;
       updateSidecarTicker();
       renderPanel();
       return;
@@ -261807,9 +263002,11 @@ ${message.prompt}`;
         settingsPatchQueue.splice(index, 1);
       if (settingsPatchInFlight === message.operationId)
         settingsPatchInFlight = null;
-      config = message.config;
-      phoneWidget?.setEnabled(config.phoneEnabled !== false);
-      customSurfaces = message.customSurfaces;
+      if ((message.config.settingsRevision || 0) >= (config?.settingsRevision || 0)) {
+        config = message.config;
+        phoneWidget?.setEnabled(config.phoneEnabled !== false);
+        customSurfaces = message.customSurfaces;
+      }
       for (const pending of settingsPatchQueue)
         applyRelaySettingsDraft(pending.patch);
       if (message.status === "failed")
@@ -261911,10 +263108,16 @@ ${message.prompt}`;
     slotActionFeedback.clear();
     optimisticSlotActions.clear();
     records = [];
+    archivedRenderRecords.clear();
+    renderCatalogFingerprint = "";
     candidateBatches = [];
     recordByKey.clear();
     pendingFinalRevealByRecord.clear();
     clearProseRevealGuards();
+    streamingProseMessages.clear();
+    activeSwipeByMessage.clear();
+    activeSwipeReads.clear();
+    clearActiveSwipeReadRetries();
     lastStatus = "";
     stateRevision = -1;
     lastDisplayContractSignature = "";
@@ -262036,7 +263239,9 @@ ${message.prompt}`;
     const pathImage = path.find((node) => node instanceof HTMLImageElement && node.matches(relayImageSelector));
     const actionButton = pathAction || target?.closest("[data-dgir-overflow]");
     const image = pathImage || target?.closest(relayImageSelector);
-    const record = actionButton?.dataset.dgirKey ? recordByKey.get(actionButton.dataset.dgirKey) || null : recordForImage(image);
+    const card = path.find((node) => node instanceof HTMLElement && node.matches("[data-rrn-native-request]"));
+    const cardControl = card && !path.some((node) => node instanceof HTMLElement && node.matches(".dg-slot-lightbox")) && !path.slice(0, path.indexOf(card)).some((node) => node instanceof HTMLElement && !node.dataset.dgirSlotControls && node.matches('button,a,input,textarea,select,summary,details,[role="button"],[contenteditable="true"]')) ? recordByKey.get(card.dataset.rrnRecordKey || "") : undefined;
+    const record = actionButton?.dataset.dgirKey ? recordByKey.get(actionButton.dataset.dgirKey) || null : recordForImage(image) || cardControl;
     if (!record)
       return;
     event.preventDefault();
@@ -262049,6 +263254,17 @@ ${message.prompt}`;
       openActionMenu(record, event.clientX || 24, event.clientY || 24);
     else
       openLightbox(record);
+  };
+  const onStatusCardKeyDown = (event) => {
+    if (event.key !== "Enter" && event.key !== " " || event.repeat)
+      return;
+    const trigger = event.composedPath().find((node) => node instanceof HTMLElement && node.hasAttribute("data-dgir-slot-controls"));
+    const record = trigger && recordByKey.get(trigger.dataset.dgirSlotControls || "");
+    if (!record)
+      return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    openLightbox(record);
   };
   const onRegexArtifactImageClick = (event) => {
     if (event.defaultPrevented || event.button !== 0)
@@ -262292,9 +263508,7 @@ ${message.prompt}`;
     const diagnostic = failed?.querySelector("span")?.textContent?.trim() || "";
     const note = document.createElement("div");
     note.className = "dg-recovery-note";
-    note.textContent = `${diagnostic ? `${diagnostic}
-
-` : ""}Edit the preserved markup and choose Save Surface for a manual fix. Choose the Assisted Repair connection below, then request a closing-tag-only preview. It cannot invent missing fields or rewrite text or images. Review the candidate before Apply Preview. Opening this editor makes no model call.`;
+    note.textContent = surfaceRepairEditorHelp(diagnostic);
     let repairConnectionId = config?.surfaceRepairConnectionId || null;
     const repairConnectionField = surfaceRepairConnectionField(repairConnectionId, (value) => {
       repairConnectionId = value;
@@ -262324,6 +263538,8 @@ ${message.prompt}`;
       saveButton.disabled = value || invalidSwipeId;
       restoreButton.disabled = value;
       repairConnectionField.querySelector("select").disabled = value;
+      if (!value)
+        refreshRepairConnectionFields();
     };
     const actions = document.createElement("div");
     actions.className = "dg-actions";
@@ -262418,6 +263634,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     actions.append(previewButton, applyButton, restoreButton, saveButton, button("Cancel", () => modal.dismiss(), false, "subtle"));
     body.append(note, repairConnectionField, editor, repairStatus, actions);
     modal.root.appendChild(body);
+    loadFrontendParserConnections();
   }
   const onNativeSurfaceActionClick = (event) => {
     if (event.defaultPrevented || event.button !== 0)
@@ -262471,6 +263688,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       roomId: buttonEl.dataset.blRoomId
     }, buttonEl);
   };
+  const isPhoneUiEvent = (event) => event.composedPath().some((node) => node instanceof Element && node.hasAttribute("data-reverie-phone-ui"));
   const onContext = (event) => {
     const target = event.composedPath().find((node) => node instanceof HTMLElement);
     const editableSurface = target?.closest("[data-rrn-editable-surface]");
@@ -262482,7 +263700,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       openActionMenu(record, event.clientX, event.clientY);
       return;
     }
-    if (editableSurface && !target?.closest("button, input, textarea, select, a")) {
+    if (editableSurface && !isPhoneUiEvent(event) && !target?.closest("button, input, textarea, select, a")) {
       event.preventDefault();
       event.stopImmediatePropagation();
       openSurfaceMarkupEditor(editableSurface);
@@ -262493,7 +263711,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const image = target?.closest(relayImageSelector);
     const record = recordForImage(image);
     const editableSurface = target?.closest("[data-rrn-editable-surface]");
-    if (!record && editableSurface && event.pointerType !== "mouse" && !target?.closest("button, input, textarea, select, a")) {
+    if (!record && editableSurface && !isPhoneUiEvent(event) && event.pointerType !== "mouse" && !target?.closest("button, input, textarea, select, a")) {
       event.stopPropagation();
       clearTimeout(longPressTimer);
       longPressKey = `surface:${editableSurface.dataset.rrnMessageId || ""}:${editableSurface.dataset.rrnSurfaceId || ""}`;
@@ -262584,6 +263802,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   };
   document.addEventListener("click", onNativeSurfaceActionClick, true);
   document.addEventListener("click", onClick, true);
+  document.addEventListener("keydown", onStatusCardKeyDown, true);
   document.addEventListener("click", onRegexArtifactImageClick, true);
   document.addEventListener("contextmenu", onContext, true);
   document.addEventListener("pointerdown", onPointerDown, true);
@@ -262593,6 +263812,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   document.addEventListener("change", onSurfaceControlChange, true);
   lifecycle.track(() => document.removeEventListener("click", onNativeSurfaceActionClick, true), "listener");
   lifecycle.track(() => document.removeEventListener("click", onClick, true), "listener");
+  lifecycle.track(() => document.removeEventListener("keydown", onStatusCardKeyDown, true), "listener");
   lifecycle.track(() => document.removeEventListener("click", onRegexArtifactImageClick, true), "listener");
   lifecycle.track(() => document.removeEventListener("contextmenu", onContext, true), "listener");
   lifecycle.track(() => document.removeEventListener("pointerdown", onPointerDown, true), "listener");
@@ -262608,44 +263828,98 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   sendFrontendSession(true);
   loadFrontendParserConnections();
   refreshState(false);
+  const bootstrapRefreshTimer = window.setInterval(() => {
+    if (disposed || config) {
+      window.clearInterval(bootstrapRefreshTimer);
+      return;
+    }
+    if (document.visibilityState !== "hidden")
+      refreshState(false);
+  }, 5000);
+  lifecycle.track(() => window.clearInterval(bootstrapRefreshTimer), "timer");
   const lifecycleRefreshTimer = window.setInterval(() => {
     const now = Date.now();
-    if (disposed || !activeChatId || !records.some((record) => isSlotLifecycleActive(record.status)))
+    if (disposed || !activeChatId || document.visibilityState === "hidden")
+      return;
+    const pendingWork = records.some((record) => isSlotLifecycleActive(record.status)) || Object.values(backgroundQueue.items || {}).some((item) => item.chatId === activeChatId && !["completed", "failed", "cancelled"].includes(item.stage)) || candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing");
+    const settings = currentProseSettings();
+    const visibleRelay = config?.enabled && settings.enabled && settings.mode === "relay-planned";
+    if (!pendingWork && !visibleRelay)
       return;
     if (now - lastChatStateReceivedAt < 20000 || now - lastLifecycleRefreshAt < 20000)
       return;
     lastLifecycleRefreshAt = now;
-    refreshState(false);
+    scheduleBindInlineImages();
+    refreshState(false, true);
   }, 20000);
   lifecycle.track(() => window.clearInterval(lifecycleRefreshTimer), "timer");
+  let lastForegroundRefreshAt = 0;
+  const refreshOnForeground = () => {
+    if (disposed || !activeChatId || document.visibilityState === "hidden")
+      return;
+    const now = Date.now();
+    if (now - lastForegroundRefreshAt < 2000)
+      return;
+    lastForegroundRefreshAt = now;
+    lastLifecycleRefreshAt = now;
+    sendFrontendSession(true);
+    refreshState(false);
+    scheduleBindInlineImages();
+  };
+  document.addEventListener("visibilitychange", refreshOnForeground);
+  for (const event of ["focus", "pageshow", "online"])
+    window.addEventListener(event, refreshOnForeground);
+  lifecycle.track(() => {
+    document.removeEventListener("visibilitychange", refreshOnForeground);
+    for (const event of ["focus", "pageshow", "online"])
+      window.removeEventListener(event, refreshOnForeground);
+  }, "listener");
   renderPanel();
   renderRelayOrb();
-  async function refreshState(syncNative) {
+  async function refreshState(syncNative, conditional = false) {
     if (disposed)
       return;
     if (syncNative)
       await syncNativeSettings();
     if (disposed)
       return;
-    ctx.sendToBackend({ type: "list_state", chatId: activeChatId });
+    ctx.sendToBackend({
+      type: "list_state",
+      chatId: activeChatId,
+      ...!config ? { bootstrap: true } : {},
+      ...conditional && stateRevision >= 0 ? { knownRevision: stateRevision } : {}
+    });
   }
   async function loadFrontendParserConnections() {
-    if (!ctx.connections?.list)
+    const connectionApi = ctx.connections;
+    if (!connectionApi?.list)
       return;
+    if (frontendParserConnectionsLoading)
+      return frontendParserConnectionsLoading;
+    const load = (async () => {
+      try {
+        const profiles = await connectionApi.list();
+        if (disposed)
+          return;
+        frontendParserConnections = profiles.map((profile) => ({
+          id: profile.id,
+          name: profile.name,
+          provider: profile.provider,
+          model: profile.model
+        }));
+        parserConnections = frontendParserConnections.length ? frontendParserConnections : backendParserConnections;
+        refreshRepairConnectionFields();
+        renderPanel();
+      } catch (error) {
+        console.warn("[Reverie Relay] Could not load credential-redacted connection profiles for selectors.", error);
+      }
+    })();
+    frontendParserConnectionsLoading = load;
     try {
-      const profiles = await ctx.connections.list();
-      if (disposed)
-        return;
-      frontendParserConnections = profiles.map((profile) => ({
-        id: profile.id,
-        name: profile.name,
-        provider: profile.provider,
-        model: profile.model
-      }));
-      parserConnections = frontendParserConnections;
-      renderPanel();
-    } catch (error) {
-      console.warn("[Reverie Relay] Could not load credential-redacted connection profiles for selectors.", error);
+      await load;
+    } finally {
+      if (frontendParserConnectionsLoading === load)
+        frontendParserConnectionsLoading = null;
     }
   }
   async function fetchNativeSettingsSnapshot(force = false) {
@@ -263025,7 +264299,35 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   const mountedLifecycleStyles = new WeakMap;
   const mountedLifecycleStyleNodes = new Set;
   const mountedNarrativePresentationStyles = new WeakMap;
+  const mountedCoreGlassPresentationStyles = new WeakMap;
+  const normalizedCoreGlassLaunchers = new WeakMap;
   const narrativeGlassRootSelector = "[data-reverie-narrative-glass-button]";
+  function ensureMountedCoreGlassPresentation(root) {
+    const scopes = new Set;
+    for (const launcher of deepQueryAll(root, ".rr-surface-launcher-iconized,.pw-wardrobe>summary")) {
+      const nativeMode = launcher.closest(".rrn-editable-surface") && launcher.querySelector('[data-rr-surface-icon^="core:"]') ? config?.surfaceDefaultShellMode : undefined;
+      const signature = () => `${nativeMode}|${launcher.className}|${launcher.getAttribute("style")}|${launcher.getAttribute("data-rr-launcher-mode")}|${launcher.querySelectorAll(":scope>.rr-surface-sparks>i").length}`;
+      if (normalizedCoreGlassLaunchers.get(launcher) !== signature()) {
+        const savedMode = nativeMode || launcher.getAttribute("data-rr-launcher-mode") || launcher.closest("[data-pw-variant]")?.getAttribute("data-pw-variant");
+        const mode = savedMode === "inline" || savedMode === "plain" || savedMode === "sparkling" || savedMode === "glass" || savedMode === "plain-glass" ? savedMode : savedMode === "plain-button" ? "plain" : savedMode === "sparkle-button" ? "sparkling" : launcher.matches("[data-rr-plain-glass]") || launcher.closest("[data-reverie-plain-glass]") ? "plain-glass" : launcher.matches("[data-rr-glass-launcher]") || launcher.closest("[data-reverie-glass-button],[data-reverie-narrative-glass-button]") ? "glass" : launcher.classList.contains("rr-surface-launcher-sparkling") ? "sparkling" : "plain";
+        applySurfaceLauncherInlineStyle(launcher, mode);
+        normalizedCoreGlassLaunchers.set(launcher, signature());
+      }
+      const owner = launcher.getRootNode();
+      scopes.add(owner instanceof ShadowRoot ? owner : document.head);
+    }
+    for (const scope of scopes) {
+      const existing = mountedCoreGlassPresentationStyles.get(scope);
+      if (existing && scope.contains(existing))
+        continue;
+      const style = document.createElement("style");
+      style.dataset.reverieCoreGlassPresentationHost = "1";
+      style.textContent = CORE_GLASS_LAUNCHER_RULES + SURFACE_ICON_STYLE.replace(/^<style[^>]*>|<\/style>$/g, "");
+      scope.appendChild(style);
+      mountedCoreGlassPresentationStyles.set(scope, style);
+      mountedLifecycleStyleNodes.add(style);
+    }
+  }
   function syncNarrativeSurfaceStack(scope) {
     if (!(scope instanceof ShadowRoot) || !(scope.host instanceof HTMLElement))
       return;
@@ -263301,6 +264603,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   }
   const boundNarrativeControls = new WeakSet;
   function bindNarrativeInteractiveControls() {
+    ensureMountedCoreGlassPresentation(document);
     ensureMountedNarrativePresentationStyle(document);
     for (const launcher of deepQueryAll(document, ".rrcp-presentation-sparkling > .rrcp-launch, .rrcp-presentation-plain > .rrcp-launch, .rrcp-presentation-glass > .rrcp-launch")) {
       if (boundNarrativeControls.has(launcher))
@@ -263372,8 +264675,70 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     }
   }
   const normalizedProseDomText = (value) => value.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  function seedRecentMessageSwipes() {
+    if (!activeChatId)
+      return;
+    const messagesApi = ctx.messages;
+    const recent = typeof messagesApi?.getRecent === "function" ? messagesApi.getRecent(16) : [];
+    if (!Array.isArray(recent) || !recent.length)
+      return;
+    for (const message of recent) {
+      const raw = message?.swipe_id ?? message?.swipeId;
+      const swipeId = Number(raw);
+      if (message?.id && raw !== undefined && raw !== null && Number.isInteger(swipeId) && swipeId >= 0 && !activeSwipeByMessage.has(message.id)) {
+        rememberBoundedMap(activeSwipeByMessage, message.id, swipeId, C5B_CACHE_LIMITS.activeSwipes);
+      }
+    }
+  }
+  function requestMessageSwipe(messageId) {
+    if (activeSwipeReads.has(messageId) || activeSwipeReadRetries.get(messageId)?.timer)
+      return;
+    const messagesApi = ctx.messages;
+    if (typeof messagesApi?.get !== "function")
+      return;
+    const chatId = activeChatId;
+    const read = Promise.resolve().then(() => messagesApi.get(messageId)).then((message) => {
+      if (disposed || chatId !== activeChatId || activeSwipeReads.get(messageId) !== read || activeSwipeByMessage.has(messageId))
+        return;
+      if (message?.id !== messageId || message?.chat_id && message.chat_id !== chatId)
+        return;
+      const raw = message?.swipe_id ?? message?.swipeId;
+      const swipeId = Number(raw);
+      if (raw === undefined || raw === null || !Number.isInteger(swipeId) || swipeId < 0)
+        return;
+      rememberBoundedMap(activeSwipeByMessage, messageId, swipeId, C5B_CACHE_LIMITS.activeSwipes);
+      scheduleBindInlineImages();
+    }).catch(() => {}).finally(() => {
+      if (activeSwipeReads.get(messageId) !== read)
+        return;
+      activeSwipeReads.delete(messageId);
+      if (disposed || chatId !== activeChatId || activeSwipeByMessage.has(messageId) || !ctx.dom.findMessageElement(messageId)) {
+        activeSwipeReadRetries.delete(messageId);
+        return;
+      }
+      const retry = activeSwipeReadRetries.get(messageId) || { attempts: 0, timer: 0 };
+      const delay = [250, 1000, 4000][retry.attempts];
+      if (delay === undefined)
+        return;
+      retry.attempts += 1;
+      retry.timer = window.setTimeout(() => {
+        if (activeSwipeReadRetries.get(messageId) !== retry)
+          return;
+        retry.timer = 0;
+        if (disposed || chatId !== activeChatId || activeSwipeByMessage.has(messageId) || !ctx.dom.findMessageElement(messageId)) {
+          activeSwipeReadRetries.delete(messageId);
+          return;
+        }
+        requestMessageSwipe(messageId);
+      }, delay);
+      rememberBoundedMap(activeSwipeReadRetries, messageId, retry, C5B_CACHE_LIMITS.activeSwipes);
+    });
+    rememberBoundedMap(activeSwipeReads, messageId, read, C5B_CACHE_LIMITS.activeSwipes);
+  }
   function ensureSyntheticProseProjection(record, root) {
     if (record.target !== "prose.illustration" || record.proseSynthetic !== true)
+      return;
+    if (streamingProseMessages.has(record.messageId))
       return;
     const projectionSelector = `[data-dgir-prose-projection="${cssEscape(record.key)}"]`;
     if (!record.proseAnchor || record.orphaned || record.status === "superseded") {
@@ -263403,6 +264768,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const projection = template.content.querySelector(`[data-dgir-prose-projection="${cssEscape(record.key)}"]`);
     if (!projection)
       return;
+    if (record.prosePlanningOpportunityId)
+      projection.dataset.dgirPlanningPreview = "true";
     const paragraphs = deepQueryAll(root, "p").filter((paragraph) => !paragraph.closest(".rrl-island, .rrn-native-island, .dgir-prose-lifecycle-projection"));
     const excerpt = normalizedProseDomText(record.proseAnchor.selectedExcerpt || "");
     let anchor = excerpt ? paragraphs.find((paragraph) => {
@@ -263413,7 +264780,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       anchor = paragraphs[record.proseAnchor.paragraphIndex];
     if (!anchor && record.proseAnchor.insertionSide !== "end")
       return;
-    if (record.proseAnchor.insertionSide === "before" && anchor?.parentNode)
+    if ((record.proseAnchor.insertionSide === "before" || record.proseAnchor.insertionSide === "opening") && anchor?.parentNode)
       anchor.parentNode.insertBefore(projection, anchor);
     else if (anchor?.parentNode)
       anchor.parentNode.insertBefore(projection, anchor.nextSibling);
@@ -263428,6 +264795,13 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     image.dataset.dgirProseAlign = alignment;
   }
   function bindInlineImages(messageId) {
+    const displayed = displayRecords();
+    const planningKeys = new Set(displayed.filter((record) => record.prosePlanningOpportunityId && !streamingProseMessages.has(record.messageId) && (activeSwipeByMessage.get(record.messageId) ?? record.swipeId) === record.swipeId).map((record) => record.key));
+    for (const projection of deepQueryAll(document, "[data-dgir-planning-preview]")) {
+      if (!planningKeys.has(projection.dataset.dgirProseProjection || ""))
+        projection.remove();
+    }
+    seedRecentMessageSwipes();
     const stylingRoot = messageId ? ctx.dom.findMessageElement(messageId) : document.body;
     if (stylingRoot)
       ensureMountedLifecycleStyle(stylingRoot);
@@ -263454,8 +264828,10 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       }
     }
     const now = Date.now();
-    for (const record of records) {
+    for (const record of displayRecords()) {
       if (messageId && record.messageId !== messageId)
+        continue;
+      if (record.proseSynthetic && streamingProseMessages.has(record.messageId))
         continue;
       const visibleSwipe = activeSwipeByMessage.get(record.messageId);
       if (visibleSwipe !== undefined && record.swipeId !== visibleSwipe)
@@ -263463,6 +264839,10 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       const root = ctx.dom.findMessageElement(record.messageId);
       if (!root)
         continue;
+      if (record.proseSynthetic && visibleSwipe === undefined) {
+        requestMessageSwipe(record.messageId);
+        continue;
+      }
       ensureMountedLifecycleStyle(root);
       ensureSyntheticProseProjection(record, root);
       const completedProseImageUrl = currentLifecycleImageUrl(record);
@@ -263487,7 +264867,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       const submittingPlacement = slotActionFeedback.isSubmitting(record.key, "repair-placement");
       const canonicalFailure = isFailureRecoveryStatus(record.status);
       const recoverable = canonicalFailure;
-      const statusLabel = record.status === "recovered-pending" ? "Ready" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "awaiting-native-settings" ? "Waiting for settings" : record.status === "paused-backlog" ? "Pending review" : record.status === "superseded" ? "Superseded" : record.status === "parsing" ? "Preparing" : record.status === "provider-waiting" ? "Waiting for image worker" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? submittingPlacement ? "Inserting" : record.pendingPlacement ? "Ready" : "Inserting" : record.status === "placement-repair-needed" ? submittingPlacement ? "Repairing" : "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
+      const statusLabel = record.status === "recovered-pending" ? "Not generated" : record.status === "preparing" ? "Preparing" : record.status === "queued" ? "Queued" : record.status === "awaiting-native-settings" ? "Waiting for settings" : record.status === "paused-backlog" ? "Pending review" : record.status === "superseded" ? "Superseded" : record.status === "parsing" ? "Preparing" : record.status === "provider-waiting" ? "Waiting for image worker" : record.status === "generating" ? "Generating" : record.status === "placement-pending" ? submittingPlacement ? "Inserting" : record.pendingPlacement ? "Ready" : "Inserting" : record.status === "placement-repair-needed" ? submittingPlacement ? "Repairing" : "Repair needed" : record.status === "completed" ? "Ready" : record.status === "failed" || record.status === "image-unavailable" ? "Failed" : record.status === "cancelled" ? "Stopped" : "Requested";
       for (const card of requestCards) {
         const owningKey = card.dataset.rrnRecordKey;
         if (owningKey && owningKey !== record.key)
@@ -263496,6 +264876,13 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
           syncGenerationPlaceholderEffect(card);
         const signature = JSON.stringify([record.key, record.status, submittingPlacement, normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect), visualImageUrl, record.requestAspect, record.error, stream]);
         const media = card.querySelector(".rrl-media-slot");
+        if (media) {
+          media.dataset.dgirSlotControls = record.key;
+          media.setAttribute("role", "button");
+          media.tabIndex = 0;
+          media.setAttribute("aria-label", `Open image controls: ${record.alt || slotLabel(record)}`);
+          media.style.cursor = "zoom-in";
+        }
         let slotImage = card.querySelector(".rrl-slot-image");
         if (media && visualImageUrl && !slotImage) {
           slotImage = document.createElement("img");
@@ -263648,7 +265035,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
         }
         const readyToInsert = record.status === "placement-pending" && Boolean(record.pendingPlacement) && !submittingPlacement;
         let actions = card.querySelector(".rrl-actions");
-        if (!actions && readyToInsert) {
+        if (!actions && (readyToInsert || canonicalFailure || needsPlacementRepair)) {
           actions = document.createElement("div");
           actions.className = "rrl-actions";
           card.appendChild(actions);
@@ -263699,7 +265086,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
         }
       }
     }
-    const completed = records.filter((record) => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record));
+    const completed = displayRecords().filter((record) => (!messageId || record.messageId === messageId) && currentLifecycleImageUrl(record) && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)));
     for (const record of completed) {
       const visualImageUrl = currentLifecycleImageUrl(record);
       const visualImageId = record.pendingPlacement?.imageId || record.imageId || "";
@@ -263712,6 +265099,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
         visualImageId ? `img[data-dgir-image-id="${cssEscape(visualImageId)}"]` : ""
       ].filter(Boolean).join(",");
       const activeSwipe = activeSwipeByMessage.get(record.messageId);
+      if (record.proseSynthetic && activeSwipe === undefined)
+        continue;
       if (activeSwipe !== undefined && record.swipeId !== activeSwipe)
         continue;
       const allMessageImages = deepQueryAll(root, "img");
@@ -263785,7 +265174,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const hadMountedContent = root.childNodes.length > 0;
     ensureMountedLifecycleStyle(root);
     bindInlineImages(messageId);
-    const expected = records.filter((record) => record.messageId === messageId && currentLifecycleImageUrl(record));
+    const visibleSwipe = activeSwipeByMessage.get(messageId);
+    const expected = displayRecords().filter((record) => record.messageId === messageId && currentLifecycleImageUrl(record) && (visibleSwipe === undefined ? !record.proseSynthetic : record.swipeId === visibleSwipe) && !(record.proseSynthetic && streamingProseMessages.has(record.messageId)));
     const images = deepQueryAll(root, "img");
     const missing = expected.filter((record) => {
       const expectedUrl = currentLifecycleImageUrl(record);
@@ -263896,21 +265286,18 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     patchConfig({ tutorialModeEnabled: false, tutorialStep: 0 });
     openQuickStartOverview();
   }
-  function sendStoryAction(action, fields = {}) {
+  function sendPhoneRecordAction(action, fields = {}) {
     if (!activeChatId)
       return;
-    ctx.sendToBackend({ type: "story_action", chatId: activeChatId, action, ...fields });
+    ctx.sendToBackend({ type: "phone_record_action", chatId: activeChatId, action, ...fields });
   }
-  function storyText(text, className = "dg-story-copy") {
+  function panelText(text, className = "dg-story-copy") {
     const node = document.createElement("p");
     node.className = className;
     node.textContent = text;
     return node;
   }
-  function storyImages(event) {
-    return storyEventImageIds(storyConstellations, event).map((id) => assetLibrary.assets[id]).filter((asset) => asset?.status === "available" && Boolean(asset.imageUrl));
-  }
-  function openStoryEdit(options) {
+  function openPhoneRecordEdit(options) {
     const openingChatId = activeChatId;
     const modal = ctx.ui.showModal({ title: options.title, width: 620, persistent: true });
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
@@ -263918,7 +265305,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const body = document.createElement("div");
     body.className = "dg-modal-body";
     if (options.description)
-      body.appendChild(storyText(options.description));
+      body.appendChild(panelText(options.description));
     const values = (options.fields || []).map((field) => field.value);
     const inputs = [];
     for (const [index, field] of (options.fields || []).entries()) {
@@ -263961,7 +265348,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     modal.root.appendChild(body);
     inputs[0]?.focus();
   }
-  function storyImage(asset, title) {
+  function phoneRecordImage(asset, title) {
     const open = document.createElement("button");
     open.type = "button";
     open.className = "dg-story-image-button";
@@ -263975,7 +265362,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     open.addEventListener("click", () => openAssetImage(asset));
     return open;
   }
-  function goToStorySource(source) {
+  function goToPhoneRecordSource(source) {
     if (!source)
       return;
     if (source.sourceState === "deleted") {
@@ -263999,445 +265386,13 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     message.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     message.focus?.({ preventScroll: true });
   }
-  function renderStorySettingsAndBackfill() {
-    const box = document.createElement("div");
-    const stack = document.createElement("div");
-    stack.className = "dg-story-stack";
-    if (!config) {
-      stack.appendChild(empty("Story settings are loading."));
-      box.appendChild(panelSection("Story State", stack));
-      return box;
-    }
-    stack.append(toggleCard("Event Constellations", "Analyzes new and edited story messages with the configured Relay parser. Findings remain proposals until you confirm them. Existing story data stays available when analysis is off.", config.storyConstellationsEnabled, (checked) => patchConfig({ storyConstellationsEnabled: checked })), toggleCard("Auto-confirm high-confidence events", "Allows only strongly grounded candidates at 95% confidence or higher to become canon automatically. Off by default; ambiguous or weak candidates always stay proposals.", config.autoConfirmStoryEvents, (checked) => patchConfig({ autoConfirmStoryEvents: checked }), !config.storyConstellationsEnabled), toggleCard("Knowledge conflict alerts", "Shows when a new source conflicts with a recorded character knowledge state. Unknown is not treated as unaware.", config.storyKnowledgeConflictAlerts, (checked) => patchConfig({ storyKnowledgeConflictAlerts: checked }), !config.storyConstellationsEnabled), toggleCard("Analyze edited messages", "Rechecks a changed message when Event Constellations is enabled. Confirmed events are preserved and changed meanings become new review proposals.", config.analyzeEditedStoryMessages, (checked) => patchConfig({ analyzeEditedStoryMessages: checked }), !config.storyConstellationsEnabled), toggleCard("Inject character knowledge context", "Adds a short character-scoped reminder from confirmed active events only. It does not inject the Story Reel or inactive/non-canon events.", config.injectStoryEventContext, (checked) => patchConfig({ injectStoryEventContext: checked }), !config.storyConstellationsEnabled));
-    if (config.storyConstellationsEnabled && !config.parserConnectionId) {
-      const warning = document.createElement("div");
-      warning.className = "dg-warning";
-      warning.textContent = "Event analysis needs a Relay parser connection. Without one, backfill can ingest authored Character Phones but cannot find Event proposals.";
-      stack.append(warning, button("Choose Parser Connection", () => {
-        activeTab = "utility-studio";
-        renderPanel();
-      }, false, "subtle"));
-    }
-    if (activeChatId) {
-      const includeInactive = document.createElement("label");
-      includeInactive.className = "dg-story-field";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = storyIncludeInactiveSwipes;
-      checkbox.addEventListener("change", () => {
-        storyIncludeInactiveSwipes = checkbox.checked;
-      });
-      includeInactive.append(checkbox, document.createTextNode("Include inactive swipes (still excluded from active views)"));
-      stack.appendChild(includeInactive);
-    }
-    const running = storyBackfillStatus?.chatId === activeChatId && storyBackfillStatus.status === "running";
-    stack.appendChild(button(running ? "Cancel Backfill" : "Backfill Existing Chat", () => sendStoryAction(running ? "cancel-backfill" : "backfill", { includeInactiveSwipes: storyIncludeInactiveSwipes }), !config.storyConstellationsEnabled || !activeChatId, running ? "danger" : "primary", "Manual, resumable, proposal-first analysis. This does not run during migration or chat open."));
-    if (storyBackfillStatus?.chatId === activeChatId) {
-      const status = document.createElement("div");
-      status.className = "dg-story-card";
-      const text = storyBackfillStatus.message || `${storyBackfillStatus.status}: ${storyBackfillStatus.completed} / ${storyBackfillStatus.total}`;
-      status.textContent = `${storyBackfillStatus.status.toUpperCase()} · ${storyBackfillStatus.completed}/${storyBackfillStatus.total} terminal · ${text}`;
-      stack.appendChild(status);
-    }
-    const recent = logs.filter((log) => log.chatId === activeChatId && log.eventType === "story_analysis_outcome").sort((left, right) => right.timestamp - left.timestamp).slice(0, 3);
-    if (recent.length) {
-      const analysis = document.createElement("details");
-      analysis.className = "dg-story-card dg-story-manage";
-      analysis.open = storyAnalysisExpanded;
-      analysis.addEventListener("toggle", () => {
-        if (analysis.isConnected)
-          storyAnalysisExpanded = analysis.open;
-      });
-      const heading = document.createElement("summary");
-      heading.textContent = "Recent Story Analysis";
-      analysis.appendChild(heading);
-      for (const log of recent) {
-        const result = log.details || {};
-        const row = document.createElement("div");
-        row.className = "dg-story-card";
-        const count = (key) => typeof result[key] === "number" ? result[key] : 0;
-        const status = result.status === "failed" ? "Analysis failed" : result.status === "skipped" ? "Analysis skipped" : count("rawCandidates") === 0 ? "No event found" : `${count("proposals")} proposals · ${count("rejectedCandidates")} rejected`;
-        row.appendChild(storyText(status, "dg-story-title"));
-        if (typeof result.reason === "string")
-          row.appendChild(storyText(result.reason.replace(/-/g, " ")));
-        const reasons = result.rejectionReasons && typeof result.rejectionReasons === "object" ? Object.entries(result.rejectionReasons) : [];
-        for (const [reason, amount] of reasons)
-          row.appendChild(storyText(`${reason.replace(/-/g, " ")} (${amount})`));
-        if (Array.isArray(result.rejectionExamples))
-          for (const example of result.rejectionExamples.slice(0, 3)) {
-            if (example && typeof example.anchor === "string")
-              row.appendChild(storyText(`Rejected evidence: “${example.anchor}”`));
-          }
-        if (log.messageId && typeof log.swipeId === "number")
-          row.appendChild(button("Retry Analysis", () => sendStoryAction("retry-analysis", { messageId: log.messageId, swipeId: log.swipeId }), !config.storyConstellationsEnabled || running, "subtle", "Recheck this source with the configured parser. This makes one model call when eligible; proposals still require confirmation."));
-        analysis.appendChild(row);
-      }
-      stack.appendChild(analysis);
-    }
-    box.appendChild(panelSection("Story State & Backfill", stack));
-    return box;
-  }
-  function renderStoryProposal(proposal) {
-    const card = document.createElement("article");
-    card.className = "dg-story-card";
-    const title = document.createElement("h4");
-    title.className = "dg-story-title";
-    title.textContent = proposal.title;
-    card.append(title, storyText(proposal.summary));
-    const meta = document.createElement("div");
-    meta.className = "dg-story-meta";
-    for (const value of [proposal.eventType, proposal.importance, `${Math.round(proposal.confidence * 100)}% confidence`, `Source ${proposal.sourceRef.messageId} · swipe ${proposal.sourceRef.swipeId}`, proposal.sourceRef.sourceState]) {
-      const pill = document.createElement("span");
-      pill.className = "dg-story-pill";
-      pill.textContent = value;
-      meta.appendChild(pill);
-    }
-    card.appendChild(meta);
-    if (proposal.sourceRef.excerpt)
-      card.appendChild(storyText(`Evidence: “${proposal.sourceRef.excerpt}”`));
-    const actors = proposal.participants.map((participant) => storyConstellations.actors[participant.actorId]?.displayName || "Unresolved character");
-    if (actors.length)
-      card.appendChild(storyText(`Participants: ${actors.join(", ")}`));
-    const actions = document.createElement("div");
-    actions.className = "dg-actions";
-    const canConfirm = proposal.sourceRef.sourceState === "active";
-    const linksExistingEvent = proposal.proposalKind === "event-echo" && Boolean(proposal.likelyDuplicateEventId && storyConstellations.events[proposal.likelyDuplicateEventId]?.canonState === "confirmed");
-    actions.append(button("Go to Source", () => goToStorySource(proposal.sourceRef), false, "subtle"), button(proposal.proposalKind === "revision" ? "Confirm Revision & Supersede" : linksExistingEvent ? "Link as Event Echo" : "Confirm", () => sendStoryAction(proposal.proposalKind === "revision" && proposal.likelyDuplicateEventId ? "supersede-event" : "confirm-proposal", { proposalId: proposal.proposalId, eventId: proposal.likelyDuplicateEventId }), !canConfirm, "primary", canConfirm ? proposal.proposalKind === "revision" ? "Confirm the new meaning and retain the old event as superseded history." : linksExistingEvent ? "Attach this source and its grounded knowledge/Echoes to the existing event." : "Add this event to confirmed canon." : "Reactivate the source swipe before confirming."), button("Edit", () => openStoryEdit({ title: "Edit Event Proposal", fields: [{ label: "Event title", value: proposal.title, required: true, maxLength: 120 }, { label: "Event summary", value: proposal.summary, required: true, maxLength: 520 }], save: ([title, summary]) => sendStoryAction("edit-proposal", { proposalId: proposal.proposalId, title, summary }) }), false, "subtle"), button("Mark Non-Canon", () => sendStoryAction("mark-non-canon", { proposalId: proposal.proposalId }), false, "danger"));
-    if (proposal.proposalKind !== "revision" && proposal.likelyDuplicateEventId && storyConstellations.events[proposal.likelyDuplicateEventId])
-      actions.appendChild(button("Create Separate Event & Supersede", () => sendStoryAction("supersede-event", { proposalId: proposal.proposalId, eventId: proposal.likelyDuplicateEventId }), !canConfirm, "subtle"));
-    card.appendChild(actions);
-    return card;
-  }
-  function renderStoryEventSummary(event) {
-    const card = document.createElement("article");
-    card.className = "dg-story-card";
-    const title = document.createElement("h4");
-    title.className = "dg-story-title";
-    title.textContent = event.title;
-    card.append(title, storyText(event.summary));
-    const images = storyImages(event);
-    if (images[0])
-      card.appendChild(storyImage(images[0], event.title));
-    const meta = document.createElement("div");
-    meta.className = "dg-story-meta";
-    const names = event.participants.map((participant) => storyConstellations.actors[participant.actorId]?.displayName || "Unresolved character");
-    const knowledgeCount = event.participants.filter((participant) => Boolean(storyConstellations.knowledgeEdges[`${event.eventId}:${participant.actorId}`])).length;
-    for (const value of [event.storyTimeLabel, event.location, names.join(", "), `${event.echoIds.length} Echoes`, `${images.length} linked images`, `${knowledgeCount} knowledge links`, event.canonState]) {
-      if (!value)
-        continue;
-      const pill = document.createElement("span");
-      pill.className = "dg-story-pill";
-      pill.textContent = value;
-      meta.appendChild(pill);
-    }
-    card.appendChild(meta);
-    if (event.sourceWarning) {
-      const warning = document.createElement("div");
-      warning.className = "dg-warning";
-      warning.textContent = event.sourceWarning;
-      card.appendChild(warning);
-    }
-    const actions = document.createElement("div");
-    actions.className = "dg-actions";
-    actions.appendChild(button("Open Constellation", () => {
-      selectedStoryEventId = event.eventId;
-      pendingStoryEventNavigation = event.eventId;
-      renderPanel();
-    }, false, "primary"));
-    actions.appendChild(button("Go to Source", () => goToStorySource(event.sourceRefs[0]), !event.sourceRefs.length, "subtle"));
-    card.appendChild(actions);
-    return card;
-  }
-  function renderStoryEvent(eventId) {
-    const event = storyConstellations.events[eventId];
-    const card = document.createElement("article");
-    card.className = "dg-story-card";
-    card.dataset.storyEventId = eventId;
-    if (!event)
-      return card;
-    const heading = document.createElement("h4");
-    heading.className = "dg-story-title";
-    heading.textContent = event.title;
-    heading.tabIndex = -1;
-    card.append(heading, storyText(event.summary), button("Close Detail", () => {
-      selectedStoryEventId = "";
-      renderPanel();
-    }, false, "subtle"));
-    const manage = document.createElement("details");
-    manage.className = "dg-story-card dg-story-manage";
-    const manageHeading = document.createElement("summary");
-    manageHeading.textContent = "Edit Constellation";
-    manage.appendChild(manageHeading);
-    const identities = document.createElement("div");
-    identities.className = "dg-story-stack";
-    const images = storyImages(event);
-    if (images[0])
-      card.appendChild(storyImage(images[0], event.title));
-    const nodes = document.createElement("div");
-    nodes.className = "dg-story-constellation";
-    const lines = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    lines.setAttribute("viewBox", "0 0 100 100");
-    lines.setAttribute("preserveAspectRatio", "none");
-    lines.setAttribute("aria-hidden", "true");
-    lines.setAttribute("class", "dg-story-lines");
-    const center = document.createElement("div");
-    center.className = "dg-story-center";
-    center.textContent = `✧ ${event.title}`;
-    const actorNodes = [];
-    const upperCount = Math.ceil(event.participants.length / 2);
-    for (const participant of event.participants) {
-      const actor = storyConstellations.actors[participant.actorId];
-      const name = actor?.displayName || "Unresolved character";
-      const node = document.createElement("div");
-      node.className = "dg-story-actor";
-      node.dataset.storyActorId = participant.actorId;
-      const initial = document.createElement("span");
-      initial.className = "dg-story-initial";
-      initial.textContent = Array.from(name)[0] || "?";
-      initial.setAttribute("aria-hidden", "true");
-      node.appendChild(initial);
-      const actorName = document.createElement("strong");
-      actorName.textContent = `${name} · ${participant.role}`;
-      node.appendChild(actorName);
-      const knowledgeEdge = storyConstellations.knowledgeEdges[`${eventId}:${participant.actorId}`];
-      const beliefState = knowledgeEdge?.beliefState || "unknown";
-      const link = document.createElement("span");
-      link.className = "dg-story-link";
-      link.textContent = `${beliefState} · ${knowledgeEdge?.acquisitionMode || "acquisition unknown"}`;
-      node.appendChild(link);
-      const index = actorNodes.length;
-      const orbitIndex = index < upperCount ? index : index - upperCount;
-      const orbitSize = index < upperCount ? upperCount : event.participants.length - upperCount;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      const orbitRow = Math.floor(orbitIndex / 2);
-      const orbitX = orbitSize === 1 || orbitSize % 2 === 1 && orbitIndex === orbitSize - 1 ? 50 : orbitIndex % 2 === 0 ? 25 : 75;
-      const orbitY = index < upperCount ? orbitSize > 2 ? orbitRow === 0 ? 11 : 30 : 22 : orbitSize > 2 ? orbitRow === 0 ? 70 : 89 : 78;
-      line.setAttribute("x1", "50");
-      line.setAttribute("y1", "50");
-      line.setAttribute("x2", String(orbitX));
-      line.setAttribute("y2", String(orbitY));
-      line.dataset.belief = beliefState;
-      lines.appendChild(line);
-      line.dataset.storyActorId = participant.actorId;
-      if (actor?.kind === "temporary")
-        node.appendChild(storyText("Unresolved identity", "dg-story-link"));
-      if (actor && !actor.mergedIntoActorId) {
-        const identityRow = document.createElement("div");
-        identityRow.className = "dg-story-card";
-        identityRow.appendChild(storyText(name, "dg-story-title"));
-        const kind = document.createElement("select");
-        kind.className = "dg-select";
-        kind.setAttribute("aria-label", `${name} identity type`);
-        for (const value of ["temporary", "character", "persona", "npc", "audience"]) {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = value === "temporary" ? "Unresolved / temporary" : value;
-          option.selected = actor.kind === value;
-          kind.appendChild(option);
-        }
-        kind.addEventListener("change", () => {
-          const identityKind = kind.value;
-          if (identityKind === "character" || identityKind === "persona") {
-            kind.value = actor.kind;
-            openStoryEdit({ title: `Link ${name}`, description: `Classify as ${identityKind}. A Lumiverse ID is optional; leave blank to classify without linking.`, fields: [{ label: "Lumiverse identity ID", value: identityKind === "character" ? actor.lumiverseCharacterId || "" : actor.lumiversePersonaId || "", maxLength: 120 }], save: ([canonicalIdentityId]) => sendStoryAction("set-actor-kind", { actorId: actor.actorId, actorKind: identityKind, canonicalIdentityId }) });
-          } else
-            sendStoryAction("set-actor-kind", { actorId: actor.actorId, actorKind: identityKind, canonicalIdentityId: "" });
-        });
-        identityRow.appendChild(kind);
-        const merge = document.createElement("details");
-        merge.className = "dg-story-merge";
-        const mergeSummary = document.createElement("summary");
-        mergeSummary.textContent = "Merge identity…";
-        merge.appendChild(mergeSummary);
-        const target = document.createElement("select");
-        target.className = "dg-select";
-        target.setAttribute("aria-label", `Merge ${name} into another story identity`);
-        const blankTarget = document.createElement("option");
-        blankTarget.value = "";
-        blankTarget.textContent = "Choose identity…";
-        target.appendChild(blankTarget);
-        for (const other of Object.values(storyConstellations.actors).filter((value) => !value.mergedIntoActorId && value.actorId !== actor.actorId)) {
-          const option = document.createElement("option");
-          option.value = other.actorId;
-          option.textContent = other.displayName;
-          target.appendChild(option);
-        }
-        merge.append(target, button("Merge", () => {
-          const chosen = storyConstellations.actors[target.value];
-          if (chosen)
-            openStoryEdit({ title: "Merge Story Identities", description: `Merge ${name} into ${chosen.displayName}? Event, phone, and knowledge references will be reconciled.`, submit: "Merge Identities", danger: true, save: () => sendStoryAction("merge-actors", { actorId: actor.actorId, mergeIntoActorId: chosen.actorId }) });
-        }, !Object.keys(storyConstellations.actors).some((id) => id !== actor.actorId && !storyConstellations.actors[id].mergedIntoActorId), "subtle"));
-        identityRow.appendChild(merge);
-        identities.appendChild(identityRow);
-      }
-      actorNodes.push(node);
-    }
-    const upper = document.createElement("div");
-    upper.className = "dg-story-orbit";
-    const lower = document.createElement("div");
-    lower.className = "dg-story-orbit";
-    upper.append(...actorNodes.slice(0, upperCount));
-    lower.append(...actorNodes.slice(upperCount));
-    nodes.append(lines, upper, center, lower);
-    card.appendChild(nodes);
-    manage.appendChild(panelSection("Character Identities", identities));
-    const meta = document.createElement("div");
-    meta.className = "dg-story-meta";
-    for (const value of [event.storyTimeLabel || "Time not specified", event.location || "", `Sources ${event.sourceRefs.length}`, `State ${event.sourceState}`].filter(Boolean)) {
-      const pill = document.createElement("span");
-      pill.className = "dg-story-pill";
-      pill.textContent = value;
-      meta.appendChild(pill);
-    }
-    card.appendChild(meta);
-    if (event.sourceWarning) {
-      const warning = document.createElement("div");
-      warning.className = "dg-warning";
-      warning.textContent = event.sourceWarning;
-      card.appendChild(warning);
-      manage.appendChild(button("Resolve Source Warning", () => sendStoryAction("resolve-source-warning", { eventId }), false, "subtle"));
-    }
-    const actions = document.createElement("div");
-    actions.className = "dg-actions";
-    const source = event.sourceRefs[0];
-    actions.append(button("Go to Source", () => goToStorySource(source), !source, "subtle"), button("Edit Constellation", () => {
-      manage.open = !manage.open;
-      if (manage.open)
-        manage.scrollIntoView({ block: "nearest" });
-    }, false, "subtle"));
-    const duplicateSelect = document.createElement("select");
-    duplicateSelect.className = "dg-select";
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = "Merge another confirmed event…";
-    duplicateSelect.appendChild(blank);
-    for (const other of activeStoryEvents(storyConstellations).filter((candidate) => candidate.eventId !== eventId)) {
-      const option = document.createElement("option");
-      option.value = other.eventId;
-      option.textContent = other.title;
-      duplicateSelect.appendChild(option);
-    }
-    const mergeActions = document.createElement("div");
-    mergeActions.className = "dg-actions";
-    mergeActions.append(button("Mark Non-Canon", () => openStoryEdit({ title: "Mark Event Non-Canon", description: "Its source and history will be retained, but it will leave active canon views.", submit: "Mark Non-Canon", danger: true, save: () => sendStoryAction("mark-non-canon", { eventId }) }), false, "danger"), duplicateSelect, button("Merge", () => {
-      const duplicateEventId = duplicateSelect.value;
-      if (duplicateEventId)
-        openStoryEdit({ title: "Merge Events", description: "Merge the selected event into this one? Source, Echo, knowledge, and Asset references are retained.", submit: "Merge Events", danger: true, save: () => sendStoryAction("merge-events", { eventId, duplicateEventId }) });
-    }, false, "subtle"));
-    card.appendChild(actions);
-    manage.appendChild(mergeActions);
-    const assets = Object.values(assetLibrary.assets).filter((asset) => asset.chatId === activeChatId && asset.status === "available").slice(0, 60);
-    const knowledge = document.createElement("div");
-    knowledge.className = "dg-story-stack";
-    for (const participant of event.participants) {
-      const actor = storyConstellations.actors[participant.actorId];
-      if (!actor)
-        continue;
-      const row = document.createElement("div");
-      row.className = "dg-actions";
-      const label = document.createElement("span");
-      label.textContent = actor.displayName;
-      row.appendChild(label);
-      const edge = storyConstellations.knowledgeEdges[`${eventId}:${actor.actorId}`];
-      const belief = document.createElement("select");
-      belief.setAttribute("aria-label", `${actor.displayName} knowledge of ${event.title}`);
-      for (const value of ["unknown", "unaware", "rumor", "suspects", "knows", "misinformed"]) {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = value;
-        option.selected = (edge?.beliefState || "unknown") === value;
-        belief.appendChild(option);
-      }
-      const acquisition = document.createElement("select");
-      acquisition.setAttribute("aria-label", `${actor.displayName} knowledge source`);
-      for (const value of ["manual", "involved", "witnessed", "told", "evidence", "inferred", "public-broadcast"]) {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = value;
-        option.selected = (edge?.acquisitionMode || "manual") === value;
-        acquisition.appendChild(option);
-      }
-      row.append(belief, acquisition, button("Save", () => sendStoryAction("set-knowledge", { eventId, actorName: actor.displayName, beliefState: belief.value, acquisitionMode: acquisition.value }), false, "subtle"));
-      knowledge.appendChild(row);
-    }
-    manage.appendChild(panelSection("Knowledge Boundaries", knowledge));
-    const echoes = document.createElement("div");
-    echoes.className = "dg-story-stack";
-    for (const echoId of event.echoIds) {
-      const echo = storyConstellations.echoes[echoId];
-      if (!echo)
-        continue;
-      const row = document.createElement("div");
-      row.className = "dg-story-card";
-      row.append(storyText(`${echo.kind}${echo.channel ? ` · ${echo.channel}` : ""} · ${echo.linkState}`, "dg-story-title"), storyText(echo.summary));
-      const echoActions = document.createElement("div");
-      echoActions.className = "dg-actions";
-      echoActions.appendChild(button("Go to Source", () => goToStorySource(echo.sourceRef), false, "subtle"));
-      if (echo.assetId && assetLibrary.assets[echo.assetId]?.imageUrl)
-        row.appendChild(storyImage(assetLibrary.assets[echo.assetId], echo.summary));
-      const echoManage = document.createElement("details");
-      echoManage.className = "dg-story-merge";
-      const echoManageHeading = document.createElement("summary");
-      echoManageHeading.textContent = "Manage Echo";
-      echoManage.appendChild(echoManageHeading);
-      if (echo.linkState === "proposed")
-        echoActions.appendChild(button("Confirm Echo Link", () => sendStoryAction("link-echo", { echoId, eventId }), false, "subtle"));
-      echoActions.appendChild(button("Reject Echo", () => sendStoryAction("reject-echo", { echoId }), false, "danger"));
-      const echoAsset = document.createElement("select");
-      echoAsset.setAttribute("aria-label", `Asset for ${echo.kind} Echo`);
-      const echoAssetBlank = document.createElement("option");
-      echoAssetBlank.value = "";
-      echoAssetBlank.textContent = "Link an Asset…";
-      echoAsset.appendChild(echoAssetBlank);
-      for (const asset of assets) {
-        const option = document.createElement("option");
-        option.value = asset.assetId;
-        option.textContent = asset.caption || asset.alt || asset.assetId;
-        option.selected = asset.assetId === echo.assetId;
-        echoAsset.appendChild(option);
-      }
-      echoActions.append(echoAsset, button(echo.assetId ? "Update Echo Asset" : "Link Echo Asset", () => echoAsset.value && sendStoryAction("link-echo-asset", { echoId, assetId: echoAsset.value }), false, "subtle"));
-      if (echo.assetId)
-        echoActions.appendChild(button("Unlink Echo Asset", () => sendStoryAction("unlink-echo-asset", { echoId }), false, "subtle"));
-      row.appendChild(echoActions.firstElementChild);
-      echoManage.appendChild(echoActions);
-      row.appendChild(echoManage);
-      echoes.appendChild(row);
-    }
-    card.appendChild(panelSection("Event Echoes", echoes.childNodes.length ? echoes : empty("No Echoes recorded.")));
-    const assetPicker = document.createElement("select");
-    assetPicker.setAttribute("aria-label", "Link existing Asset to this event");
-    const noAsset = document.createElement("option");
-    noAsset.value = "";
-    noAsset.textContent = "Link existing Asset…";
-    assetPicker.appendChild(noAsset);
-    for (const asset of assets) {
-      const option = document.createElement("option");
-      option.value = asset.assetId;
-      option.textContent = asset.caption || asset.alt || asset.assetId;
-      assetPicker.appendChild(option);
-    }
-    const assetArea = document.createElement("div");
-    assetArea.className = "dg-actions";
-    assetArea.append(assetPicker, button("Link Asset", () => assetPicker.value && sendStoryAction("link-asset", { eventId, assetId: assetPicker.value }), false, "subtle"));
-    for (const assetId of event.linkedAssetIds)
-      assetArea.appendChild(button(`Unlink ${assetId}`, () => sendStoryAction("unlink-asset", { eventId, assetId }), false, "subtle"));
-    const gallery = document.createElement("div");
-    gallery.className = "dg-story-gallery";
-    for (const asset of images)
-      gallery.appendChild(storyImage(asset, asset.caption || asset.alt || event.title));
-    card.appendChild(panelSection(`Linked Images (${images.length})`, images.length ? gallery : empty("No linked images yet. Link an existing image in Edit Constellation.")));
-    manage.appendChild(panelSection("Linked Assets", assetArea));
-    card.appendChild(manage);
-    return card;
-  }
   function renderPhonePage() {
     const box = document.createElement("div");
     const launch = document.createElement("div");
     launch.className = "dg-story-stack";
     const toggle = checkbox("Enable Reverie Phone", config?.phoneEnabled !== false, (value) => patchConfig({ phoneEnabled: value }));
     toggle.querySelector("input")?.setAttribute("aria-label", "Enable Reverie Phone");
-    launch.append(toggle, storyText("Optional phones live alongside the story, independently of Story features and chat Surfaces. Disabling Phone hides its widget and stops incoming-text instructions, new deliveries and phone generation. Saved messages, accounts and settings are preserved."), button("Open Phone", () => phoneWidget ? phoneWidget.open() : showToast("error", "This Lumiverse build does not expose floating widgets. Update Lumiverse to use the phone."), config?.phoneEnabled === false));
+    launch.append(toggle, panelText("Optional phones live alongside the story, independently of chat Surfaces. Disabling Phone hides its widget and stops incoming-text instructions, new deliveries and phone generation. Saved messages, accounts and settings are preserved."), button("Open Phone", () => phoneWidget ? phoneWidget.open() : showToast("error", "This Lumiverse build does not expose floating widgets. Update Lumiverse to use the phone."), config?.phoneEnabled === false));
     box.appendChild(panelSection("Reverie Phone", launch));
     if (phoneWidget) {
       const settings = document.createElement("div");
@@ -264464,11 +265419,11 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       for (const entry of visibleEntries) {
         const record = document.createElement("article");
         record.className = "dg-story-card";
-        record.append(storyText(`${entry.app}${entry.storyTimeLabel ? ` · ${entry.storyTimeLabel}` : ""}`, "dg-story-title"));
+        record.append(panelText(`${entry.app}${entry.storyTimeLabel ? ` · ${entry.storyTimeLabel}` : ""}`, "dg-story-title"));
         if (entry.assetId && assetLibrary.assets[entry.assetId]?.imageUrl) {
-          record.appendChild(storyImage(assetLibrary.assets[entry.assetId], entry.title));
+          record.appendChild(phoneRecordImage(assetLibrary.assets[entry.assetId], entry.title));
         }
-        record.appendChild(storyText(`${entry.title}${entry.body ? ` — ${entry.body}` : ""}`));
+        record.appendChild(panelText(`${entry.title}${entry.body ? ` — ${entry.body}` : ""}`));
         if (entry.kind === "photo") {
           const assets = Object.values(assetLibrary.assets).filter((asset) => asset.chatId === activeChatId && asset.status === "available").slice(0, 60);
           const picker = document.createElement("select");
@@ -264486,13 +265441,13 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
           }
           const actions = document.createElement("div");
           actions.className = "dg-actions";
-          actions.append(picker, button(entry.assetId ? "Update Asset Link" : "Link Asset", () => picker.value && sendStoryAction("link-phone-asset", { phoneEntryId: entry.entryId, assetId: picker.value }), false, "subtle"));
+          actions.append(picker, button(entry.assetId ? "Update Asset Link" : "Link Asset", () => picker.value && sendPhoneRecordAction("link-phone-asset", { phoneEntryId: entry.entryId, assetId: picker.value }), false, "subtle"));
           if (entry.assetId)
-            actions.appendChild(button("Unlink Asset", () => sendStoryAction("unlink-phone-asset", { phoneEntryId: entry.entryId }), false, "subtle"));
+            actions.appendChild(button("Unlink Asset", () => sendPhoneRecordAction("unlink-phone-asset", { phoneEntryId: entry.entryId }), false, "subtle"));
           record.appendChild(actions);
         }
-        record.appendChild(button("Go to Source", () => goToStorySource(entry.sourceRef), false, "subtle"));
-        record.appendChild(button("Remove Record", () => openStoryEdit({ title: "Remove Phone Record", description: "Remove this record from the Living Phone projection? The source chat message is unchanged.", submit: "Remove Record", danger: true, save: () => sendStoryAction("remove-phone-entry", { phoneEntryId: entry.entryId }) }), false, "danger"));
+        record.appendChild(button("Go to Source", () => goToPhoneRecordSource(entry.sourceRef), false, "subtle"));
+        record.appendChild(button("Remove Record", () => openPhoneRecordEdit({ title: "Remove Phone Record", description: "Remove this record from the Living Phone projection? The source chat message is unchanged.", submit: "Remove Record", danger: true, save: () => sendPhoneRecordAction("remove-phone-entry", { phoneEntryId: entry.entryId }) }), false, "danger"));
         ownerCard.appendChild(record);
       }
       if (ownerEntries.length > visibleEntries.length)
@@ -264510,7 +265465,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       summary.textContent = `Inactive source records (${stale.length})`;
       details.appendChild(summary);
       for (const entry of stale.slice(-30))
-        details.appendChild(storyText(`${entry.ownerName} · ${entry.app} · ${entry.sourceRef.sourceState}: ${entry.title}`));
+        details.appendChild(panelText(`${entry.ownerName} · ${entry.app} · ${entry.sourceRef.sourceState}: ${entry.title}`));
       stack.appendChild(details);
     }
     const archive = document.createElement("details");
@@ -264519,206 +265474,6 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     summary.textContent = "Legacy snapshot records · advanced management";
     archive.append(summary, stack);
     box.appendChild(archive);
-    return box;
-  }
-  function renderStoryReel() {
-    const box = document.createElement("div");
-    const stack = document.createElement("div");
-    stack.className = "dg-story-stack";
-    const items = projectStoryReel(storyConstellations);
-    if (!items.length)
-      stack.appendChild(empty("The Story Reel is derived from confirmed, active-swipe events. Proposed, non-canon, and inactive-swipe events stay out."));
-    for (const item of items) {
-      const card = document.createElement("article");
-      card.className = "dg-story-card";
-      if (item.chapterLabel || item.pinned) {
-        const meta = document.createElement("div");
-        meta.className = "dg-story-meta";
-        for (const label of [item.chapterLabel || "", item.pinned ? "Pinned" : ""].filter(Boolean)) {
-          const pill = document.createElement("span");
-          pill.className = "dg-story-pill";
-          pill.textContent = label;
-          meta.appendChild(pill);
-        }
-        card.appendChild(meta);
-      }
-      const title = document.createElement("h4");
-      title.className = "dg-story-title";
-      title.textContent = item.title;
-      title.tabIndex = 0;
-      title.addEventListener("click", () => {
-        selectedStoryEventId = item.eventId;
-        pendingStoryEventNavigation = item.eventId;
-        activeTab = "story-constellations";
-        renderPanel();
-      });
-      title.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          selectedStoryEventId = item.eventId;
-          pendingStoryEventNavigation = item.eventId;
-          activeTab = "story-constellations";
-          renderPanel();
-        }
-      });
-      card.appendChild(title);
-      const event = storyConstellations.events[item.eventId];
-      const images = storyImages(event);
-      if (images[0])
-        card.appendChild(storyImage(images[0], item.title));
-      card.appendChild(storyText(`${item.echoIds.length} Echoes · ${images.length} linked images`, "dg-story-meta"));
-      card.append(storyText(item.caption), storyText([item.storyTimeLabel, item.location, item.participantNames.join(", ")].filter(Boolean).join(" · "), "dg-story-meta"));
-      if (item.sourceWarning)
-        card.appendChild(storyText(item.sourceWarning));
-      const actions = document.createElement("div");
-      actions.className = "dg-actions";
-      actions.append(button("Open Constellation", () => {
-        selectedStoryEventId = item.eventId;
-        pendingStoryEventNavigation = item.eventId;
-        activeTab = "story-constellations";
-        renderPanel();
-      }, false, "primary"), button("Go to Source", () => goToStorySource(event.sourceRefs[0]), !event.sourceRefs.length, "subtle"), button(item.pinned ? "Unpin" : "Pin", () => sendStoryAction("set-reel-override", { eventId: item.eventId, pinned: !item.pinned }), false, "subtle"), button("Edit Caption", () => openStoryEdit({ title: "Edit Reel Caption", fields: [{ label: "Reel caption", value: item.caption, maxLength: 600 }], save: ([captionOverride]) => sendStoryAction("set-reel-override", { eventId: item.eventId, captionOverride }) }), false, "subtle"), button("Chapter", () => openStoryEdit({ title: "Edit Reel Chapter", fields: [{ label: "Chapter label", value: item.chapterLabel || "", maxLength: 100 }], save: ([chapterLabelOverride]) => sendStoryAction("set-reel-override", { eventId: item.eventId, chapterLabelOverride }) }), false, "subtle"), button("Hide", () => sendStoryAction("set-reel-override", { eventId: item.eventId, hidden: true }), false, "danger"));
-      card.appendChild(actions);
-      const echoDetails = document.createElement("details");
-      echoDetails.className = "dg-story-card";
-      const summary = document.createElement("summary");
-      summary.textContent = `Echoes (${item.echoIds.length})`;
-      echoDetails.appendChild(summary);
-      for (const echoId of item.echoIds) {
-        const echo = storyConstellations.echoes[echoId];
-        if (echo)
-          echoDetails.append(storyText(`${echo.kind} · ${echo.summary}`), button("Go to Source", () => goToStorySource(echo.sourceRef), false, "subtle"));
-      }
-      card.appendChild(echoDetails);
-      stack.appendChild(card);
-    }
-    const hidden = Object.values(storyConstellations.reelOverrides).filter((override) => override.hidden && storyConstellations.events[override.eventId]?.canonState === "confirmed");
-    if (hidden.length) {
-      const hiddenSection = document.createElement("section");
-      hiddenSection.className = "dg-story-card";
-      const heading = document.createElement("h4");
-      heading.className = "dg-story-title";
-      heading.textContent = `Hidden Reel cards (${hidden.length})`;
-      hiddenSection.appendChild(heading);
-      for (const override of hidden) {
-        const event = storyConstellations.events[override.eventId];
-        hiddenSection.append(storyText(event.title), button("Restore", () => sendStoryAction("set-reel-override", { eventId: event.eventId, hidden: false }), false, "subtle"));
-      }
-      stack.appendChild(hiddenSection);
-    }
-    box.appendChild(panelSection("Story Reel", stack));
-    return box;
-  }
-  function renderStoryView() {
-    const box = document.createElement("div");
-    if (activeTab === "story-reel") {
-      box.appendChild(renderStoryReel());
-      return box;
-    }
-    const settings = document.createElement("details");
-    settings.className = "dg-story-card dg-story-manage";
-    const settingsSummary = document.createElement("summary");
-    settingsSummary.textContent = "Story Settings & Backfill";
-    settings.open = storySettingsExpanded || !activeStoryEvents(storyConstellations).length;
-    settings.addEventListener("toggle", () => {
-      storySettingsExpanded = settings.open;
-    });
-    settings.append(settingsSummary, renderStorySettingsAndBackfill());
-    box.appendChild(settings);
-    const proposals = Object.values(storyConstellations.proposals).filter((proposal) => proposal.status === "proposed" && proposal.sourceRef.sourceState !== "deleted").sort((a, b) => b.createdAt - a.createdAt);
-    const proposalStack = document.createElement("div");
-    proposalStack.className = "dg-story-stack";
-    if (!proposals.length)
-      proposalStack.appendChild(empty("No pending Event proposals. Meaningful changes appear here for review."));
-    else
-      for (const proposal of proposals.slice(0, storyProposalVisibleLimit))
-        proposalStack.appendChild(renderStoryProposal(proposal));
-    if (proposals.length > storyProposalVisibleLimit)
-      proposalStack.appendChild(button(`Show Older Proposals (${proposals.length - storyProposalVisibleLimit} remaining)`, () => {
-        storyProposalVisibleLimit += 80;
-        renderPanel();
-      }, false, "subtle"));
-    box.appendChild(panelSection(`Proposals (${proposals.length})`, proposalStack));
-    const events = activeStoryEvents(storyConstellations).sort((a, b) => b.updatedAt - a.updatedAt);
-    const eventStack = document.createElement("div");
-    eventStack.className = "dg-story-stack";
-    if (!events.length)
-      eventStack.appendChild(empty("No confirmed active-swipe events yet."));
-    const visibleEvents = events.slice(0, storyEventVisibleLimit);
-    for (const event of visibleEvents) {
-      const card = renderStoryEventSummary(event);
-      if (event.eventId === selectedStoryEventId)
-        card.classList.add("dg-story-selected");
-      eventStack.appendChild(card);
-    }
-    if (events.length > storyEventVisibleLimit)
-      eventStack.appendChild(button(`Show Older Events (${events.length - storyEventVisibleLimit} remaining)`, () => {
-        storyEventVisibleLimit += 80;
-        renderPanel();
-      }, false, "subtle"));
-    box.appendChild(panelSection(`Confirmed Events (${events.length})`, eventStack));
-    const conflicts = Object.values(storyConstellations.conflicts).filter((conflict) => conflict.status === "open");
-    if (config?.storyKnowledgeConflictAlerts && conflicts.length) {
-      const conflictStack = document.createElement("div");
-      conflictStack.className = "dg-story-stack";
-      for (const conflict of conflicts.slice(0, 30)) {
-        const row = document.createElement("div");
-        row.className = "dg-story-card";
-        row.appendChild(storyText(`${conflict.severity.toUpperCase()} · ${conflict.summary}`));
-        const resolution = document.createElement("select");
-        resolution.setAttribute("aria-label", "Resolve knowledge conflict");
-        const relatedEvent = storyConstellations.events[conflict.eventId];
-        const confirmedEchoes = (relatedEvent?.echoIds || []).map((echoId) => storyConstellations.echoes[echoId]).filter((echo) => echo?.linkState === "confirmed" && echo.sourceRef.sourceState === "active");
-        for (const [value, label] of [["learned-offscreen", "Accept — learned off-screen"], ["linked-existing-echo", "Link existing Echo"], ["kept-existing-state", "Keep existing state"], ["model-mistake", "Mark as model mistake"], ["manual", "Set knows manually"]]) {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = label;
-          if (value === "linked-existing-echo" && !confirmedEchoes.length)
-            option.disabled = true;
-          resolution.appendChild(option);
-        }
-        const echoPicker = document.createElement("select");
-        echoPicker.setAttribute("aria-label", "Confirmed Echo that explains character knowledge");
-        const echoPlaceholder = document.createElement("option");
-        echoPlaceholder.value = "";
-        echoPlaceholder.textContent = confirmedEchoes.length ? "Choose confirmed Echo…" : "No confirmed Echo available";
-        echoPicker.appendChild(echoPlaceholder);
-        for (const echo of confirmedEchoes) {
-          const option = document.createElement("option");
-          option.value = echo.echoId;
-          option.textContent = `${echo.kind}${echo.channel ? ` · ${echo.channel}` : ""}: ${echo.summary}`;
-          echoPicker.appendChild(option);
-        }
-        echoPicker.disabled = resolution.value !== "linked-existing-echo";
-        resolution.addEventListener("change", () => {
-          echoPicker.disabled = resolution.value !== "linked-existing-echo";
-        });
-        row.append(resolution, echoPicker, button("Resolve", () => sendStoryAction("resolve-conflict", {
-          conflictId: conflict.conflictId,
-          resolution: resolution.value,
-          echoId: resolution.value === "linked-existing-echo" ? echoPicker.value : undefined
-        }), false, "subtle"));
-        conflictStack.appendChild(row);
-      }
-      box.appendChild(panelSection(`Knowledge Conflicts (${conflicts.length})`, conflictStack));
-    }
-    if (selectedStoryEventId && storyConstellations.events[selectedStoryEventId]) {
-      const selected = renderStoryEvent(selectedStoryEventId);
-      selected.classList.add("dg-story-selected");
-      box.prepend(panelSection("Selected Event", selected));
-    }
-    if (pendingStoryEventNavigation && pendingStoryEventNavigation === selectedStoryEventId) {
-      const navigationId = pendingStoryEventNavigation;
-      const target = Array.from(box.querySelectorAll("[data-story-event-id]")).find((node) => node.dataset.storyEventId === navigationId);
-      if (target)
-        window.requestAnimationFrame(() => {
-          if (!target.isConnected)
-            return;
-          target.scrollIntoView({ block: "center", behavior: "smooth" });
-          target.querySelector(".dg-story-title")?.focus({ preventScroll: true });
-          pendingStoryEventNavigation = "";
-        });
-    }
     return box;
   }
   function renderPanel() {
@@ -264751,14 +265506,12 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     if (activeTab === "slots" && (lastRescanSummary || rescanInProgress))
       root.appendChild(renderRescanResult());
     phoneWidget?.unmountSettings();
-    const content = activeTab === "phone" ? renderPhonePage() : activeTab === "settings" ? renderSettings() : activeTab === "illustrator" ? renderProseIllustrator() : activeTab === "recipes" ? renderGenerationRecipes() : activeTab === "genetics" ? renderGeneticVault() : activeTab === "surfaces" ? renderCustomSurfaceStudio() : activeTab === "surface-library" ? renderSurfaceLibrary() : activeTab === "surface-presets" ? renderSurfacePresets() : activeTab === "utility-studio" ? renderUtilityStudio() : activeTab === "history" ? renderHistoryList() : activeTab.startsWith("story-") ? renderStoryView() : activeTab === "logs" ? renderLogs() : activeTab === "manual" ? renderManual() : renderSlotsView();
+    const content = activeTab === "phone" ? renderPhonePage() : activeTab === "settings" ? renderSettings() : activeTab === "illustrator" ? renderProseIllustrator() : activeTab === "illustration-controls" ? renderIllustrationControls(currentProseSettings()) : activeTab === "recipes" ? renderGenerationRecipes() : activeTab === "genetics" ? renderGeneticVault() : ["surfaces", "surface-presets", "utility-studio", "surface-advanced"].includes(activeTab) ? renderSurfaceAdvanced() : activeTab === "surface-library" ? renderSurfaceLibrary() : activeTab === "surface-narratives" ? renderNarrativeLibrary() : activeTab === "history" ? renderHistoryList() : activeTab === "logs" ? renderLogs() : activeTab === "manual" ? renderManual() : renderSlotsView();
     const stage = document.createElement("main");
     stage.className = "dg-suite-stage";
     stage.appendChild(content);
     root.appendChild(stage);
-    storyGraphCleanup?.();
     tab.root.replaceChildren(root);
-    storyGraphCleanup = bindStoryGraphGeometry(root);
     tab.setBadge(records.length ? String(records.length) : null);
     const restoreScrollTop = panelScrollTopByTab.get(activeTab) ?? previousScrollTop;
     requestAnimationFrame(() => {
@@ -264769,7 +265522,9 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     if (!activeChatId)
       return null;
     const active = Object.values(backgroundQueue.items || {}).filter((item) => item.chatId === activeChatId && item.source === "analysis" && !["completed", "failed", "cancelled"].includes(item.stage)).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    return active ? { messageId: active.requestId, startedAt: active.startedAt || active.createdAt } : null;
+    if (active && pendingProseAction?.chatId === activeChatId)
+      pendingProseAction = null;
+    return active ? { taskId: active.id, messageId: active.requestId, startedAt: active.startedAt || active.createdAt, statusText: active.statusText, phaseStartedAt: active.phaseStartedAt } : pendingProseAction?.chatId === activeChatId ? { taskId: pendingProseAction.requestId, startedAt: pendingProseAction.startedAt, statusText: "Planning requested — waiting for Relay" } : null;
   }
   function renderSidecarAnalyzingIndicator(state) {
     const row = document.createElement("div");
@@ -264780,12 +265535,17 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   }
   function updateSidecarElapsedText(node, state, label) {
     const elapsed = Math.max(0, Math.round((Date.now() - state.startedAt) / 1000));
-    const scope = `${state.messageId ? ` · ${state.messageId}` : ""}${state.swipeId !== undefined ? ` · swipe ${state.swipeId}` : ""}`;
-    const detail = `${label}${scope} · ${elapsed}s`;
+    const scope = `${state.messageId ? ` · message ${state.messageId.slice(0, 8)}` : ""}${state.swipeId !== undefined ? ` · swipe ${state.swipeId}` : ""}`;
+    const phase = state.phaseStartedAt ? ` · ${Math.max(0, Math.round((Date.now() - state.phaseStartedAt) / 1000))}s this stage` : "";
+    const detail = `${state.statusText || label}${scope} · ${elapsed}s total${phase}`;
+    node.title = `${state.messageId ? `Analysis for message ${state.messageId}` : "Relay illustration analysis"} · ${detail}`;
     const detailNode = node.querySelector(".dg-sidecar-global-detail");
-    if (detailNode)
-      detailNode.textContent = detail;
-    else
+    if (detailNode) {
+      detailNode.textContent = state.statusText || "Analyzing illustrations";
+      const timing = node.querySelector(".dg-sidecar-global-timing");
+      if (timing)
+        timing.textContent = `${elapsed}s total${phase}`;
+    } else
       node.textContent = detail;
   }
   function renderSidecarGlobalNotice() {
@@ -264793,35 +265553,58 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     if (!state) {
       sidecarNoticeEl?.remove();
       sidecarNoticeEl = null;
+      removeEmptyToastStack();
+      return;
+    }
+    for (const row of document.querySelectorAll("[data-dgir-sidecar-elapsed]")) {
+      updateSidecarElapsedText(row, state, "Relay analyzing message");
+    }
+    const noticeKey = `${activeChatId}:${state.taskId}:${state.startedAt}`;
+    if (dismissedSidecarNotices.has(noticeKey)) {
+      sidecarNoticeEl?.remove();
+      sidecarNoticeEl = null;
+      removeEmptyToastStack();
       return;
     }
     if (!sidecarNoticeEl) {
       sidecarNoticeEl = document.createElement("div");
-      sidecarNoticeEl.className = "dg-sidecar-global-notice";
+      sidecarNoticeEl.className = "dg-toast dg-sidecar-global-notice";
       sidecarNoticeEl.setAttribute("role", "status");
       sidecarNoticeEl.setAttribute("aria-live", "polite");
-      const dot = document.createElement("span");
-      dot.className = "dg-sidecar-global-dot";
-      const title = document.createElement("span");
-      title.className = "dg-sidecar-global-title";
-      title.textContent = "Extension";
-      const separator = document.createElement("span");
-      separator.className = "dg-sidecar-global-separator";
-      separator.textContent = "•";
+      const copy = document.createElement("span");
+      copy.className = "dg-toast-copy";
       const detail = document.createElement("span");
       detail.className = "dg-sidecar-global-detail";
+      const timing = document.createElement("span");
+      timing.className = "dg-sidecar-global-timing";
+      timing.setAttribute("aria-hidden", "true");
+      copy.append(detail, timing);
       const bar = document.createElement("span");
       bar.className = "dg-sidecar-global-bar";
       const fill = document.createElement("span");
       fill.className = "dg-sidecar-global-fill";
       bar.appendChild(fill);
-      sidecarNoticeEl.append(dot, title, separator, detail, bar);
-      document.body.appendChild(sidecarNoticeEl);
+      const dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.className = "dg-toast-dismiss";
+      dismiss.textContent = "×";
+      dismiss.setAttribute("aria-label", "Dismiss analysis notification");
+      dismiss.title = "Hide this notification; analysis continues.";
+      dismiss.addEventListener("click", () => {
+        const key = sidecarNoticeEl?.dataset.analysisKey;
+        if (key)
+          dismissedSidecarNotices.add(key);
+        if (dismissedSidecarNotices.size > 64)
+          dismissedSidecarNotices.delete(dismissedSidecarNotices.values().next().value);
+        sidecarNoticeEl?.remove();
+        sidecarNoticeEl = null;
+        removeEmptyToastStack();
+      });
+      sidecarNoticeEl.append(copy, dismiss, bar);
+      ensureToastStack().prepend(sidecarNoticeEl);
     }
+    sidecarNoticeEl.dataset.analysisKey = noticeKey;
     updateSidecarElapsedText(sidecarNoticeEl, state, "Relay is analyzing this message");
-    for (const row of document.querySelectorAll("[data-dgir-sidecar-elapsed]")) {
-      updateSidecarElapsedText(row, state, "Relay analyzing message");
-    }
   }
   function updateSidecarTicker() {
     if (!sidecarAnalysisInProgress()) {
@@ -264863,9 +265646,7 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       orb.type = "button";
       orb.className = "dg-relay-orb";
       orb.dataset.reverieRelayOrbOwner = documentRuntimeOwnerId;
-      orb.innerHTML = '<span class="dg-relay-orb-mark" aria-hidden="true">R&sup3;</span><span class="dg-relay-orb-icon" aria-hidden="true"></span><span class="dg-relay-orb-badge" hidden></span><span class="dg-relay-orb-status" aria-live="polite"></span>';
-      orb.setAttribute("aria-label", "Reparse and regenerate image slots in the latest message");
-      orb.title = "Relay Orb: generate replacement candidates";
+      orb.innerHTML = '<span class="dg-relay-orb-mark" aria-hidden="true">R&sup3;</span><span class="dg-relay-orb-icon" aria-hidden="true"></span><span class="dg-relay-orb-status" aria-live="polite"></span>';
       const start = { x: 0, y: 0, left: 0, top: 0 };
       let pointerId = -1;
       let dragging = false;
@@ -264883,8 +265664,8 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
         start.x = event.clientX;
         start.y = event.clientY;
         const viewport = orbViewportSize();
-        start.left = (Number.parseFloat(orb.style.left) || rect.left) - viewport.offsetLeft;
-        start.top = (Number.parseFloat(orb.style.top) || rect.top) - viewport.offsetTop;
+        start.left = rect.left - viewport.offsetLeft;
+        start.top = rect.top - viewport.offsetTop;
         dragging = false;
         moved = false;
         relayOrbIsDragging = false;
@@ -264991,26 +265772,29 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     const busy = candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing") || records.some((record) => isGenerationActiveStatus(record.status));
     const scanning = rescanInProgress;
     const sidecarAnalyzing = sidecarAnalysisInProgress();
+    const relayPlanned = currentProseSettings().mode === "relay-planned";
     const ready = candidateBatches.reduce((sum, batch) => sum + (batch.chatId === activeChatId && batch.status === "review" ? batch.candidates.filter((candidate) => candidate.status === "ready").length : 0), 0);
     const failed = records.some((record) => record.status === "failed");
     relayOrbStatus = scanning ? "scanning" : busy ? "generating" : sidecarAnalyzing ? "analyzing" : ready ? "ready" : failed ? "failed" : records.length ? "idle" : "empty";
     relayOrb.disabled = false;
     relayOrb.setAttribute("aria-disabled", "false");
     relayOrb.setAttribute("aria-busy", String(scanning || busy || Boolean(sidecarAnalyzing)));
+    relayOrb.setAttribute("aria-label", relayPlanned ? "Analyze the latest response and generate illustrations" : "Scan the active chat for image slots");
     const design = config?.orbDesign || "classic";
+    const size = orbSizePreview ?? normalizeOrbSizePx(config?.orbSizePx, config?.orbSize);
+    relayOrb.style.setProperty("--dg-relay-orb-size", `${size}px`);
+    const mark = relayOrb.querySelector(".dg-relay-orb-mark");
+    if (mark && mark.dataset.design !== design) {
+      mark.dataset.design = design;
+      mark.innerHTML = design === "star" ? ORB_STAR_SVG : "R&sup3;";
+    }
     const imageIcon = imageOrbDesignUrl(design);
     relayOrb.style.setProperty("--dg-relay-orb-icon", imageIcon ? `url("${imageIcon}")` : "none");
     relayOrb.className = `dg-relay-orb dg-relay-orb-${relayOrbStatus} dg-relay-orb-size-${config?.orbSize || "medium"} dg-relay-orb-design-${design}${imageIcon ? " dg-relay-orb-image-design" : ""}${document.querySelector(".dg-modal-host") ? " dg-relay-orb-modal-suppressed" : ""}`;
-    const badge = relayOrb.querySelector(".dg-relay-orb-badge");
-    if (badge) {
-      const label = scanning ? "…" : busy ? generatingBadgeText() : sidecarAnalyzing ? "…" : ready ? String(ready) : "";
-      badge.hidden = !label;
-      badge.textContent = label;
-    }
     const status = relayOrb.querySelector(".dg-relay-orb-status");
     if (status)
       status.textContent = relayOrbStatusLabel(relayOrbStatus, ready);
-    relayOrb.title = scanning ? "Scanning the active chat" : busy ? "Generating Relay candidates" : sidecarAnalyzing ? "Relay analyzing message" : ready ? `${ready} Relay candidates awaiting review` : "Tap to scan the active chat";
+    relayOrb.title = scanning ? "Scanning the active chat" : busy ? "Generating Relay candidates" : sidecarAnalyzing ? "Relay analyzing message" : ready ? `${ready} Relay candidates awaiting review` : relayPlanned ? "Tap to analyze the latest response and generate illustrations" : "Tap to scan the active chat";
     if (!relayOrbIsDragging)
       applyOrbPosition();
   }
@@ -265044,6 +265828,19 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
   async function scanFromOrb() {
     if (!activeChatId || rescanInProgress)
       return;
+    if (currentProseSettings().mode === "relay-planned") {
+      if (sidecarAnalysisInProgress() || records.some((record) => isGenerationActiveStatus(record.status)) || candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing"))
+        return;
+      if (!currentProseSettings().plannerConnectionId) {
+        showToast("warning", "Choose a Relay Planned connection before analyzing and generating illustrations.");
+        return;
+      }
+      lastStatus = "Analyzing the latest response and generating illustrations…";
+      sendProseAction({ action: "relay_plan_once" });
+      renderPanel();
+      renderRelayOrb();
+      return;
+    }
     lastStatus = "Scanning the active chat…";
     rescanChat();
     renderRelayOrb();
@@ -265064,6 +265861,10 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     menu.className = "dg-router-panel dg-menu";
     const actions = [
       ["Scan Relay Slots", rescanChat, !activeChatId || rescanInProgress],
+      ["Rescan for Appearance", () => {
+        if (activeChatId)
+          ctx.sendToBackend({ type: "continuity_action", chatId: activeChatId, action: "rescan_appearance" });
+      }, !activeChatId],
       ["Reparse Slots", () => void reparseChatSlotsFromOrb(), !activeChatId],
       ["Generate Replacement Candidates", () => void startRelayBatchFromOrb(), !activeChatId],
       ["Open Surface Registry", () => {
@@ -265151,31 +265952,28 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     if (!relayOrb)
       return;
     const pos = currentOrbPosition();
-    const width = relayOrb.offsetWidth || 52;
-    const height = relayOrb.offsetHeight || 52;
+    const { width, height } = orbScreenMetrics();
     const viewport = orbViewportSize();
     setOrbPixelPosition(pos.x * (viewport.width - width), pos.y * (viewport.height - height));
   }
   function setOrbPixelPosition(left, top) {
     if (!relayOrb)
       return;
-    const width = relayOrb.offsetWidth || 52;
-    const height = relayOrb.offsetHeight || 52;
+    const { width, height, scaleX, scaleY } = orbScreenMetrics();
     const viewport = orbViewportSize();
     const clampedLeft = Math.max(0, Math.min(Math.max(0, viewport.width - width), left));
     const clampedTop = Math.max(0, Math.min(Math.max(0, viewport.height - height), top));
-    relayOrb.style.left = `${Math.round(clampedLeft + viewport.offsetLeft)}px`;
-    relayOrb.style.top = `${Math.round(clampedTop + viewport.offsetTop)}px`;
+    relayOrb.style.left = `${(clampedLeft + viewport.offsetLeft) / scaleX}px`;
+    relayOrb.style.top = `${(clampedTop + viewport.offsetTop) / scaleY}px`;
     relayOrb.style.transform = "";
   }
   function persistOrbPosition() {
     if (!relayOrb || !config)
       return;
     const viewport = orbViewportSize();
-    const width = relayOrb.offsetWidth || 52;
-    const height = relayOrb.offsetHeight || 52;
-    const left = (Number.parseFloat(relayOrb.style.left) || relayOrb.getBoundingClientRect().left) - viewport.offsetLeft;
-    const top = (Number.parseFloat(relayOrb.style.top) || relayOrb.getBoundingClientRect().top) - viewport.offsetTop;
+    const { rect, width, height } = orbScreenMetrics();
+    const left = rect.left - viewport.offsetLeft;
+    const top = rect.top - viewport.offsetTop;
     const x = Math.max(0, Math.min(1, left / Math.max(1, viewport.width - width)));
     const y = Math.max(0, Math.min(1, top / Math.max(1, viewport.height - height)));
     if (isCompactViewport()) {
@@ -265185,6 +265983,18 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
       config = { ...config, orbPositionDesktop: { x, y } };
       patchConfig({ orbPositionDesktop: { x, y } });
     }
+  }
+  function orbScreenMetrics() {
+    const rect = relayOrb.getBoundingClientRect();
+    const layoutWidth = relayOrb.offsetWidth || 52;
+    const layoutHeight = relayOrb.offsetHeight || 52;
+    return {
+      rect,
+      width: rect.width || layoutWidth,
+      height: rect.height || layoutHeight,
+      scaleX: rect.width > 0 ? rect.width / layoutWidth : 1,
+      scaleY: rect.height > 0 ? rect.height / layoutHeight : 1
+    };
   }
   function orbViewportSize() {
     const visual = window.visualViewport;
@@ -265202,13 +266012,6 @@ Review the markup above. Apply is enabled for this exact, unchanged message only
     patchConfig(patch);
     if (!relayOrbIsDragging)
       applyOrbPosition();
-  }
-  function generatingBadgeText() {
-    const batch = candidateBatches.find((item) => item.chatId === activeChatId && item.status === "processing");
-    if (!batch)
-      return "";
-    const done = batch.candidates.filter((candidate) => ["ready", "failed", "unavailable", "discarded", "replaced"].includes(candidate.status)).length;
-    return `${done}/${batch.candidates.length}`;
   }
   function relayOrbStatusLabel(status, ready) {
     if (status === "scanning")
@@ -265390,7 +266193,7 @@ ${candidate.error}` : ""}`;
     const counts = countStatuses();
     const recovered = records.filter((record) => record.status === "recovered-pending").length;
     const retryableFailed = records.filter((record) => record.status === "failed" && canReparse(record)).length;
-    const activeWork = records.some((record) => canAbortSlotStatus(record.status)) || candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing");
+    const activeWork = Boolean(sidecarAnalysisInProgress()) || records.some((record) => canAbortSlotStatus(record.status)) || candidateBatches.some((batch) => batch.chatId === activeChatId && batch.status === "processing");
     const head = document.createElement("header");
     head.className = "dg-head dg-suite-head";
     const top = document.createElement("div");
@@ -265428,7 +266231,7 @@ ${candidate.error}` : ""}`;
     const reviewBatch = candidateBatches.find((batch) => batch.chatId === activeChatId && batch.status === "review");
     if (reviewBatch)
       headerActions.appendChild(button("Review Candidates", () => openRelayCandidateReview(reviewBatch), false, "primary"));
-    headerActions.append(button(rescanInProgress ? "Scanning…" : "Rescan", rescanChat, !activeChatId || rescanInProgress, "subtle", "Find semantic image requests missing from Relay state."), button("Abort All", abortActiveGeneration, !activeChatId || !activeWork, "danger", activeWork ? "Cancel queued, waiting, and active Relay work." : "No active generation to abort."), button("Retry Failed", () => activeChatId && ctx.sendToBackend({ type: "retry_failed", chatId: activeChatId }), retryableFailed === 0, "subtle", retryableFailed ? "" : "No retryable failures."));
+    headerActions.append(button(rescanInProgress ? "Scanning…" : "Rescan", rescanChat, !activeChatId || rescanInProgress, "subtle", "Find semantic image requests missing from Relay state."), button(abortRequestPending ? "Stopping…" : "Abort All", abortActiveGeneration, abortRequestPending || !activeChatId || !activeWork, "danger", activeWork ? "Cancel queued, waiting, and active Relay work." : "No active generation to abort."), button("Retry Failed", () => activeChatId && ctx.sendToBackend({ type: "retry_failed", chatId: activeChatId }), retryableFailed === 0, "subtle", retryableFailed ? "" : "No retryable failures."));
     top.append(brand, headerActions);
     const overviewTitle = document.createElement("div");
     overviewTitle.className = "dg-overview-label";
@@ -265459,9 +266262,9 @@ Relay will not generate these without approval.`;
     return head;
   }
   function suiteSectionForTab(value) {
-    if (value === "illustrator" || value === "recipes")
+    if (value === "illustrator" || value === "illustration-controls" || value === "recipes")
       return "illustrator";
-    if (value === "surfaces" || value === "surface-library" || value === "surface-presets" || value === "utility-studio")
+    if (["surfaces", "surface-library", "surface-narratives", "surface-advanced", "surface-presets", "utility-studio"].includes(value))
       return "surfaces";
     if (value === "genetics")
       return "memory";
@@ -265469,14 +266272,12 @@ Relay will not generate these without approval.`;
       return "archive";
     if (value === "phone")
       return "phone";
-    if (value.startsWith("story-"))
-      return "story";
     if (value === "settings" || value === "manual" || value === "logs")
       return "settings";
     return "relay";
   }
   function defaultTabForSuiteSection(section) {
-    return section === "illustrator" ? "illustrator" : section === "surfaces" ? "surface-library" : section === "memory" ? "genetics" : section === "archive" ? "history" : section === "story" ? "story-constellations" : section === "phone" ? "phone" : section === "settings" ? "settings" : "slots";
+    return section === "illustrator" ? "illustrator" : section === "surfaces" ? "surface-library" : section === "memory" ? "genetics" : section === "archive" ? "history" : section === "phone" ? "phone" : section === "settings" ? "settings" : "slots";
   }
   function createSuitePrimaryIcon(name) {
     const shapes = {
@@ -265550,7 +266351,6 @@ Relay will not generate these without approval.`;
       { id: "illustrator", icon: "square-sparkles", label: "Illustrations" },
       { id: "surfaces", icon: "layers", label: "Surfaces" },
       { id: "memory", icon: "venetian-mask", label: "Appearance" },
-      { id: "story", icon: "book-open", label: "Story" },
       { id: "phone", icon: "smartphone", label: "Phone" },
       { id: "archive", icon: "archive", label: "Archive" },
       { id: "settings", icon: "settings", label: "Settings" }
@@ -265578,10 +266378,9 @@ Relay will not generate these without approval.`;
     shell.appendChild(primary);
     const secondaryMap = {
       relay: [["slots", "Slots"]],
-      illustrator: [["illustrator", "Illustrations"], ["recipes", "Profiles"]],
-      surfaces: [["surface-library", "Library"], ["surfaces", "Creator"], ["surface-presets", "Presets"], ["utility-studio", "Injection"]],
+      illustrator: [["illustrator", "Illustrations"], ["illustration-controls", "Image Controls"], ["recipes", "Profiles"]],
+      surfaces: [["surface-library", "Apps & UIs"], ["surface-narratives", "Narratives"], ["surface-advanced", "Advanced"]],
       memory: [["genetics", "Appearance Memory"]],
-      story: [["story-constellations", "Constellations"], ["story-reel", "Story Reel"]],
       phone: [["phone", "Phone & Settings"]],
       archive: [["history", "Images & Versions"]],
       settings: [["settings", "Configuration"], ["logs", "Diagnostics"], ["manual", "Guide"]]
@@ -265591,7 +266390,9 @@ Relay will not generate these without approval.`;
     for (const [id, label] of secondaryMap[currentSection]) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = `dg-suite-secondary-tab${activeTab === id ? " is-active" : ""}`;
+      const selected = activeTab === id || id === "surface-advanced" && ["surfaces", "surface-presets", "utility-studio"].includes(activeTab);
+      btn.className = `dg-suite-secondary-tab${selected ? " is-active" : ""}`;
+      btn.setAttribute("aria-selected", String(selected));
       btn.textContent = label;
       btn.addEventListener("click", () => {
         panelScrollTopByTab.set(activeTab, tab.root.scrollTop);
@@ -265952,7 +266753,8 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     const box = document.createElement("div");
     const settings = currentProseSettings();
     const plans = Object.values(proseIllustrator.plans || {}).filter((plan) => plan.chatId === activeChatId).sort((a, b) => b.planningTimestamp - a.planningTimestamp);
-    const recordsForChat = Object.values(proseIllustrator.records || {}).filter((record) => proseIllustrator.plans[record.planId]?.chatId === activeChatId).sort((a, b) => b.createdAt - a.createdAt);
+    const trackedIllustrations = records.filter((record) => record.chatId === activeChatId && record.target === "prose.illustration");
+    const generatedIllustrations = displayRecords().filter((record) => record.chatId === activeChatId && record.target === "prose.illustration" && record.status === "completed");
     const modeControls = document.createElement("div");
     modeControls.className = "dg-illustrator-mode-grid dg-choice-compact dg-prose-mode-selector";
     const modeOptions = [
@@ -266027,14 +266829,15 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     }
     const chips = document.createElement("div");
     chips.className = "dg-status-chips";
-    chips.append(chip(settings.mode === "relay-planned" ? "Relay-Planned" : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "Model Planned" : "Off", settings.mode === "off" ? "" : "completed"), chip(`${settings.illustrationsPerRun || 1} per response`, ""), chip(settings.promptFormat === "danbooru-tags" ? "Booru Tags" : "Natural Language", ""), chip(settings.frequencyMode.replace(/-/g, " "), ""), chip(settings.defaultAspectRatio, ""), chip(`${recordsForChat.length} generated`, ""));
+    const illustrationCountLabel = settings.modelPlacedCountMode === "range" ? `${settings.minimumImages}–${settings.maximumImages}` : String(settings.illustrationsPerRun || 1);
+    chips.append(chip(settings.mode === "relay-planned" ? "Relay-Planned" : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "Model Planned" : "Off", settings.mode === "off" ? "" : "completed"), chip(`${illustrationCountLabel} per response`, ""), chip(settings.promptFormat === "danbooru-tags" ? "Booru Tags" : "Natural Language", ""), chip(settings.frequencyMode.replace(/-/g, " "), ""), chip(settings.defaultAspectRatio, ""), chip(`${generatedIllustrations.length} generated`, ""));
     const actions = document.createElement("div");
     actions.className = "dg-actions dg-primary-actions dg-illustrator-overview-actions";
     if (settings.mode === "off") {
       actions.append(button("Enable Model Planned", () => patchProseSettings({ mode: "inline-protocol", enabled: true }), false, "primary"));
     } else if (settings.mode === "relay-planned") {
       const readyPlan = plans.find((plan) => plan.status === "ready" && !proseIllustrator.records[plan.planId]);
-      actions.append(button(settings.paused ? "Resume Relay-Planned" : "Pause Relay-Planned", () => sendProseAction({ action: settings.paused ? "resume_auto" : "pause_auto" }), !activeChatId, settings.paused ? "primary" : "subtle"), button("Plan Latest Once", () => sendProseAction({ action: "plan_latest" }), !activeChatId || !settings.plannerConnectionId, "primary"), button("Relay-Planned Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({
+      actions.append(button(settings.paused ? "Resume Relay-Planned" : "Pause Relay-Planned", () => sendProseAction({ action: settings.paused ? "resume_auto" : "pause_auto" }), !activeChatId, settings.paused ? "primary" : "subtle"), button("Plan Latest Once", () => sendProseAction({ action: "relay_plan_once" }), !activeChatId || !settings.plannerConnectionId || Boolean(sidecarAnalysisInProgress()), "primary"), button("Relay-Planned Dry Run", () => void fetchNativeSettingsSnapshot(true).then((snapshot) => ctx.sendToBackend({
         type: "dry_run",
         chatId: activeChatId,
         kind: "relay-planned",
@@ -266058,7 +266861,7 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     }, false, "subtle"));
     const explanation = document.createElement("div");
     explanation.className = "dg-recovery-note";
-    explanation.textContent = settings.mode === "relay-planned" ? `Relay independently chooses up to ${settings.illustrationsPerRun || 1} distinct moments and ${settings.relayInsertionMode === "review" ? "waits for approval before insertion" : "inserts finished images automatically"}.` : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "The Story Model writes one complete request in its exact prose position. Relay parses that same canonical request and dispatches it automatically only when Auto Generate is enabled." : "The Illustrator is disabled.";
+    explanation.textContent = settings.mode === "relay-planned" ? `Relay selects ${settings.modelPlacedCountMode === "range" ? `${illustrationCountLabel} (inclusive)` : `exactly ${illustrationCountLabel}`} distinct source-grounded moments per selected response and ${settings.relayInsertionMode === "review" ? "waits for approval before insertion" : "inserts finished images automatically"}. Any validation shortfall is reported rather than filled with invented or duplicate shots.` : settings.mode === "inline-protocol" || settings.mode === "model-placed" ? "The Story Model writes one complete request in its exact prose position. Relay parses that same canonical request and dispatches it automatically only when Auto Generate is enabled." : "The Illustrator is disabled.";
     box.appendChild(panelSection("Illustrator Overview", documentFragment(chips, actions, explanation)));
     if (modelPlacedMissingRequest?.chatId === activeChatId) {
       const missing = document.createElement("div");
@@ -266110,7 +266913,7 @@ ${new Date(Number(row.completedAt) || 0).toLocaleString()}`;
     }, false, "subtle"));
     advanced.append(advancedSummary, advancedActions);
     box.appendChild(advanced);
-    box.appendChild(panelSection("Chat Cleanup", renderChatMediaCleanup("illustrations", recordsForChat.length)));
+    box.appendChild(panelSection("Chat Cleanup", renderChatMediaCleanup("illustrations", trackedIllustrations.length)));
     return box;
   }
   function renderProseIllustrationRecord(record) {
@@ -266504,7 +267307,9 @@ ${record.imageId || record.error || "No image yet"}`;
     essentials.append(prosePlannerSelect(settings), plannerModelControl(settings), surfaceRepairConnectionField());
     if (settings.mode === "inline-protocol" || settings.mode === "model-placed") {
       essentials.append(toggleCard("Illustration Runtime Contract", "Model Planned sends the configured protocol, exact count/range, aspect policy, and framing to the Story Model through the final prompt path.", true, () => patchProseSettings({ automaticProtocolInjection: true })));
-      essentials.append(toggleCard("Instant", "Off: keep the normal Status Card flow and wait for the response to finish. On: dispatch each complete Model Planned request as soon as it streams. Auto Generate still controls provider dispatch; image placement remains Relay-managed.", settings.instantIllustrationDispatch, (checked) => patchProseSettings({ instantIllustrationDispatch: checked })));
+    }
+    if (["inline-protocol", "model-placed", "relay-planned"].includes(settings.mode)) {
+      essentials.append(toggleCard("Instant", settings.mode === "relay-planned" ? "Generate complete Surface image requests while the response streams, and start Relay analysis from completed prose paragraphs. Relay checks the saved story before generating its inline illustrations. Auto Generate must be on. Off: wait for the response to finish." : "Dispatch each complete Story Model image request while the response is streaming. Incomplete requests wait. Auto Generate controls image dispatch; image placement remains Relay-managed. This preference is kept when you switch modes.", settings.instantIllustrationDispatch, (checked) => patchProseSettings({ instantIllustrationDispatch: checked })));
     }
     essentials.append(selectField("Illustration Count", settings.modelPlacedCountMode, [["fixed", "Fixed exact count"], ["range", "Inclusive range"]], (value) => patchProseSettings({ modelPlacedCountMode: value })));
     if (settings.modelPlacedCountMode === "range") {
@@ -266527,40 +267332,46 @@ ${record.imageId || record.error || "No image yet"}`;
       }));
       essentials.append(range);
     } else {
-      essentials.append(numberInput("Illustrations per Response", settings.illustrationsPerRun || 1, 1, 32, (value) => patchProseSettings({ illustrationsPerRun: value, maximumIllustrationsPerMessage: Math.max(value, settings.maximumIllustrationsPerMessage) })));
+      essentials.append(describedField(numberInput("Illustrations per Response", settings.illustrationsPerRun || 1, 1, 32, (value) => patchProseSettings({ illustrationsPerRun: value, maximumIllustrationsPerMessage: Math.max(value, settings.maximumIllustrationsPerMessage) })), "How many inline images to request for each illustrated response. Opening Frame adds one extra image."));
     }
-    essentials.append(numberInput("Maximum Characters in Image · Hard Limit", settings.maximumCharacters, 1, 8, (value) => patchProseSettings({ maximumCharacters: value })), selectField("Image Size", settings.imageSize || "medium", [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["full", "Full Width"]], (value) => patchProseSettings({ imageSize: value })), selectField("Candidate Count per Illustration", String(settings.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchProseSettings({ defaultCandidateCount: Number(value) })), selectField("Frequency", settings.frequencyMode, [["key-moments", "Key Moments"], ["every-eligible", "Every Eligible Message"], ["every-n", "Every N Eligible Messages"]], (value) => patchProseSettings({ frequencyMode: value })));
+    essentials.append(numberInput(settings.mode === "inline-protocol" ? "Character Count Target · Story Model" : "Maximum Characters in Image · Hard Limit", settings.maximumCharacters, 1, 8, (value) => patchProseSettings({ maximumCharacters: value })), selectField("Image Size", settings.imageSize || "medium", [["small", "Small"], ["medium", "Medium"], ["large", "Large"], ["full", "Full Width"]], (value) => patchProseSettings({ imageSize: value })), selectField("Candidate Count per Illustration", String(settings.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchProseSettings({ defaultCandidateCount: Number(value) })), selectField("Frequency", settings.frequencyMode, [["key-moments", "Key Moments"], ["every-eligible", "Every Eligible Message"], ["every-n", "Every N Eligible Messages"]], (value) => patchProseSettings({ frequencyMode: value })));
+    if (settings.mode === "inline-protocol")
+      essentials.append(panelText("Guides the Story Model when choosing a shot. If its authored request needs more people, Relay preserves that cast and records a warning instead of rejecting the image or dropping someone."));
     if (settings.frequencyMode === "every-n")
       essentials.append(numberInput("Every N Eligible Messages", settings.everyNEligibleMessages, 1, 100, (value) => patchProseSettings({ everyNEligibleMessages: value })));
     const framingModes = document.createElement("div");
     framingModes.className = "dg-illustrator-mode-grid dg-choice-compact dg-choice-six";
     const framingOptions = [
+      { id: "scene-flow", label: "Scene Flow", tooltip: "Selects Scene Snapshot, Blocking Fidelity or Dreamcut for each image while preserving its story anchor and cast." },
+      { id: "dreamcut", label: "Dreamcut", tooltip: "A source-established object, environment, reflection or limited-detail cutaway; never an invented symbolic scene." },
       { id: "scene-snapshot", label: "Scene Snapshot", tooltip: "Frames one readable moment from the current scene, including its setting, action, and visible subjects." },
       { id: "sequence", label: "Sequence", tooltip: "Treats the image as the next shot in an ongoing visual sequence while preserving continuity." },
       { id: "emotional-beat", label: "Emotional Beat", tooltip: "Centers the scene’s strongest emotional reaction, gesture, expression, or relationship beat." },
       { id: "solo-scene", label: "Char only", tooltip: "Shows exactly one selected character in the current scene; no other people appear in the frame." },
       { id: "persona-pov", label: "Persona POV", tooltip: "The active chat Persona is the in-world camera. Visible subjects meet the lens only when interacting with that Persona." },
-      { id: "storyboard", label: "Storyboard", tooltip: "Requires each image prompt to depict the exact action in its anchored story paragraph—not just the characters, outfits, or mood." }
+      { id: "storyboard", label: "Storyboard", tooltip: "Requires each image prompt to depict the exact action in its anchored story paragraph—not just the characters, outfits, or mood." },
+      { id: "blocking-fidelity", label: "Blocking Fidelity", tooltip: "Experimental: prioritizes story-faithful postures and contacts, with each person’s appearance, attire and action kept in one owner block." }
     ];
     for (const option of framingOptions) {
+      const choice = document.createElement("div");
+      choice.className = "dg-framing-choice";
       const control = document.createElement("button");
       control.type = "button";
       control.className = `dg-illustrator-mode-card${settings.perspectiveMode === option.id ? " is-active" : ""}`;
       control.setAttribute("aria-pressed", String(settings.perspectiveMode === option.id));
       control.setAttribute("aria-label", `${option.label}: ${option.tooltip}`);
-      control.title = option.tooltip;
       const title = document.createElement("strong");
       title.textContent = option.label;
-      const help = document.createElement("small");
-      help.textContent = option.tooltip;
-      control.append(title, help);
+      control.append(title);
       control.addEventListener("click", () => patchProseSettings({ perspectiveMode: option.id, adaptiveMode: option.id === "solo-scene" || option.id === "persona-pov" ? false : settings.adaptiveMode }));
-      framingModes.appendChild(control);
+      choice.append(control, helpTip(option.label, option.tooltip));
+      framingModes.appendChild(choice);
     }
     if (settings.perspectiveMode === "solo-scene")
       essentials.append(textareaInput("Character Override · optional", settings.characterOnlySubjects || "", (value) => patchProseSettings({ characterOnlySubjects: value.split(/[,\n]/)[0]?.trim() || "" })));
     essentials.append(selectField("Aspect Policy", settings.defaultAspectRatio, [["adaptive", "Adaptive"], ["1:1", "Square · 1:1"], ["2:3", "Portrait · 2:3"], ["3:2", "Landscape · 3:2"], ["3:4", "Portrait · 3:4"], ["4:3", "Landscape · 4:3"], ["4:5", "Portrait · 4:5"], ["5:4", "Landscape · 5:4"], ["9:16", "Tall · 9:16"], ["16:9", "Wide · 16:9"]], (value) => patchProseSettings({ defaultAspectRatio: value || "adaptive" })), selectField("Appearance Memory Strength", settings.appearanceMemoryOverride || "global", [["global", "Use Global Memory Strength"], ["off", "Off"], ["low", "Low"], ["medium", "Medium"], ["strong", "Strong"]], (value) => patchProseSettings({ appearanceMemoryOverride: value, continuityStrength: value === "global" ? config?.vaultStrength || "medium" : value })));
     essentials.append(selectField("Appearance Sidecar Source", settings.useGlobalAppearanceSidecar !== false ? "global" : "override", [["global", "Use Global Sidecar"], ["override", "Use Illustrator Override"]], (value) => patchProseSettings({ useGlobalAppearanceSidecar: value === "global" })));
+    essentials.append(appearanceUpdateControls());
     if (settings.useGlobalAppearanceSidecar === false) {
       essentials.append(selectField("Appearance Sidecar Connection", settings.appearanceSidecarConnectionId || "", [["", "Use Global Connection"], ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])], (value) => {
         const globalConnectionId = config?.appearanceSidecarConnectionId || config?.parserConnectionId || "";
@@ -266582,40 +267393,39 @@ ${record.imageId || record.error || "No image yet"}`;
     const promptHelp = document.createElement("div");
     promptHelp.className = "dg-section-sub";
     promptHelp.textContent = "Every Relay-authored model-facing instruction is visible here. Blank entries stay blank.";
-    promptControls.append(promptTitle, promptHelp, button("Edit Prompts", () => openPromptRegistry(settings), false, "primary"), button("View Final Prompt", () => openFinalPromptPreview(settings), false, "subtle"), resettableTextareaInput("Positive Prompt Prefix", settings.customPromptPrefix || "", "", (value) => patchProseSettings({ customPromptPrefix: value })), resettableTextareaInput("Negative Prompt Prefix", settings.customNegativePrefix || "", "", (value) => patchProseSettings({ customNegativePrefix: value })), toggleCard("Remove Generic Style Boilerplate", "Keeps the selected visual beat clean and lets the Prompt Profile supply the intended style.", settings.stripGenericStyleBoilerplate, (checked) => patchProseSettings({ stripGenericStyleBoilerplate: checked })));
+    promptControls.append(promptTitle, promptHelp, button("Edit Prompts", () => openPromptRegistry(settings), false, "primary"), button("View Final Prompt", () => openFinalPromptPreview(settings), false, "subtle"), resettableTextareaInput("Positive Prompt Prefix", settings.customPromptPrefix || "", "", (value) => patchProseSettings({ customPromptPrefix: value })), resettableTextareaInput("Negative Prompt Prefix", settings.customNegativePrefix || "", "", (value) => patchProseSettings({ customNegativePrefix: value })), toggleCard("NSFW Planner Guidance", "Injects the editable text below into illustration planner instructions only. It is never appended to the final image prompt.", settings.nsfwPlannerEnabled, (checked) => patchProseSettings({ nsfwPlannerEnabled: checked })), resettableTextareaInput("NSFW Planner Text", settings.nsfwPlannerText ?? DEFAULT_NSFW_PLANNER_TEXT, DEFAULT_NSFW_PLANNER_TEXT, (value) => patchProseSettings({ nsfwPlannerText: value })), toggleCard("Remove Generic Style Boilerplate", "Keeps the selected visual beat clean and lets the Prompt Profile supply the intended style.", settings.stripGenericStyleBoilerplate, (checked) => patchProseSettings({ stripGenericStyleBoilerplate: checked })));
     const explanation = document.createElement("div");
     explanation.className = "dg-recovery-note";
-    explanation.textContent = settings.perspectiveMode === "solo-scene" ? "Relay automatically resolves the current chat character. An optional override can name a different single character. The character stays inside the current scene; no second, background, reflected, screen, or poster person is allowed." : settings.perspectiveMode === "persona-pov" ? "Relay resolves the chat-bound Persona first, then the active host Persona. If neither exists, Persona POV refuses generation. The Persona holds the camera and is not automatically added to the visible cast." : settings.perspectiveMode === "storyboard" ? "The exact anchored story paragraph must be recognizable from the image prompt itself. Natural Language must describe the event; Booru Tag Mode must use action-bearing tags plus the relevant participants, props, and setting." : "Maximum Characters is validated before generation.";
-    const advanced = document.createElement("details");
-    advanced.className = "dg-illustrator-advanced";
-    advanced.open = illustratorAdvancedOpen;
-    advanced.addEventListener("toggle", () => {
-      illustratorAdvancedOpen = advanced.open;
-    });
-    const advancedSummary = document.createElement("summary");
-    const advancedTitle = document.createElement("span");
-    advancedTitle.textContent = "Advanced Illustrator Controls";
-    const advancedHint = document.createElement("small");
-    advancedHint.textContent = "profiles, filtering, reuse, alignment, and diagnostics";
-    advancedSummary.append(advancedTitle, advancedHint);
-    const advancedBody = document.createElement("div");
-    advancedBody.className = "dg-illustrator-advanced-body";
-    const advancedGrid = document.createElement("div");
-    advancedGrid.className = "dg-settings-grid";
-    const profiles = (config?.promptProfiles || []).map((profile) => [profile.id, `${profile.name}${profile.builtIn ? " (built-in)" : ""}`]);
-    if (!profiles.length)
-      profiles.push(["auto", "Auto"]);
-    advancedGrid.append(numberInput("Context Messages", settings.contextMessageCount, 0, 12, (value) => patchProseSettings({ contextMessageCount: value })), selectField("Prompt Profile", settings.defaultPromptProfileId || "auto", profiles, (value) => patchProseSettings({ defaultPromptProfileId: value || "auto" })), selectField("Image Alignment", settings.imageAlignment || "center", [["left", "Left"], ["center", "Center"], ["right", "Right"]], (value) => patchProseSettings({ imageAlignment: value })), numberInput("Minimum Message Length", settings.minimumMessageLength, 0, 2000, (value) => patchProseSettings({ minimumMessageLength: value })));
-    const advancedToggles = document.createElement("div");
-    advancedToggles.className = "dg-toggle-grid";
-    advancedToggles.append(toggleCard("Adaptive Framing", "Lets the configured Sidecar adapt framing guidance where supported. Relay does not deterministically rotate modes; Char only and Persona POV remain fixed constraints.", settings.adaptiveMode, (checked) => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === "solo-scene" || settings.perspectiveMode === "persona-pov"), toggleCard("Reuse Accepted References", "", settings.reuseAcceptedReferences, (checked) => patchProseSettings({ reuseAcceptedReferences: checked })), toggleCard("Use Location References", "", settings.reuseLocationReferences, (checked) => patchProseSettings({ reuseLocationReferences: checked })), toggleCard("Show Captions", "", settings.showCaptions, (checked) => patchProseSettings({ showCaptions: checked })), toggleCard("Reanalyze Edited Messages", "", settings.reanalyzeEditedMessages, (checked) => patchProseSettings({ reanalyzeEditedMessages: checked })), toggleCard("Skip OOC", "", settings.skipOoc, (checked) => patchProseSettings({ skipOoc: checked })), toggleCard("Skip Utility Markup", "", settings.skipUtilities, (checked) => patchProseSettings({ skipUtilities: checked })), toggleCard("Skip Short Messages", "", settings.skipShortMessages, (checked) => patchProseSettings({ skipShortMessages: checked })), toggleCard("Skip Test Fixtures", "", settings.skipTestFixtures, (checked) => patchProseSettings({ skipTestFixtures: checked })), toggleCard("High-Resolution Modifier", "", settings.highResolutionModifier, (checked) => patchProseSettings({ highResolutionModifier: checked })));
-    advancedBody.append(advancedGrid, advancedToggles);
-    advanced.append(advancedSummary, advancedBody);
+    explanation.textContent = settings.perspectiveMode === "solo-scene" ? "Relay automatically resolves the current chat character. An optional override can name a different single character. The character stays inside the current scene; no second, background, reflected, screen, or poster person is allowed." : settings.perspectiveMode === "persona-pov" ? "Relay resolves the chat-bound Persona first, then the active host Persona. If neither exists, Persona POV refuses generation. The Persona holds the camera and is not automatically added to the visible cast." : settings.perspectiveMode === "storyboard" ? "The exact anchored story paragraph must be recognizable from the image prompt itself. Natural Language must describe the event; Booru Tag Mode must use action-bearing tags plus the relevant participants, props, and setting." : settings.perspectiveMode === "blocking-fidelity" ? "Experimental framing. Keeps each person’s position, appearance, current outfit and action together, preserving story-required contact and overlap. Natural Language offers stronger ownership cues than flat tags; neither guarantees correct anatomy." : "Maximum Characters is validated before generation.";
+    const planningFeatures = document.createElement("div");
+    planningFeatures.className = "dg-toggle-grid";
+    planningFeatures.append(toggleCard("Sightline Guard", "Adjust incompatible crops so the anchored action and contact remain visible. Does not change actors or guarantee anatomy.", settings.sightlineGuard !== false, (checked) => patchProseSettings({ sightlineGuard: checked })), toggleCard("Quickweave", "Relay only: plan in one pass with less background context and no automatic repair calls. Can reduce planning work, but an incomplete plan is reported instead of retried.", settings.quickweave === true, (checked) => patchProseSettings({ quickweave: checked })), toggleCard("Portrait Insight", "Use a vision-capable illustration planner to fill missing hair, eye and other stable traits from character avatars. Results are cached and do not overwrite your Appearance sheet.", settings.portraitInsight === true, (checked) => patchProseSettings({ portraitInsight: checked })), toggleCard("Opening Frame", "Add a designed cover card with its own artwork and title above the first paragraph. Your requested inline illustrations are additional.", settings.openingFrame === true, (checked) => patchProseSettings({ openingFrame: checked })), toggleCard("Adaptive Framing", "Let the illustration planner adjust the shot where supported. Scene Flow chooses a framing mode for each image; Char only and Persona POV keep their cast/camera constraints.", settings.adaptiveMode, (checked) => patchProseSettings({ adaptiveMode: checked }), settings.perspectiveMode === "solo-scene" || settings.perspectiveMode === "persona-pov"));
     const macroOverview = document.createElement("div");
     macroOverview.className = "dg-recovery-note";
     macroOverview.innerHTML = "<strong>Illustrator Macro</strong><br><code>{{reverie_illustrator}}</code> expands to the active workflow prompt, framing prompt, and live runtime. <code>{{reverie_all}}</code> includes both Illustrator and enabled Surface modules.";
-    wrapper.append(panelSection("Framing Mode", framingModes), essentials, macroOverview, promptControls, explanation, advanced);
+    wrapper.append(panelSection("Framing Mode", framingModes), explanation, panelSection("Scene & Planning Features", planningFeatures), panelSection("Illustration Setup", essentials), button("Image Controls", () => {
+      activeTab = "illustration-controls";
+      patchConfig({ lastActiveDrawerTab: activeTab });
+      renderPanel();
+    }, false, "subtle", "Image limits, previous-message context, reference reuse, captions and message filters."), macroOverview, promptControls);
     return wrapper;
+  }
+  function renderIllustrationControls(settings) {
+    const box = document.createElement("div");
+    const group = (title, description, ...controls) => {
+      const grid = document.createElement("div");
+      grid.className = "dg-settings-grid";
+      grid.append(...controls);
+      box.appendChild(panelSection(title, documentFragment(panelText(description), grid)));
+    };
+    group("Image Limits & Context", "These options use your existing illustration preferences. Changing them does not generate or remove images.", describedField(numberInput("Total Image Limit per Message", settings.maximumIllustrationsPerMessage, Math.max(1, settings.modelPlacedCountMode === "range" ? settings.maximumImages : settings.illustrationsPerRun), 32, (value) => patchProseSettings({ maximumIllustrationsPerMessage: value })), "Relay planning cap for one saved message and its active swipe, including images and accepted plans already added. Continue appends to the same message and shares this cap; a new reply has a new cap. This is separate from the requested count per response."), describedField(numberInput("Legacy Planner Context Messages", settings.contextMessageCount, 0, 12, (value) => patchProseSettings({ contextMessageCount: value })), "Earlier messages included by the legacy planner/composer paths; 0 excludes earlier messages there. The current Relay Director uses the selected response and latest user scene context instead, so this value does not change its context. It does not change the Story Model’s context window."));
+    group("Visual References", "Reference reuse helps Relay plan continuity. It does not edit Appearance facts or guarantee that the image provider will reproduce an earlier image.", toggleCard("Reuse Reference Images", "Offer available images from this chat marked as Visual References in the Archive to Relay’s illustration planner. Turning this off does not delete those images.", settings.reuseAcceptedReferences, (checked) => patchProseSettings({ reuseAcceptedReferences: checked })), toggleCard("Reuse Location References", "Also offer marked Visual References with location names, so Relay can keep the same place recognizable. This is separate from character Appearance memory.", settings.reuseLocationReferences, (checked) => patchProseSettings({ reuseLocationReferences: checked })));
+    const profiles = (config?.promptProfiles || []).map((profile) => [profile.id, `${profile.name}${profile.builtIn ? " (built-in)" : ""}`]);
+    if (!profiles.length)
+      profiles.push(["auto", "Auto"]);
+    group("Image Presentation", "These preferences apply to newly planned illustrations; they do not rewrite existing images.", toggleCard("Show Image Captions", "Include a short title or caption with newly planned illustrations. Captions are displayed with the image, not drawn into its pixels.", settings.showCaptions, (checked) => patchProseSettings({ showCaptions: checked })), describedField(selectField("Image Alignment", settings.imageAlignment || "center", [["left", "Left"], ["center", "Center"], ["right", "Right"]], (value) => patchProseSettings({ imageAlignment: value })), "Where to place the illustration horizontally in the message."), describedField(selectField("Prompt Profile", settings.defaultPromptProfileId || "auto", profiles, (value) => patchProseSettings({ defaultPromptProfileId: value || "auto" })), "The image-prompt style profile to request. Auto lets Relay choose a profile for the scene."), toggleCard("High-Resolution Modifier", "Add prompt guidance for detail, anatomy and rendering polish. This does not change image dimensions or enable an upscaler.", settings.highResolutionModifier, (checked) => patchProseSettings({ highResolutionModifier: checked })));
+    group("Which Messages Relay Illustrates", "These filters control Relay’s prose analysis. They do not disable image requests inside enabled Surfaces.", toggleCard("Reanalyze Edited Messages", "Allow Relay to analyze a story message again after its text changes.", settings.reanalyzeEditedMessages, (checked) => patchProseSettings({ reanalyzeEditedMessages: checked })), toggleCard("Skip OOC", "Exclude responses containing OOC, out-of-character or system-note markers from Relay planning.", settings.skipOoc, (checked) => patchProseSettings({ skipOoc: checked })), toggleCard("Skip Utility Markup", "Exclude Surface and Utility markup from the story text Relay analyzes. Their own image slots still work.", settings.skipUtilities, (checked) => patchProseSettings({ skipUtilities: checked })), toggleCard("Skip Short Messages", "Skip Relay planning when the story text has fewer characters than Minimum Message Length below.", settings.skipShortMessages, (checked) => patchProseSettings({ skipShortMessages: checked })), describedField(numberInput("Minimum Message Length", settings.minimumMessageLength, 0, 2000, (value) => patchProseSettings({ minimumMessageLength: value })), "Character threshold used only when Skip Short Messages is on."), toggleCard("Ignore Debug/Test Messages", "Skip responses containing development markers such as “debug fixture”, “integration test” or “smoke test”. Disable this when deliberately testing those messages.", settings.skipTestFixtures, (checked) => patchProseSettings({ skipTestFixtures: checked })));
+    return box;
   }
   function prosePlannerSelect(settings) {
     const field = document.createElement("div");
@@ -267074,7 +267884,7 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
     const fallback = {
       enabled: true,
       automaticProtocolInjection: true,
-      instantIllustrationDispatch: false,
+      instantIllustrationDispatch: true,
       mode: "inline-protocol",
       promptFormat: "natural-language",
       plannerConnectionId: config?.parserConnectionId || null,
@@ -267087,6 +267897,10 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
       maximumOpportunitiesPerMessage: 3,
       maximumIllustrationsPerMessage: 3,
       illustrationsPerRun: 1,
+      sightlineGuard: true,
+      quickweave: false,
+      portraitInsight: false,
+      openingFrame: false,
       minimumImages: 1,
       maximumImages: 3,
       modelPlacedCountMode: "fixed",
@@ -267106,6 +267920,8 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
       customPromptPrefix: "",
       customNegativePrefix: "",
       stripGenericStyleBoilerplate: true,
+      nsfwPlannerEnabled: false,
+      nsfwPlannerText: DEFAULT_NSFW_PLANNER_TEXT,
       defaultCandidateCount: config?.defaultCandidateCount || 1,
       continuityStrength: config?.vaultStrength || "medium",
       appearanceMemoryOverride: "global",
@@ -267162,21 +267978,36 @@ Model enumeration unavailable; Relay can only show models exposed by configured 
         renderPanel();
       });
     }
-    ctx.sendToBackend({ type: "set_config", chatId: activeChatId, patch: { proseIllustratorSettings: merged } });
+    ctx.sendToBackend({ type: "set_config", chatId: activeChatId, patch: { proseIllustratorSettings: settings } });
   }
   function sendProseAction(payload) {
     if (!activeChatId)
       return;
+    if (["relay_plan_once", "plan_latest", "plan_message"].includes(String(payload.action))) {
+      if (sidecarAnalysisInProgress())
+        return;
+      const requestId = `prose-plan:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+      pendingProseAction = { chatId: activeChatId, requestId, startedAt: Date.now() };
+      payload = { ...payload, requestId };
+      updateSidecarTicker();
+      renderRelayOrb();
+      renderPanel();
+    }
     ctx.sendToBackend({ type: "prose_illustrator_action", chatId: activeChatId, ...payload });
   }
   function abortActiveGeneration() {
     if (!activeChatId)
       return;
+    if (abortRequestPending)
+      return;
+    abortRequestPending = true;
+    lastStatus = "Stopping Relay work…";
     cancelPendingLifecycleScans();
     ctx.sendToBackend({ type: "queue_action", chatId: activeChatId, action: "abort_all" });
-    localSidecarAnalysisStartedAt = 0;
+    pendingProseAction = null;
     updateSidecarTicker();
     renderRelayOrb();
+    renderPanel();
   }
   function openDryRunReport(report) {
     const modal = ctx.ui.showModal({ title: `Dry Run · ${report.title}`, width: 900 });
@@ -267582,6 +268413,22 @@ Next action: ${blocker.action}` : ""}`;
     body.append(stage, details);
     modal.root.appendChild(body);
   }
+  function appearanceUpdateControls() {
+    const controls = document.createElement("div");
+    controls.className = "dg-settings-grid";
+    const interval = normalizeAppearanceUpdateInterval(config?.appearanceUpdateIntervalMessages);
+    controls.append(selectField("Automatic Appearance Updates", interval === 0 ? "never" : "every", [
+      ["every", "Every X story responses"],
+      ["never", "Never automatically (after setup)"]
+    ], (value) => patchConfig({ appearanceUpdateIntervalMessages: value === "never" ? 0 : interval || 1 })));
+    if (interval > 0)
+      controls.append(numberInput("Update Every X Story Responses", interval, 1, MAX_APPEARANCE_UPDATE_INTERVAL, (value) => patchConfig({ appearanceUpdateIntervalMessages: value }), true));
+    const note = document.createElement("div");
+    note.className = "dg-recovery-note";
+    note.textContent = "Applies across chats to Relay and Story Model. Appearance Memory runs once for initial setup, then follows this schedule. Only story responses count; manual rescans always run and restart the interval. Between full scans, illustration planners track explicit outfit and temporary appearance changes separately. The saved Appearance sheet follows this schedule.";
+    controls.append(note);
+    return controls;
+  }
   function renderGeneticVault() {
     const box = document.createElement("div");
     const characters = Object.values(continuityVault.characters || {}).sort((a, b) => a.canonicalCharacterName.localeCompare(b.canonicalCharacterName));
@@ -267600,6 +268447,7 @@ Next action: ${blocker.action}` : ""}`;
     contextSummary.className = "dg-recovery-note";
     contextSummary.textContent = "Appearance Sidecar maintains stable identity, wardrobe, and current scene state from the active conversation and bound native identity context. Current-scene details always win; every field remains manually editable.";
     box.appendChild(panelSection("Appearance Memory", documentFragment(controls, contextSummary)));
+    box.appendChild(panelSection("Update Frequency", appearanceUpdateControls()));
     if (config) {
       const current = config;
       const sidecar = document.createElement("div");
@@ -268003,7 +268851,7 @@ Next action: ${blocker.action}` : ""}`;
         "Open Generation Details on any slot to inspect the chosen scene, visible subjects, profile reason, Appearance facts, references, model, LoRAs, prompts, requested and actual dimensions, anchor, and warnings."
       ]],
       ["Appearance Memory", [
-        "Appearance Sidecar continuously keeps stable identity, wardrobe, and temporary scene appearance separate. It uses the full chat, cards, lorebook, existing state, and active native identity bindings; no manual scan is required.",
+        "Appearance Sidecar keeps stable identity, wardrobe, and temporary scene appearance separate. It runs for initial setup and then follows Automatic Appearance Updates. Manual rescans always run. It uses the chat, cards, lorebook, existing state, and active native identity bindings.",
         "Relevant Appearance facts are used for both normal slot images and Prose Illustrator prompts, scoped only to subjects actually named in the request."
       ]],
       ["Memes and funny social images", [
@@ -268035,14 +268883,6 @@ Next action: ${blocker.action}` : ""}`;
     }
     return box;
   }
-  const SURFACE_CATEGORY_LABELS = {
-    "social-messaging": "Social & Messaging",
-    "photography-keepsakes": "Photography & Keepsakes",
-    "covers-promotion": "Covers & Promotion",
-    "evidence-editorial": "Evidence & Editorial",
-    "narrative-visuals": "Narrative Visuals",
-    custom: "Custom Surfaces"
-  };
   const NARRATIVE_DLC_UTILITY_NAMES = [
     "Dramatic Cutaway",
     "Plot Sparks",
@@ -268058,7 +268898,8 @@ Next action: ${blocker.action}` : ""}`;
     "Archive Entry",
     "Relationship Map",
     "Cast Sheet",
-    "Persona Wardrobe"
+    "Persona Wardrobe",
+    "Building Layout"
   ];
   function removeAppearanceMemoryOptimistically(characterId, removeCharacter) {
     const withoutCharacter = (rows) => Object.fromEntries(Object.entries(rows).filter(([, row]) => row.canonicalCharacterId !== characterId));
@@ -268120,7 +268961,7 @@ Next action: ${blocker.action}` : ""}`;
     return category;
   }
   function activeSurfacePromptDefinitions() {
-    return activeSurfaceDefinitions(customSurfaces).filter((definition) => definition.baseSurfaceId !== "prose-illustration" && definition.baseSurfaceId !== "relationship-map" && definition.baseSurfaceId !== "character-profile");
+    return activeSurfaceDefinitions(customSurfaces).filter((definition) => definition.baseSurfaceId !== "prose-illustration" && definition.baseSurfaceId !== "relationship-map" && definition.baseSurfaceId !== "character-profile" && definition.baseSurfaceId !== "building-layout");
   }
   function buildUtilityPreview() {
     const enabled = activeSurfacePromptDefinitions().filter((definition) => definition.promptEnabled);
@@ -268132,12 +268973,13 @@ Next action: ${blocker.action}` : ""}`;
 
 `);
     const template = customSurfaces.utilityTemplate || "{{reverie_enabled_surface_modules}}";
-    const expandedTemplate = template.replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || "Enabled surface-authoring modules: none.").replace(/\{\{\s*reverie_enabled_surface_roots\s*\}\}/gi, rootRegistry || "none").replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, "shared");
+    const expandedTemplate = scopeSurfaceRootRegistry(template).replace(/\{\{\s*reverie_enabled_surface_modules\s*\}\}/gi, modules || "Enabled surface-authoring modules: none.").replace(/\{\{\s*reverie_enabled_surface_roots\s*\}\}/gi, rootRegistry || "none").replace(/\{\{\s*reverie_renderer_mode\s*\}\}/gi, "shared");
     const rootBoundary = `STRICT ENABLED ROOT REGISTRY
-Only these exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.
+For the App/UI modules in this wrapper, only the listed exact roots are valid. Never rename a root after a platform or invent feed/post/story shorthand.
 ${rootRegistry || "none"}`;
     return {
       content: [
+        REVERIE_SURFACE_ROOT_SCOPE,
         expandedTemplate,
         /STRICT ENABLED ROOT REGISTRY/i.test(expandedTemplate) ? "" : rootBoundary,
         /APP SURFACE SHAPE FIREBREAK/i.test(expandedTemplate) ? "" : REVERIE_SURFACE_APP_SCHEMA_FIREBREAK
@@ -268245,11 +269087,14 @@ ${rootRegistry || "none"}`;
     const editor = document.createElement("div");
     editor.className = "dg-creator-section";
     const scriptScopes = () => `${source} · ${presentation} · ${colorMode}`;
+    let bundledNames = new Map;
+    const scriptDisplayName = (script) => rendererScriptDisplayName(script.name, bundledNames.get(script.scriptId) !== script.name);
     const renderRows = () => {
       editor.replaceChildren();
       list.replaceChildren();
       const scripts = regexSurfaceParityScripts(presentation, colorMode, source, customSurfaces.rendererScriptOverrides || {});
-      const filtered = scripts.filter((script) => `${script.name} ${script.scriptId}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+      bundledNames = new Map(regexSurfaceParityScripts(presentation, colorMode, source).map((script) => [script.scriptId, script.name]));
+      const filtered = scripts.filter((script) => `${scriptDisplayName(script)} ${script.name} ${script.scriptId}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
       const counter = document.createElement("div");
       counter.className = "dg-subtle";
       counter.textContent = `${filtered.length} of ${scripts.length} effective shipped scripts · ${scriptScopes()}`;
@@ -268260,7 +269105,7 @@ ${rootRegistry || "none"}`;
         const row = document.createElement("div");
         row.className = "dg-creator-notice";
         const title = document.createElement("strong");
-        title.textContent = script.name;
+        title.textContent = scriptDisplayName(script);
         const detail = document.createElement("span");
         const owner = /\\\[([A-Za-z][\w-]*)\\\]/.exec(script.find)?.[1] || /<([A-Za-z][\w-]*)\b/.exec(script.find)?.[1] || "shared/unanchored";
         detail.textContent = `owner ${owner} · ${script.scriptId} · order ${script.order} · flags ${script.flags || "none"} · ${overridden ? "Local override" : "Bundled default"}`;
@@ -268307,7 +269152,7 @@ ${rootRegistry || "none"}`;
       const note = document.createElement("p");
       note.textContent = "This only changes the selected renderer/presentation/color copy. Source pack and ownership remain bundled metadata.";
       editor.append(heading, note);
-      const name = scriptInput("Display name", script.name);
+      const name = scriptInput("Display name", scriptDisplayName(script));
       const find = scriptInput("Find regex", script.find);
       const replace = scriptInput("Replacement string", script.replace, true);
       const flags = scriptInput("Regex flags", script.flags);
@@ -268377,11 +269222,11 @@ ${rootRegistry || "none"}`;
       return;
     enqueueRelaySettingsPatch({ kind: "surface-prompt-enabled", values: { [surfaceId]: promptEnabled } });
   }
-  function setSurfaceCategoryPromptPreference(promptCategory, promptEnabled) {
-    const values = Object.fromEntries(Object.entries(customSurfaces.definitions || {}).filter(([, definition]) => definition.promptCategory === promptCategory).map(([surfaceId]) => [surfaceId, promptEnabled]));
+  function setSurfaceGroupPromptPreference(group, promptEnabled) {
+    const values = Object.fromEntries(group.definitions.map((definition) => [definition.surfaceId, promptEnabled]));
     if (!Object.keys(values).length)
       return;
-    enqueueRelaySettingsPatch({ kind: "surface-prompt-enabled", values, categoryId: promptCategory });
+    enqueueRelaySettingsPatch({ kind: "surface-prompt-enabled", values, categoryId: group.id });
   }
   function renderSurfacePreferenceControls() {
     const wrap = document.createElement("div");
@@ -268466,7 +269311,7 @@ ${rootRegistry || "none"}`;
       wrap.appendChild(panelSection("Optional Core + Narrative Regex Import", renderOptionalRegexImport(config)));
     return wrap;
   }
-  function renderSurfaceLibrary() {
+  function renderSurfaceLibraryHeader(family) {
     const box = document.createElement("div");
     const startHere = document.createElement("div");
     startHere.className = "dg-info-note";
@@ -268474,51 +269319,80 @@ ${rootRegistry || "none"}`;
     const intro = document.createElement("div");
     intro.className = "dg-surface-intro";
     const copy = document.createElement("div");
-    copy.innerHTML = "<strong>Surface Library</strong><span>Only surfaces switched on here are included in the Story Model prompt, along with enabled Narrative Utilities. Rendering support remains available for older messages even when a module is switched off.</span>";
+    const heading = document.createElement("strong");
+    heading.textContent = family;
+    const description = document.createElement("span");
+    description.textContent = family === "Apps & UIs" ? "Choose recognizable app screens, feeds, documents and keepsakes. Story-supporting Utilities have their own Narratives view." : "Choose story-supporting Utilities, trackers and artifacts. App screens, chats and personal keepsakes stay in Apps & UIs.";
+    copy.append(heading, description);
     const count = activeSurfacePromptDefinitions().filter((definition) => definition.promptEnabled).length;
-    const narrativeCount = config?.narrativeDlcEnabled ? (config.narrativeDlcUtilityNames || []).length : 0;
+    const narrativeCount = config?.narrativeDlcEnabled ? NARRATIVE_DLC_UTILITY_NAMES.filter((name) => config?.narrativeDlcUtilityNames?.includes(name)).length : 0;
+    const enabledCount = family === "Narratives" ? narrativeCount : count;
     const previewActions = document.createElement("div");
     previewActions.className = "dg-actions";
     previewActions.appendChild(button("View Exact Injected Prompt", () => window.setTimeout(requestEnabledSurfacePromptPreview, 0), false, "primary", "Dry-run the enabled original Surface and Narrative Utility prompt without calling a model."));
-    intro.append(copy, chip(`${count + narrativeCount} Enabled`, count + narrativeCount ? "completed" : ""), previewActions);
+    intro.append(copy, chip(`${enabledCount} Enabled`, enabledCount ? "completed" : ""), previewActions);
     box.append(startHere);
+    box.appendChild(toggleCard("Instant Surface Images", "Generate each complete Surface image request as it arrives while the story streams, including in Relay Planned. Auto Generate must be on. This is the same Instant preference shown in Illustrations.", currentProseSettings().instantIllustrationDispatch, (checked) => patchProseSettings({ instantIllustrationDispatch: checked })));
     box.appendChild(panelSection("Prompt Preview · all enabled Utilities", intro));
-    box.append(panelSection("Surface Defaults", renderSurfacePreferenceControls()));
-    const grouped = new Map;
-    for (const definition of activeSurfacePromptDefinitions()) {
-      const category = definition.promptCategory || "custom";
-      const rows = grouped.get(category) || [];
-      rows.push(definition);
-      grouped.set(category, rows);
-    }
-    const categoryOrder = ["social-messaging", "photography-keepsakes", "covers-promotion", "evidence-editorial", "narrative-visuals", "custom"];
-    for (const category of categoryOrder) {
-      const definitions = grouped.get(category);
-      if (!definitions?.length)
-        continue;
+    return box;
+  }
+  function renderSurfaceLibrary() {
+    const box = renderSurfaceLibraryHeader("Apps & UIs");
+    box.dataset.surfaceLibraryView = "apps";
+    for (const group of appSurfaceGroups(activeSurfacePromptDefinitions())) {
+      const definitions = group.definitions;
       const categoryWrap = document.createElement("div");
       const categoryEnabled = definitions.every((definition) => definition.promptEnabled === true);
       const categorySomeEnabled = definitions.some((definition) => definition.promptEnabled === true);
-      const categoryControl = toggleCard(`Toggle All ${SURFACE_CATEGORY_LABELS[category]}`, `${definitions.length} surface module${definitions.length === 1 ? "" : "s"} · ${categorySomeEnabled ? categoryEnabled ? "all injected" : "partially injected" : "none injected"}`, categoryEnabled, (checked) => setSurfaceCategoryPromptPreference(category, checked));
+      const categoryControl = toggleCard(`Toggle All ${group.label}`, `${definitions.length} surface module${definitions.length === 1 ? "" : "s"} · ${categorySomeEnabled ? categoryEnabled ? "all injected" : "partially injected" : "none injected"}`, categoryEnabled, (checked) => setSurfaceGroupPromptPreference(group, checked));
       const categoryInput = categoryControl.querySelector('input[type="checkbox"]');
       if (categoryInput)
         categoryInput.indeterminate = categorySomeEnabled && !categoryEnabled;
-      categoryControl.dataset.surfacePromptCategory = category;
+      categoryControl.dataset.surfacePromptCategory = group.id;
       const grid = document.createElement("div");
       grid.className = "dg-settings-grid";
       for (const definition of definitions) {
         const overview = SURFACE_UTILITY_OVERVIEWS[definition.baseSurfaceId] || `Authors a structured ${definition.displayName} Surface using its approved contract.`;
-        const moduleControl = toggleCard(`${definition.icon || "◇"} ${definition.displayName}`, `${overview} · [${definition.canonicalOuterWrapper}] · ${definition.promptEnabled ? "Included in prompt" : "Not injected"}`, definition.promptEnabled === true, (checked) => setSurfacePromptPreference(definition.surfaceId, checked));
-        moduleControl.dataset.surfacePromptCategory = category;
+        const moduleControl = toggleCard(surfaceLibraryName(definition), `${overview} · [${definition.canonicalOuterWrapper}] · ${definition.promptEnabled ? "Included in prompt" : "Not injected"}`, definition.promptEnabled === true, (checked) => setSurfacePromptPreference(definition.surfaceId, checked));
+        moduleControl.dataset.surfacePromptCategory = group.id;
+        moduleControl.dataset.surfaceLibraryId = definition.baseSurfaceId;
+        moduleControl.querySelector(".dg-toggle-title-row")?.insertAdjacentHTML("afterbegin", surfaceIconMarkup("core", definition.baseSurfaceId));
         grid.appendChild(moduleControl);
       }
       categoryWrap.append(categoryControl, grid);
-      box.appendChild(panelSection(SURFACE_CATEGORY_LABELS[category], categoryWrap));
+      box.appendChild(panelSection(group.label, categoryWrap));
     }
+    return box;
+  }
+  function renderNarrativeLibrary() {
+    const box = renderSurfaceLibraryHeader("Narratives");
+    box.dataset.surfaceLibraryView = "narratives";
     if (config)
       box.appendChild(panelSection("Narrative Utilities", renderNarrativeUtilityCategory(config)));
     else
       box.appendChild(panelSection("Narrative Utilities", empty("Narrative Utility controls are loading.")));
+    return box;
+  }
+  function renderSurfaceAdvanced() {
+    const box = document.createElement("div");
+    box.dataset.surfaceLibraryView = "advanced";
+    const nav = document.createElement("nav");
+    nav.className = "dg-actions dg-surface-advanced-nav";
+    nav.setAttribute("aria-label", "Advanced Surface tools");
+    const selected = ["surfaces", "surface-presets", "utility-studio"].includes(activeTab) ? activeTab : "surfaces";
+    const tools = [["surfaces", "Creator"], ["surface-presets", "Presets"], ["utility-studio", "Injection"]];
+    for (const [id, label] of tools) {
+      const control = button(label, () => {
+        activeTab = id;
+        if (config?.lastActiveDrawerTab !== id)
+          patchConfig({ lastActiveDrawerTab: id });
+        renderPanel();
+      }, false, selected === id ? "primary" : "subtle");
+      control.setAttribute("aria-pressed", String(selected === id));
+      nav.append(control);
+    }
+    box.append(nav, panelSection("Surface Defaults", renderSurfacePreferenceControls()));
+    box.append(selected === "surface-presets" ? renderSurfacePresets() : selected === "utility-studio" ? renderUtilityStudio() : renderCustomSurfaceStudio());
     return box;
   }
   function renderSurfacePresets() {
@@ -268701,10 +269575,11 @@ ${rootRegistry || "none"}`;
       moduleWrap.className = "dg-modal";
       const moduleSelect = document.createElement("select");
       moduleSelect.className = "dg-select";
+      const categoryLabels = new Map(appSurfaceGroups(definitions).flatMap((group) => group.definitions.map((definition) => [definition.surfaceId, group.label])));
       for (const definition of definitions) {
         const option = document.createElement("option");
         option.value = definition.surfaceId;
-        option.textContent = `${SURFACE_CATEGORY_LABELS[definition.promptCategory]} · ${definition.displayName}`;
+        option.textContent = `${categoryLabels.get(definition.surfaceId) || "Custom Surfaces"} · ${surfaceLibraryName(definition)}`;
         moduleSelect.appendChild(option);
       }
       const moduleEditor = document.createElement("textarea");
@@ -268818,7 +269693,7 @@ ${rootRegistry || "none"}`;
     title.textContent = definition.displayName;
     const meta = document.createElement("span");
     meta.className = "dg-surface-meta";
-    meta.textContent = `${definition.presetName} · ${titleCase(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`;
+    meta.textContent = `${surfacePresetDisplayName(definition)} · ${titleCase(definition.shellMode)} · [${definition.canonicalOuterWrapper}]`;
     const copy = document.createElement("p");
     copy.textContent = `${definition.targetId} · ${definition.supportedAspectRatios.join(" · ") || "structured surface"} · ${definition.density} · ${definition.mediaFit}`;
     const actions = document.createElement("div");
@@ -268871,7 +269746,7 @@ ${rootRegistry || "none"}`;
     const body = document.createElement("div");
     body.className = "dg-modal dg-surface-creator";
     const display = creatorTextField("Surface name", existing?.displayName || "", "The human-readable name shown in the Surface Library.", "Relationship Map");
-    const preset = creatorTextField("Preset name", existing?.presetName || "My Preset", "Names this visual presentation. Multiple presets may share one Base Surface ID.", "Relay Default");
+    const preset = creatorTextField("Preset name", existing ? surfacePresetDisplayName(existing) || "My Preset" : "My Preset", "Names this visual presentation. Multiple presets may share one Base Surface ID.", "Relay Default");
     const icon = creatorTextField("Icon", existing?.icon || "◇", "A short emoji or symbol used in the Library.", "\uD83D\uDD78️");
     const id = creatorTextField("Surface ID", existing?.surfaceId || "", "Unique internal ID for this exact surface or preset. Use lowercase letters, numbers, hyphens, dots, or underscores. For a brand-new surface, start with the recommended ID.", "e.g. relationship-map");
     const base = creatorTextField("Base Surface ID", existing?.baseSurfaceId || "", "Groups presets that share the same semantic surface. For a brand-new surface this should normally match Surface ID. Use a different value only when creating another visual preset for an existing surface.", "e.g. relationship-map");
@@ -268899,7 +269774,7 @@ OUTPUT FORMAT — EXACT
       ["photography-keepsakes", "Photography & Keepsakes"],
       ["covers-promotion", "Covers & Promotion"],
       ["evidence-editorial", "Evidence & Editorial"],
-      ["narrative-visuals", "Narrative Visuals"],
+      ["narrative-visuals", "Personal & Keepsake Interfaces"],
       ["custom", "Custom Surfaces"]
     ], () => {});
     const promptProfileOptions = new Map([["auto", ["auto", "Automatic (chat/global default)"]]]);
@@ -269194,7 +270069,7 @@ ${fixture}`));
     return value.toLocaleLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
   }
   function openSurfacePreview(definition) {
-    const modal = ctx.ui.showModal({ title: `${definition.displayName} · ${definition.presetName}`, width: 760 });
+    const modal = ctx.ui.showModal({ title: `${definition.displayName} · ${surfacePresetDisplayName(definition)}`, width: 760 });
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
     const body = document.createElement("div");
     body.className = "dg-modal";
@@ -269983,12 +270858,13 @@ Generated image assets and message content will remain, but Relay history and me
     manualImage.className = "dg-settings-grid";
     const params = current.imageParameters || {};
     const connection = imageConnections.find((item) => item.id === current.imageConnectionId);
-    const patchImageParameter = (key, value) => patchConfig({ imageParameters: { ...current.imageParameters || {}, [key]: value } });
+    const patchImageParameters = (patch) => patchConfig({ imageParameters: { ...config?.imageParameters || current.imageParameters || {}, ...patch } });
+    const patchImageParameter = (key, value) => patchImageParameters({ [key]: value });
     const connectionField = selectField("ImageGen Connection", current.imageConnectionId || "", [["", "Use default connection"], ...imageConnections.map((item) => [item.id, `${item.name || item.id} (${item.provider}${item.model ? ` / ${item.model}` : ""})`])], (value) => {
       const next = imageConnections.find((item) => item.id === value);
       patchConfig({ imageConnectionId: value || null, imageModel: next?.model || "" });
     });
-    manualImage.append(connectionField, relayManualModelField(current, connection), selectField("Sampler", String(params.sampler ?? params.sampler_name ?? ""), relayParameterChoices("sampler", String(params.sampler ?? params.sampler_name ?? ""), connection), (value) => patchConfig({ imageParameters: { ...current.imageParameters || {}, sampler: value, sampler_name: value } })), selectField("Scheduler", String(params.scheduler ?? ""), relayParameterChoices("scheduler", String(params.scheduler ?? ""), connection), (value) => patchImageParameter("scheduler", value)), numberInput("Steps", Number(params.steps ?? 28), 1, 150, (value) => patchImageParameter("steps", value)), numberInput("CFG / Guidance", Number(params.cfgScale ?? params.cfg ?? 7), 0, 30, (value) => patchConfig({ imageParameters: { ...current.imageParameters || {}, cfgScale: value, cfg: value } })));
+    manualImage.append(connectionField, relayManualModelField(current, connection), selectField("Sampler", String(params.sampler ?? params.sampler_name ?? ""), relayParameterChoices("sampler", String(params.sampler ?? params.sampler_name ?? ""), connection), (value) => patchImageParameters({ sampler: value, sampler_name: value })), selectField("Scheduler", String(params.scheduler ?? ""), relayParameterChoices("scheduler", String(params.scheduler ?? ""), connection), (value) => patchImageParameter("scheduler", value)), numberInput("Steps", Number(params.steps ?? 28), 1, 150, (value) => patchImageParameter("steps", value)), numberInput("CFG / Guidance", Number(params.cfgScale ?? params.cfg ?? 7), 0, 30, (value) => patchImageParameters({ cfgScale: value, cfg: value })));
     return manualImage;
   }
   function renderSurfaceParserSettings(current) {
@@ -270047,7 +270923,8 @@ Generated image assets and message content will remain, but Relay history and me
     interfaceControls.append(toggleCard("Enable Floating Relay Orb", "Shows the Relay shortcut for replacement candidates in the latest relevant assistant message.", current.enableRelayOrb, (checked) => patchConfig({ enableRelayOrb: checked })), button("Reset Orb Position", resetOrbPosition, false, "subtle"), selectField("Interface Theme", current.interfaceTheme || "velvet-prism", [
       ["velvet-prism", "Velvet Prism"],
       ["clean-panel", "Clean Panel"]
-    ], (value) => patchConfig({ interfaceTheme: value })), selectField("Orb Size", current.orbSize || "medium", [["small", "Small"], ["medium", "Medium"], ["large", "Large"]], (value) => patchConfig({ orbSize: value })), selectField("Orb Design", current.orbDesign || "prism-flower", [
+    ], (value) => patchConfig({ interfaceTheme: value })), renderOrbSizeControl(current), selectField("Orb Design", current.orbDesign || "prism-flower", [
+      ["star", "Star"],
       ["classic", "Classic"],
       ...ORB_IMAGE_DESIGNS.map((design) => [design.id, design.label]),
       ["custom", current.orbCustomIconDataUrl ? "Custom Upload" : "Custom Upload · choose an image below"]
@@ -270084,7 +270961,7 @@ Generated image assets and message content will remain, but Relay history and me
     box.appendChild(panelSection("Interface", interfaceControls));
     const workload = document.createElement("div");
     workload.className = "dg-settings-grid";
-    workload.append(selectField("Candidate Count", String(current.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchConfig({ defaultCandidateCount: Number(value) })), numberInput("Concurrent Relay Preprocessing Jobs", current.queueConcurrencyLimit, 1, MAX_RELAY_JOB_CONCURRENCY, (value) => patchConfig({ queueConcurrencyLimit: value })));
+    workload.append(selectField("Candidate Count", String(current.defaultCandidateCount), [["1", "1"], ["2", "2"], ["4", "4"]], (value) => patchConfig({ defaultCandidateCount: Number(value) })), describedField(numberInput("Concurrent Relay Preprocessing Jobs", current.queueConcurrencyLimit, 1, MAX_RELAY_JOB_CONCURRENCY, (value) => patchConfig({ queueConcurrencyLimit: value }), true), settingHelp("Concurrent Relay Preprocessing Jobs")));
     box.appendChild(panelSection("Workload", workload));
     const tutorial = document.createElement("div");
     tutorial.className = "dg-settings-grid";
@@ -270100,28 +270977,47 @@ Generated image assets and message content will remain, but Relay history and me
     if (current.generationSettingsSource === "native") {
       const nativeImageGenNote = document.createElement("div");
       nativeImageGenNote.className = "dg-recovery-note";
-      nativeImageGenNote.textContent = "Native ImageGen is active. Relay mirrors the native model, provider parameters, negative prompt, and LoRA preset. NovelAI keeps its saved resolution unless you choose a request or fixed aspect below.";
-      const nativeImageGenSettings = document.createElement("div");
-      nativeImageGenSettings.className = "dg-settings-grid";
-      nativeImageGenSettings.append(nativeImageGenNote, selectField("NovelAI Resolution", current.imageAspectPolicy || "native", [
-        ["native", "Use saved NovelAI resolution"],
-        ["request", "Follow image request / Illustrator"],
-        ["1:1", "Square · 1:1"],
-        ["2:3", "Portrait · 2:3"],
-        ["3:2", "Landscape · 3:2"],
-        ["3:4", "Portrait · 3:4"],
-        ["4:3", "Landscape · 4:3"],
-        ["4:5", "Portrait · 4:5"],
-        ["5:4", "Landscape · 5:4"],
-        ["9:16", "Tall portrait · 9:16"],
-        ["16:9", "Wide landscape · 16:9"]
-      ], (value) => patchConfig({ imageAspectPolicy: value })));
-      box.appendChild(panelSection("ImageGen · Native Settings", nativeImageGenSettings));
+      nativeImageGenNote.textContent = "Native ImageGen is active. Relay mirrors the native model, provider parameters, negative prompt, and LoRA preset, so duplicate override controls are hidden.";
+      box.appendChild(panelSection("ImageGen · Native Settings", nativeImageGenNote));
     } else {
       box.appendChild(panelSection("ImageGen · Relay Settings", renderRelayImageSettings(current)));
       box.appendChild(panelSection("Generation · Additional Negative", textareaInput("Negative prompt additions", current.additionalNegativePrompt, (value) => patchConfig({ additionalNegativePrompt: value }))));
     }
     return box;
+  }
+  function renderOrbSizeControl(current) {
+    const label = document.createElement("label");
+    label.className = "dg-field";
+    const title = document.createElement("span");
+    title.textContent = "Orb Size";
+    const output = document.createElement("output");
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(ORB_MIN_SIZE);
+    input.max = String(ORB_MAX_SIZE);
+    input.step = "1";
+    input.value = String(normalizeOrbSizePx(current.orbSizePx, current.orbSize));
+    input.setAttribute("aria-label", "Orb Size");
+    const preview = () => {
+      const size = normalizeOrbSizePx(Number(input.value));
+      output.textContent = `${size} px`;
+      input.setAttribute("aria-valuetext", `${size} pixels`);
+      orbSizePreview = size;
+      renderRelayOrb();
+    };
+    output.textContent = `${input.value} px`;
+    input.setAttribute("aria-valuetext", `${input.value} pixels`);
+    input.addEventListener("input", preview);
+    input.addEventListener("change", () => {
+      orbSizePreview = null;
+      patchConfig({ orbSizePx: normalizeOrbSizePx(Number(input.value)) });
+    });
+    input.addEventListener("blur", () => {
+      orbSizePreview = null;
+      renderRelayOrb();
+    });
+    label.append(title, input, output);
+    return label;
   }
   function renderPromptProfileSettings(current) {
     const wrapper = document.createElement("div");
@@ -270437,9 +271333,12 @@ The Relay slot and completed asset remain available in Media Archive.`,
       }
       let regenerateButton;
       let reparseButton;
-      actions.append(regenerateButton = button("Regenerate", () => void submitPopupAction("regenerate", regenerateButton), !canRestart, "primary", canRestart ? "" : unavailable), reparseButton = button(unresolvedCarousel ? "Reparse Carousel" : "Reparse", () => void submitPopupAction("reparse", reparseButton), !canParse, "standard", canParse ? "" : unavailable), button("Regeneration Direction", () => withCompletedRecord(record, (loaded) => openRegenerationIntent(loaded, acceptedPopup)), busy || !canParse, "subtle", canParse ? "" : unavailable), button("Edit Prompt", () => withCompletedRecord(record, openEditPrompt), busy || unresolvedCarousel), button("Generation Details", () => openResolvedGenerationPlan(record), false, "subtle"));
+      actions.append(regenerateButton = button("Regenerate", () => void submitPopupAction("regenerate", regenerateButton), !canRestart, "primary", canRestart ? "" : unavailable), reparseButton = button(unresolvedCarousel ? "Reparse Carousel" : "Reparse", () => void submitPopupAction("reparse", reparseButton), !canParse, "standard", canParse ? "" : unavailable), button("Regeneration Direction", () => withCompletedRecord(record, (loaded) => openRegenerationIntent(loaded, acceptedPopup)), busy || !canParse, "subtle", canParse ? "" : unavailable));
     }
-    const historyAction = button(`History (${record.history.length + (record.imageUrl ? 1 : 0)})`, () => {
+    if (!isMarkerOnly(record))
+      actions.appendChild(button("Edit Prompt", () => withCompletedRecordOrCurrent(record, openEditPrompt), busy || unresolvedCarousel));
+    actions.appendChild(button("Generation Details", () => openResolvedGenerationPlan(record), false, "subtle"));
+    const historyAction = button(`History (${Math.max(record.history.length, record.historyCount || 0) + (record.imageUrl ? 1 : 0)})`, () => {
       acceptedPopup?.();
       openHistory(record);
     }, !record.imageUrl && record.history.length === 0, "standard");
@@ -270538,11 +271437,14 @@ The chat message and generated image asset will remain.`, scope: `${appLabel(rec
       }), false, "subtle"));
     if (!includeGenerationDetails && includeImageIdentity)
       actions.appendChild(button("Copy Image ID", () => copyText(asset.imageId, "Image ID copied."), !asset.imageId, "subtle"));
-    actions.append(button("Export Diagnostic JSON", () => downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
-      metadata: buildMetadata(record, version || record),
-      asset,
-      lifecycle: { status: record.status, placementFailure: record.placementFailure }
-    }), false, "subtle"));
+    actions.append(button("Export Diagnostic JSON", () => withCompletedRecordOrCurrent(detailsRecord, (loaded) => {
+      const selected = version ? mergeCompletedVersionPromptMetadata(loaded, version) : loaded;
+      downloadJson(`reverie-relay-diagnostic-${record.requestId}-${record.slot}.json`, {
+        metadata: buildMetadata(selected, selected),
+        asset,
+        lifecycle: { status: record.status, placementFailure: record.placementFailure }
+      });
+    }, true), false, "subtle"));
     if (includeImageIdentity)
       actions.append(button("Copy Image URL", () => copyText(asset.imageUrl, "Image URL copied."), !asset.imageUrl, "subtle"), ...includeGenerationDetails ? [button("Copy Image ID", () => copyText(asset.imageId, "Image ID copied."), !asset.imageId, "subtle")] : []);
     return actions;
@@ -270593,6 +271495,22 @@ The chat message and generated image asset will remain.`, scope: `${appLabel(rec
       img.src = asset.imageUrl;
       img.alt = record.alt || record.slot;
       body.appendChild(imageLightboxViewport(img));
+    } else {
+      const stage = document.createElement("div");
+      stage.className = "dg-slot-lightbox-status dg-image-lightbox-viewport";
+      stage.innerHTML = renderRegenerationLifecycleProjection(record, customSurfaces, {
+        chatId: record.chatId,
+        messageId: record.messageId,
+        swipeId: record.swipeId,
+        generationPlaceholderEffect: normalizeGenerationPlaceholderEffect(config?.generationPlaceholderEffect)
+      });
+      for (const chrome of stage.querySelectorAll(".rrl-actions,.rrl-detail"))
+        chrome.remove();
+      const detail = document.createElement("p");
+      detail.className = "dg-info-note";
+      detail.textContent = record.error || "No completed image is available for this slot yet. Inspect the request or edit its prompt using the controls below.";
+      stage.appendChild(detail);
+      body.appendChild(stage);
     }
     if (primaryActions)
       controlPanel.appendChild(primaryActions);
@@ -270673,7 +271591,7 @@ The chat message and generated image asset will remain.`, scope: `${appLabel(rec
       ["Reparse Preview", () => ctx.sendToBackend({ type: "reparse_preview", key: record.key }), isSlotActionBusy(record) || !canParse, canParse ? "" : unavailable],
       ["Regenerate - Current Native Settings", () => regenerate(record, true), isSlotActionBusy(record) || !canRegen, canRegen ? "" : unavailable],
       ["Edit Prompt", () => withCompletedRecord(record, openEditPrompt), isSlotActionBusy(record) || record.target === "instagram.carousel" && !record.imageUrl],
-      ["History", () => withCompletedRecord(record, openHistory), !archiveBacked && record.history.length === 0],
+      ["History", () => openHistory(record), !archiveBacked && !record.imageUrl && record.history.length === 0],
       ["Generation Details", () => withCompletedRecord(record, openResolvedGenerationPlan), false],
       ["Why Did Relay Do That?", () => openPromptInspector(record), false],
       ["View Metadata", () => openMetadata(record), false],
@@ -270897,8 +271815,9 @@ The chat message and generated image assets will remain.`, scope: `${appLabel(re
     else
       requestCompletedRecord(record, (loaded) => loaded && action(loaded));
   }
-  function withCompletedRecordOrCurrent(record, action) {
-    if (!record.diagnosticArchiveId || hasGenerationPromptMetadata(record)) {
+  function withCompletedRecordOrCurrent(record, action, requireProviderPrompt = false) {
+    const providerPrompt = record.resolvedPositivePrompt || record.promptPipeline?.finalProviderPrompt || record.finalImageRequest?.prompt;
+    if (!record.diagnosticArchiveId || (requireProviderPrompt ? typeof providerPrompt === "string" && Boolean(providerPrompt.trim()) : hasGenerationPromptMetadata(record))) {
       action(record);
       return;
     }
@@ -271479,10 +272398,7 @@ ${result.imageWidth || "?"}×${result.imageHeight || "?"} (${result.aspectRatio 
       submitRepairPlacement(record, {
         trigger: insertButton,
         showPopupError: showSubmissionError,
-        closePopup: () => {
-          openedSlotPreviewKeys.delete(record.key);
-          dismissPreview();
-        }
+        closePopup: dismissPreview
       });
     }, false, "primary"));
     body.append(imageLightboxViewport(image), details, submissionError, actions);
@@ -271536,44 +272452,69 @@ ${pipeline.warnings.map((warning) => warning.message).join(`
     modal.root.classList.add("dg-router-panel", "dg-modal-host");
     const body = document.createElement("div");
     body.className = "dg-slot-history-list";
-    const versions = [
-      ...record.imageUrl ? [{}] : [],
-      ...record.history.map((entry, index) => ({ entry, index }))
-    ];
-    const openVersion = (entry, index) => {
-      modal.dismiss();
-      if (index === undefined)
-        openLightbox(record);
-      else if (entry)
-        openHistoryVersionImage(record, entry, index);
-    };
-    if (!versions.length)
-      body.appendChild(empty("No generated versions for this slot yet."));
-    versions.forEach(({ entry, index }) => {
-      const version = entry || record;
-      const card = document.createElement("div");
-      card.className = "dg-slot-history-version";
-      const image = document.createElement("img");
-      image.src = version.imageUrl || "";
-      image.alt = record.alt || record.slot;
-      image.addEventListener("click", () => openVersion(entry, index));
-      const heading = document.createElement("strong");
-      heading.textContent = index === undefined ? "Current version" : `Previous version ${record.history.length - index}`;
-      const meta = document.createElement("small");
-      const generatedAt = entry?.generatedAt || record.completedAt;
-      meta.textContent = `${generatedAt ? new Date(generatedAt).toLocaleString() : "Date unavailable"} · ${version.imageProvider || "Provider unavailable"} · ${version.imageModel || "Model unavailable"}${record.recoverySource ? ` · ${recoveryHistoryMessage(record)}` : ""}`;
-      const actions = document.createElement("div");
-      actions.className = "dg-actions";
-      actions.append(button("View", () => openVersion(entry, index), false, "primary"), button("Metadata", () => openMetadata(record, entry, index), false, "subtle"));
-      if (index !== undefined)
-        actions.appendChild(button("Restore", () => {
-          ctx.sendToBackend({ type: "restore_history", chatId: record.chatId, key: record.key, historyIndex: index });
-          modal.dismiss();
-        }, false, "standard"));
-      card.append(image, heading, meta, actions);
-      body.appendChild(card);
-    });
     modal.root.appendChild(body);
+    const render = (loaded, warning) => {
+      if (!modal.root.isConnected)
+        return;
+      body.replaceChildren();
+      if (warning)
+        body.append(empty(warning), button("Retry loading history", load, false, "standard"));
+      renderVersions(loaded);
+    };
+    const load = () => {
+      body.replaceChildren(empty("Loading previous image versions…"));
+      const timeout = window.setTimeout(() => render(record, "Image history did not respond. Your saved images have not been changed."), 30000);
+      requestCompletedRecord(record, (loaded) => {
+        window.clearTimeout(timeout);
+        if (loaded?.key === record.key && loaded.chatId === record.chatId && loaded.imageUrl === record.imageUrl)
+          render(loaded);
+        else
+          render(record, "Previous image versions could not be loaded. Showing only the versions available here; your saved images have not been changed.");
+      });
+    };
+    if (record.status === "completed" && record.diagnosticArchiveId)
+      load();
+    else
+      render(record);
+    function renderVersions(record) {
+      const versions = [
+        ...record.imageUrl ? [{}] : [],
+        ...record.history.map((entry, index) => ({ entry, index }))
+      ];
+      const openVersion = (entry, index) => {
+        modal.dismiss();
+        if (index === undefined)
+          openLightbox(record);
+        else if (entry)
+          openHistoryVersionImage(record, entry, index);
+      };
+      if (!versions.length)
+        body.appendChild(empty("No generated versions for this slot yet."));
+      versions.forEach(({ entry, index }) => {
+        const version = entry || record;
+        const card = document.createElement("div");
+        card.className = "dg-slot-history-version";
+        const image = document.createElement("img");
+        image.src = version.imageUrl || "";
+        image.alt = record.alt || record.slot;
+        image.addEventListener("click", () => openVersion(entry, index));
+        const heading = document.createElement("strong");
+        heading.textContent = index === undefined ? "Current version" : `Previous version ${record.history.length - index}`;
+        const meta = document.createElement("small");
+        const generatedAt = entry?.generatedAt || record.completedAt;
+        meta.textContent = `${generatedAt ? new Date(generatedAt).toLocaleString() : "Date unavailable"} · ${version.imageProvider || "Provider unavailable"} · ${version.imageModel || "Model unavailable"}${record.recoverySource ? ` · ${recoveryHistoryMessage(record)}` : ""}`;
+        const actions = document.createElement("div");
+        actions.className = "dg-actions";
+        actions.append(button("View", () => openVersion(entry, index), false, "primary"), button("Metadata", () => openMetadata(record, entry, index), false, "subtle"));
+        if (index !== undefined)
+          actions.appendChild(button("Restore", () => {
+            ctx.sendToBackend({ type: "restore_history", chatId: record.chatId, key: record.key, historyIndex: index });
+            modal.dismiss();
+          }, false, "standard"));
+        card.append(image, heading, meta, actions);
+        body.appendChild(card);
+      });
+    }
   }
   function openMetadata(record, version, historyIndex) {
     let rawMode = false;
@@ -272206,6 +273147,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
       continuityVault,
       customSurfaces,
       proseIllustrator,
+      backgroundQueue,
       logs,
       selfTest
     });
@@ -272230,17 +273172,67 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     }
     return value;
   }
+  function refreshRepairConnectionFields() {
+    for (const [field, refresh] of repairConnectionFields) {
+      if (!field.isConnected)
+        repairConnectionFields.delete(field);
+      else
+        refresh();
+    }
+  }
   function surfaceRepairConnectionField(selected = config?.surfaceRepairConnectionId || null, onChange) {
-    const inherited = parserConnections.find((connection) => connection.id === config?.parserConnectionId);
-    const field = selectField("Assisted Repair Connection", selected || "", [
-      ["", inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : "Use Surface Parser (not configured)"],
-      ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])
-    ], (value) => {
+    let chosen = selected || "";
+    const choices = () => {
+      const inherited = parserConnections.find((connection) => connection.id === config?.parserConnectionId);
+      const options = [
+        ["", inherited ? `Use Surface Parser (${inherited.name} / ${config?.parserModel || inherited.model})` : "Use Surface Parser (not configured)"],
+        ...parserConnections.map((connection) => [connection.id, `${connection.name} / ${connection.model}`])
+      ];
+      if (chosen && !options.some(([id]) => id === chosen))
+        options.push([chosen, "Selected connection unavailable — refresh connections"]);
+      return options;
+    };
+    const initialOptions = choices();
+    const field = selectField("Assisted Repair Connection", chosen, initialOptions, (value) => {
+      chosen = value;
       const next = value || null;
       onChange?.(next);
       patchConfig({ surfaceRepairConnectionId: next });
     });
-    field.querySelector("select").setAttribute("aria-label", "Assisted Repair Connection");
+    const select = field.querySelector("select");
+    select.setAttribute("aria-label", "Assisted Repair Connection");
+    let signature = JSON.stringify(initialOptions);
+    const refreshOptions = () => {
+      const controlRoot = select.getRootNode();
+      const focused = controlRoot instanceof ShadowRoot ? controlRoot.activeElement : select.ownerDocument.activeElement;
+      if (select.disabled || focused === select)
+        return;
+      const options = choices();
+      const nextSignature = JSON.stringify(options);
+      if (signature === nextSignature)
+        return;
+      signature = nextSignature;
+      select.replaceChildren(...options.map(([value, label]) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        option.selected = value === chosen;
+        return option;
+      }));
+      select.value = chosen;
+    };
+    repairConnectionFields.set(field, refreshOptions);
+    select.addEventListener("blur", () => queueMicrotask(refreshOptions));
+    const refreshButton = button("Refresh connections", () => {
+      refreshButton.disabled = true;
+      refreshButton.textContent = "Refreshing connections…";
+      Promise.all([loadFrontendParserConnections(), refreshState(false)]).finally(() => {
+        refreshButton.disabled = false;
+        refreshButton.textContent = "Refresh connections";
+        refreshOptions();
+      });
+    }, false, "subtle", "Reload saved LLM connection metadata without calling a model or changing your selection.");
+    field.appendChild(refreshButton);
     return field;
   }
   function parserSelect(current) {
@@ -272430,6 +273422,22 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     label.append(copy, helpTip(labelText, helpText));
     return label;
   }
+  function describedField(field, description) {
+    const help = document.createElement("div");
+    help.className = "dg-section-sub";
+    help.id = `dg-setting-description-${Math.random().toString(36).slice(2, 10)}`;
+    help.textContent = description;
+    const control = field.querySelector("input, select, textarea");
+    if (control) {
+      control.id ||= `${help.id}-input`;
+      control.setAttribute("aria-describedby", help.id);
+      const label = field.querySelector("label");
+      if (label)
+        label.htmlFor = control.id;
+    }
+    field.appendChild(help);
+    return field;
+  }
   function settingHeading(labelText, helpText = "") {
     const heading = document.createElement("div");
     heading.className = "dg-field-label dg-label-with-help";
@@ -272513,7 +273521,7 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     field.append(label, select);
     return field;
   }
-  function numberInput(labelText, value, min, max, onChange) {
+  function numberInput(labelText, value, min, max, onChange, commitValidInput = false) {
     const field = document.createElement("div");
     field.className = "dg-field";
     const label = fieldLabel(labelText);
@@ -272523,7 +273531,26 @@ ${recovered} recovered / ${summary.imageUnavailable} unavailable / ${summary.exi
     input.min = String(min);
     input.max = String(max);
     input.value = String(value);
-    input.addEventListener("change", () => onChange(Math.max(min, Math.min(max, Math.round(Number(input.value) || value)))));
+    let committedValue = value;
+    if (commitValidInput)
+      input.addEventListener("input", () => {
+        const parsed = input.value.trim() ? Number(input.value) : NaN;
+        if (!Number.isInteger(parsed) || parsed < min || parsed > max || parsed === committedValue)
+          return;
+        committedValue = parsed;
+        onChange(parsed);
+      });
+    input.addEventListener("change", () => {
+      const parsed = input.value.trim() ? Number(input.value) : NaN;
+      const next = Math.max(min, Math.min(max, Math.round(Number.isFinite(parsed) ? parsed : commitValidInput ? committedValue : value)));
+      if (commitValidInput) {
+        input.value = String(next);
+        if (next === committedValue)
+          return;
+        committedValue = next;
+      }
+      onChange(next);
+    });
     field.append(label, input);
     return field;
   }
@@ -272699,18 +273726,22 @@ Original prompt metadata unavailable`;
     return value.slice(0, 1).toUpperCase() + value.slice(1);
   }
   function drawerTabLabel(value) {
+    if (value === "illustration-controls")
+      return "Image Controls";
+    if (value === "surface-library")
+      return "Apps & UIs";
+    if (value === "surface-narratives")
+      return "Narratives";
+    if (value === "surface-advanced")
+      return "Advanced";
     if (value === "genetics")
       return "Appearance Memory";
     if (value === "recipes")
       return "Recipes";
     if (value === "manual")
       return "Guide";
-    if (value === "story-constellations")
-      return "Constellations";
     if (value === "phone")
       return "Phone";
-    if (value === "story-reel")
-      return "Story Reel";
     return titleCase(value);
   }
   function validDrawerTab(value) {
@@ -272722,7 +273753,7 @@ Original prompt metadata unavailable`;
       return "slots";
     if (value === "story-phones")
       return "phone";
-    const tabs = ["slots", "illustrator", "recipes", "genetics", "surfaces", "surface-library", "surface-presets", "utility-studio", "history", "logs", "manual", "settings", "story-constellations", "phone", "story-reel"];
+    const tabs = ["slots", "illustrator", "illustration-controls", "recipes", "genetics", "surfaces", "surface-library", "surface-narratives", "surface-advanced", "surface-presets", "utility-studio", "history", "logs", "manual", "settings", "phone"];
     return tabs.includes(value) ? value : null;
   }
   function urlMatches(renderedSrc, storedUrl) {
@@ -272745,6 +273776,22 @@ Original prompt metadata unavailable`;
   }
   const toastDedupeUntil = new Map;
   let toastStack = null;
+  function ensureToastStack() {
+    if (!toastStack?.isConnected) {
+      toastStack = document.createElement("div");
+      toastStack.className = "dg-toast-stack";
+      toastStack.setAttribute("role", "region");
+      toastStack.setAttribute("aria-label", "Relay notifications");
+      document.body.appendChild(toastStack);
+    }
+    return toastStack;
+  }
+  function removeEmptyToastStack() {
+    if (toastStack?.isConnected && !toastStack.childElementCount) {
+      toastStack.remove();
+      toastStack = null;
+    }
+  }
   function showToast(level, message) {
     const text = String(message || "").trim();
     if (!text)
@@ -272758,14 +273805,6 @@ Original prompt metadata unavailable`;
       if ((toastDedupeUntil.get(key) || 0) <= Date.now())
         toastDedupeUntil.delete(key);
     }, 1650);
-    if (!toastStack?.isConnected) {
-      toastStack = document.createElement("div");
-      toastStack.className = "dg-toast-stack";
-      toastStack.setAttribute("role", "region");
-      toastStack.setAttribute("aria-label", "Relay notifications");
-      toastStack.setAttribute("aria-live", "polite");
-      document.body.appendChild(toastStack);
-    }
     const toast = document.createElement("div");
     toast.className = "dg-toast";
     toast.dataset.level = level;
@@ -272781,14 +273820,11 @@ Original prompt metadata unavailable`;
     const remove = () => {
       window.clearTimeout(timeout);
       toast.remove();
-      if (toastStack?.isConnected && !toastStack.childElementCount) {
-        toastStack.remove();
-        toastStack = null;
-      }
+      removeEmptyToastStack();
     };
     dismiss.addEventListener("click", remove, { once: true });
     toast.append(copy, dismiss);
-    toastStack.appendChild(toast);
+    ensureToastStack().appendChild(toast);
     const timeout = window.setTimeout(remove, level === "error" || level === "warning" ? 6000 : 4000);
   }
   function sharedConfigError(message) {
@@ -272831,6 +273867,10 @@ Original prompt metadata unavailable`;
     closeActionMenu();
     sidecarNoticeEl?.remove();
     sidecarNoticeEl = null;
+    dismissedSidecarNotices.clear();
+    toastStack?.remove();
+    toastStack = null;
+    toastDedupeUntil.clear();
     confirmEl?.remove();
     lifecycle.dispose();
     for (const cleanup of lifecycleInterceptorCleanups.splice(0))

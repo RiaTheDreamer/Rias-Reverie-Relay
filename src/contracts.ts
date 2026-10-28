@@ -1,5 +1,7 @@
+import { stripSceneAppearanceMarkup, type SceneAppearanceTurn } from './sceneAppearance'
 import { bracketImageControls, decodeImageControlValue, imageControlAsXml } from './imageControlMarkup'
 import { xmlNarrativeAsLegacy } from './xmlSurfaceFormat'
+import { maskInlineCodeSpans } from './inlineCodeBoundary'
 
 export type ImageTarget =
   | 'twitter.media'
@@ -152,6 +154,13 @@ export type BackgroundQueueItem = {
   slotKey?: string
   requestId?: string
   planId?: string
+  analysisRuntimeId?: string
+  analysisWorkerId?: string
+  analysisPhase?: 'appearance' | 'portrait-insight' | 'director' | 'director-retry' | 'repair'
+  phaseStartedAt?: number
+  // Inert inline cards while accepted Director shots await sibling validation.
+  // These are never queue jobs and are replaced by real slot reservations.
+  planningPreviews?: SlotRecord[]
 }
 
 export type BackgroundQueueState = {
@@ -351,7 +360,7 @@ export type ProseIllustratorFrequencyMode = 'key-moments' | 'every-eligible' | '
 export type ProseIllustratorPlacementPolicy = 'after-beat' | 'before-beat' | 'end-of-message' | 'ask'
 export type ProseIllustratorInsertionMode = 'auto' | 'review'
 export type ProseIllustratorPeoplePolicy = 'required' | 'allowed' | 'forbidden'
-export type ProseIllustratorPerspectiveMode = 'scene-snapshot' | 'sequence' | 'emotional-beat' | 'solo-scene' | 'persona-pov' | 'storyboard'
+export type ProseIllustratorPerspectiveMode = 'scene-snapshot' | 'sequence' | 'emotional-beat' | 'solo-scene' | 'persona-pov' | 'storyboard' | 'blocking-fidelity' | 'scene-flow' | 'dreamcut'
 export type ProseIllustratorAspectPolicy = 'adaptive' | '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9'
 
 export type PersonaPovContext = {
@@ -397,10 +406,12 @@ export type ProseIllustratorRecordStatus =
   | 'cancelled'
   | 'removed'
 
+export const DEFAULT_NSFW_PLANNER_TEXT = 'For adult scenes, preserve the source-established nudity, clothing state, and physical blocking. Do not add sexual content to scenes that do not contain it.'
+
 export type ProseIllustratorSettings = {
   enabled: boolean
   automaticProtocolInjection: boolean
-  /** Dispatch a complete Model Planned illustration request as soon as it streams. */
+  /** Remember streaming dispatch preference across modes; active only in Model Planned. */
   instantIllustrationDispatch: boolean
   mode: ProseIllustratorMode
   /** Format for image-model positive prompts; story prose remains unchanged. */
@@ -423,6 +434,10 @@ export type ProseIllustratorSettings = {
   imageAlignment: ProseImageAlignment
   imageSize: ProseImageSize
   adaptiveMode: boolean
+  sightlineGuard?: boolean
+  quickweave?: boolean
+  portraitInsight?: boolean
+  openingFrame?: boolean
   defaultPromptProfileId: PromptProfileId
   defaultAspectRatio: string
   promptRegistry: Record<string, string>
@@ -435,6 +450,8 @@ export type ProseIllustratorSettings = {
   appearanceSidecarParameters: Record<string, unknown>
   customPromptPrefix: string
   customNegativePrefix: string
+  nsfwPlannerEnabled: boolean
+  nsfwPlannerText: string
   stripGenericStyleBoilerplate: boolean
   defaultCandidateCount: 1 | 2 | 4
   continuityStrength: ContinuityStrength
@@ -472,7 +489,7 @@ export type ProseIllustrationAnchor = {
   paragraphFingerprint: string
   previousParagraphFingerprint?: string
   nextParagraphFingerprint?: string
-  insertionSide: 'before' | 'after' | 'end'
+  insertionSide: 'before' | 'after' | 'end' | 'opening'
   sourceContentFingerprint: string
   selectedExcerpt: string
 }
@@ -804,6 +821,8 @@ export type AppearanceVaultFact = {
   pinned: boolean
   userConfirmed: boolean
   referenceAssetIds: string[]
+  /** A trait removed in the editor must not be relearned by automatic sources. */
+  manuallyExcluded?: boolean
   notes?: string
   outfitName?: string
   defaultWardrobe?: boolean
@@ -954,6 +973,8 @@ export type ContinuityDecision = {
 }
 
 export type ContinuityVaultState = {
+  /** Per-story scene projections, separate from canonical/manual sheets. */
+  sceneAppearance?: SceneAppearanceTurn[]
   chatId: string
   strength: ContinuityStrength
   characters: Record<string, CanonicalVisualCharacter>
@@ -971,6 +992,8 @@ export type ContinuityVaultState = {
     revision: number
     processedTurnKeys: Record<string, number>
     lastRunAt: number
+    /** Successful full scan anchor; field refreshes and failed calls do not reset it. */
+    lastFullRefreshMessageId?: string
     lastMessageId?: string
     lastSwipeId?: number
     lastConnectionId?: string
@@ -1442,6 +1465,7 @@ export type SlotRecord = {
   /** Exact prose paragraph immediately before an authored illustration request. */
   authoritativeSourceParagraph?: string
   proseSynthetic?: boolean
+  prosePlanningOpportunityId?: string
   proseImageAlignment?: ProseImageAlignment
   proseImageSize?: ProseImageSize
   composedPositivePrompt?: string
@@ -1465,6 +1489,8 @@ export type SlotRecord = {
   galleryLinkLastAttemptAt?: number
   galleryLinkRetryMode?: 'gallery-only'
   history: GenerationSnapshot[]
+  /** Previous versions retained in the archive when hot-state history is stripped. */
+  historyCount?: number
 }
 
 export type RouterJob = {
@@ -1486,6 +1512,8 @@ export type RouterJob = {
   cast?: 'char' | 'user' | 'char+user' | 'none'
   promptSource?: 'visual_prompt' | 'legacy-body' | 'structured'
   sourceContent?: string
+  /** Complete authored request discovered before the host saved its streaming response. */
+  streamingSource?: boolean
   promptProfileId?: PromptProfileId
   regenerationIntent?: RegenerationIntent
   proseIllustrationId?: string
@@ -1593,8 +1621,10 @@ const RELAY_PROMPT_MARKDOWN_IMAGE_RE = /(?:\n\s*)*!\[reverie-relay\]\(\s*\/api\/
 const RELAY_OWNERSHIP_MARKER_RE = /<!--\s*(?:reverie-relay|dreamglass):image(?:-error)?\b[\s\S]*?-->/gi
 const RELAY_PROMPT_SCENE_IMAGE_RE = /<scene_image\b[^>]*>[\s\S]*?<\/scene_image>/gi
 const RELAY_PROMPT_OWNED_IMAGE_RE = /<img\b(?=[^>]*(?:\bdata-dgir-[\w:-]+\s*=|\bdata-reverie-artifact-media\s*=|\bclass\s*=\s*["'][^"']*\breverie-artifact-media\b|\bsrc\s*=\s*["']\/api\/v1\/(?:images|image-gen\/results)\/))[^>]*\/?\s*>/gi
-const RELAY_PROMPT_REVERIE_REQUEST_RE = /<reverie-illustration\b[^>]*>[\s\S]*?<\/reverie-illustration\s*>|\[reverie[_-]illustration\b[^\]]*\][\s\S]*?(?:\[\/reverie[_-]illustration\]|$)/gi
-const RELAY_PROMPT_IMAGE_REQUEST_RE = /<image_request(?:_error)?\b[^>]*(?:\/>|>[\s\S]*?<\/image_request(?:_error)?\s*>)|\[image_request\b[^\]]*\][\s\S]*?(?:\[\/image_request\]|$)/gi
+// A historical request with an omitted closer stays out of model context too.
+// This is a prompt projection only; saved markup and repair data are preserved.
+const RELAY_PROMPT_REVERIE_REQUEST_RE = /<reverie-illustration\b[^>]*?(?:\/>|>[\s\S]*?(?:<\/reverie-illustration\s*>|$))|\[reverie[_-]illustration\b[^\]]*\][\s\S]*?(?:\[\/reverie[_-]illustration\]|$)/gi
+const RELAY_PROMPT_IMAGE_REQUEST_RE = /<image_request(?:_error)?\b[^>]*?(?:\/>|>[\s\S]*?(?:<\/image_request(?:_error)?\s*>|$))|\[image_request\b[^\]]*\][\s\S]*?(?:\[\/image_request\]|$)/gi
 const LEGACY_DREAMGLASS_REQUEST_RE = /<dreamglass(?:[-_:][a-z0-9_-]+)?\b[^>]*(?:\/>|>[\s\S]*?<\/dreamglass(?:[-_:][a-z0-9_-]+)?\s*>)/gi
 const RELAY_RUNTIME_RESULT_URL_RE = /\/api\/v1\/(?:images|image-gen\/results)\/[^\s<>)"']+/gi
 const RELAY_RUNTIME_DGIR_TOKEN_RE = /\bdata-dgir-(?:key|request-id|slot|image-id|message-id|swipe-id|custom-target)\s*=/gi
@@ -1676,7 +1706,7 @@ export function sanitizeRelayPromptHistoryTextWithReport(value: string): RelayPr
     rawHistoricalImageRequestBlocks: regexCount(before, RELAY_PROMPT_IMAGE_REQUEST_RE),
     legacyDreamglassRequests: regexCount(before, LEGACY_DREAMGLASS_REQUEST_RE),
   }
-  let text = before
+  let text = stripSceneAppearanceMarkup(before)
   text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_SCENE_IMAGE_RE)
   text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_OWNED_IMAGE_RE)
   text = replaceWithHistoricalMediaPlaceholder(text, RELAY_PROMPT_MARKDOWN_IMAGE_RE)
@@ -1853,7 +1883,7 @@ export function inspectStoryModelOutputContracts(
 ): StoryOutputContractInspection {
   const text = String(value || '')
   const inlineSource = removePlotSparkPayloads(text)
-  const canonicalInline = parseImageRequests(inlineSource).filter(request => request.target === 'prose.illustration' && request.promptSource === 'visual_prompt')
+  const canonicalInline = parseImageRequests(inlineSource).filter(request => request.target === 'prose.illustration' && request.promptSource === 'visual_prompt' && !/^<reverie-illustration\b[^>]*\bplacement=["']opening["']/i.test(request.fullMatch))
   const expected = Number.isFinite(Number(options.expectedInlineIllustrations)) ? Math.max(0, Number(options.expectedInlineIllustrations)) : null
   const countMode = options.inlineCountMode || 'unknown'
   const inlineValid = expected === null
@@ -1926,7 +1956,7 @@ export function isRelayRuntimeMarkerTrusted(input: {
 }
 
 export type ProseIllustrationContractRepair = {
-  code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG' | 'NORMALIZED_PROSE_ILLUSTRATION_CAST'
+  code: 'REPAIRED_PROSE_ILLUSTRATION_PROMPT_TAG' | 'NORMALIZED_PROSE_ILLUSTRATION_CAST' | 'REPAIRED_PROSE_ILLUSTRATION_CLOSING_TAG'
   slot: string
   index: number
   original: string
@@ -1948,8 +1978,61 @@ export function normalizeProseIllustrationCast(value: unknown): ImageRequest['ca
  * and placement content remain unchanged; ambiguous values stay invalid for
  * strict validation.
  */
-export function normalizeProseIllustrationContracts(content: string): { markup: string; repairs: ProseIllustrationContractRepair[] } {
+export function normalizeProseIllustrationContracts(content: string, options: { completedResponse?: boolean } = {}): { markup: string; repairs: ProseIllustrationContractRepair[] } {
   const repairs: ProseIllustrationContractRepair[] = []
+  if (options.completedResponse) {
+    // Only finalized standalone requests may borrow this repair. Never finish a
+    // stream, infer missing prompt text, or cross a Surface's ownership boundary.
+    let fence = ''
+    const scannable = maskInlineCodeSpans(content).split(/(?<=\n)/).map(line => {
+      const delimiter = /^[ \t]{0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+      if (fence) {
+        if (delimiter?.[0] === fence[0] && delimiter.length >= fence.length && /^[ \t\r\n]*$/.test(line.slice(line.indexOf(delimiter) + delimiter.length))) fence = ''
+        return line.replace(/[^\r\n]/g, ' ')
+      }
+      if (!delimiter) return line
+      fence = delimiter
+      return line.replace(/[^\r\n]/g, ' ')
+    }).join('')
+    const openings = [...scannable.matchAll(/<reverie-illustration\b([^>]*)>/gi)]
+    const insertions: Array<{ end: number; text: string }> = []
+    for (const [ordinal, opening] of openings.entries()) {
+      const index = opening.index!
+      const next = openings[ordinal + 1]?.index ?? content.length
+      const rawAttrs = opening[1]
+      if (!/^(?:\s+[A-Za-z_][\w:.-]*\s*=\s*(?:"[^"<>]*"|'[^'<>]*'))*\s*$/.test(rawAttrs)) continue
+      const attributeNames = [...rawAttrs.matchAll(/\s+([A-Za-z_][\w:.-]*)\s*=/g)].map(match => match[1].toLowerCase())
+      if (new Set(attributeNames).size !== attributeNames.length) continue
+      const slot = String(parseAttrs(rawAttrs).slot || '')
+      if (openings.filter(other => parseAttrs(other[1]).slot === slot).length !== 1) continue
+      const region = scannable.slice(index + opening[0].length, next)
+      if (/<\/reverie-illustration\s*>/i.test(region)) continue
+      const prompt = /^\s*<visual_prompt\s*>([^<>]+)<\/visual_prompt\s*>/i.exec(region)
+      if (!prompt || !prompt[1].trim()) continue
+      const tail = region.slice(prompt[0].length)
+      if (tail.trim() && (!/^\s*\r?\n[ \t]*\r?\n/.test(tail) || /[<>\[\]`]/.test(tail))) continue
+      // Previously repaired siblings are balanced here; an unclosed/unknown
+      // ancestor or nested request is not permission to repair its contents.
+      let prefix = scannable.slice(0, index)
+      for (const insertion of [...insertions].reverse()) prefix = prefix.slice(0, insertion.end) + insertion.text + prefix.slice(insertion.end)
+      const stack: string[] = []
+      let crossed = false
+      for (const tag of prefix.matchAll(/<(\/?)([A-Za-z_][\w.-]*)\b[^>]*>/g)) {
+        const name = tag[2].toLowerCase()
+        if (/\/>$/.test(tag[0]) || /^(?:br|hr|img|input|meta|link|wbr)$/.test(name)) continue
+        if (!tag[1]) stack.push(name)
+        else if (stack.pop() !== name) { crossed = true; break }
+      }
+      if (crossed || stack.length || isNarrativeOwnedImageRequest(scannable, index)) continue
+      const end = index + opening[0].length + prompt[0].length
+      const original = content.slice(index, end)
+      const repaired = `${original}</reverie-illustration>`
+      if (inspectProseIllustrationSchemas(repaired).length) continue
+      insertions.push({ end, text: '</reverie-illustration>' })
+      repairs.push({ code: 'REPAIRED_PROSE_ILLUSTRATION_CLOSING_TAG', slot, index, original, repaired })
+    }
+    for (const insertion of [...insertions].reverse()) content = content.slice(0, insertion.end) + insertion.text + content.slice(insertion.end)
+  }
   const re = /<reverie-illustration\b([^>]*)>([\s\S]*?)<\/reverie-illustration>/gi
   const markup = content.replace(re, (fullMatch, rawAttrs: string, body: string, index: number) => {
     let repaired = fullMatch
@@ -2129,17 +2212,18 @@ export function targetApp(target: ImageTarget): SlotRecord['targetApp'] {
 }
 
 export function parseImageRequests(content: string): ImageRequest[] {
+  const scannable = maskInlineCodeSpans(content)
   const out: ImageRequest[] = []
   const phoneRanges: Array<{ start: number; end: number; bodyStart: number; time: string }> = []
   const phoneRe = /<(?:smart_phone|smartphone)\b([^>]*)>([\s\S]*?)<\/(?:smart_phone|smartphone)>/gi
   let phoneMatch: RegExpExecArray | null
-  while ((phoneMatch = phoneRe.exec(content)) !== null) {
+  while ((phoneMatch = phoneRe.exec(scannable)) !== null) {
     const rootAttrs = parseAttrs(phoneMatch[1] || '')
     const openEnd = phoneMatch[0].indexOf('>') + 1
     phoneRanges.push({ start: phoneMatch.index, end: phoneMatch.index + phoneMatch[0].length, bodyStart: phoneMatch.index + openEnd, time: rootAttrs.time?.trim() || '' })
   }
   const bracketPhoneRe = /\[(?:smart_phone|smartphone)\]([\s\S]*?)\[\/(?:smart_phone|smartphone)\]/gi
-  while ((phoneMatch = bracketPhoneRe.exec(content)) !== null) {
+  while ((phoneMatch = bracketPhoneRe.exec(scannable)) !== null) {
     const openEnd = phoneMatch[0].indexOf(']') + 1
     phoneRanges.push({
       start: phoneMatch.index,
@@ -2152,9 +2236,10 @@ export function parseImageRequests(content: string): ImageRequest[] {
   const re = /<(image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/\1>/gi
   let match: RegExpExecArray | null
 
-  while ((match = re.exec(content)) !== null) {
+  while ((match = re.exec(scannable)) !== null) {
+    const authored = content.slice(match.index, match.index + match[0].length)
     const tagName = match[1].toLocaleLowerCase()
-    const normalized = normalizeProseIllustrationContracts(match[0]).markup
+    const normalized = normalizeProseIllustrationContracts(authored).markup
     const normalizedParts = /^<(?:image_request|reverie-illustration)\b([^>]*)>([\s\S]*?)<\/(?:image_request|reverie-illustration)>$/i.exec(normalized)
     re.lastIndex = match.index + match[0].length
     const attrs = parseAttrs(normalizedParts?.[1] || match[2])
@@ -2211,14 +2296,17 @@ export function parseImageRequests(content: string): ImageRequest[] {
         : 'structured',
       negative: firstTagText(body, 'negative') ? decodeImageControlValue(firstTagText(body, 'negative')!.trim()) : undefined,
       slot: (attrs.slot?.trim() || (isIllustrationProtocol ? 'illustration' : undefined)),
-      fullMatch: match[0],
+      fullMatch: authored,
       index: match.index,
     })
   }
 
   // Both authoring envelopes enter the same validated IR. Preserve the raw
   // bracket owner and source offset rather than a shifted XML projection.
-  for (const control of bracketImageControls(content)) {
+  for (const scannedControl of bracketImageControls(scannable)) {
+    const rawControl = bracketImageControls(content.slice(scannedControl.index, scannedControl.index + scannedControl.fullMatch.length))[0]
+    if (!rawControl) continue
+    const control = { ...rawControl, index: scannedControl.index }
     if (!control.complete || control.diagnostics.length) continue
     const request = parseImageRequests(imageControlAsXml(control))[0]
     if (!request) continue

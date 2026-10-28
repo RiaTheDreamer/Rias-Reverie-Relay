@@ -8,12 +8,17 @@ import {
   sceneOnlyRepairPreservesPlan,
   relayPlannedAuthoritativeParagraph,
   validateRelayPlannedDirectorResult,
+  relayPlannedFrequencyRequiresIllustration,
+  relayPlannedFrequencyDirective,
+  runRelayPlannedDirectorWithFrequency,
   type RelayPlannedContext,
   type RelayPlannedIllustration,
 } from '../src/relayPlannedV2'
 import { RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE, RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT } from '../src/promptRegistryAssets028'
 import { BOORU_TAG_MODE_PARSER_GUIDANCE, BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, PROMPT_REGISTRY_DEFINITIONS, RELAY_PLANNED_BOORU_TAG_MODE_GUIDANCE, REVERIE_ILLUSTRATION_PROTOCOL, REVERIE_INLINE_PROTOCOL, REVERIE_RELAY_PLANNED_PROTOCOL } from '../src/protocols'
 import { normalizeBooruTagPrompt } from '../src/booruTags'
+import { storyboardFigureIntegrityClause } from '../src/storyboardVisualIntegrity'
+import { inspectProviderPromptSafety } from '../src/providerPromptSafety'
 
 const context: RelayPlannedContext = {
   version: RELAY_PLANNED_V2,
@@ -91,6 +96,46 @@ const none = validateRelayPlannedDirectorResult(envelope([], false), context)
 assert.equal(none.shouldIllustrate, false)
 assert.equal(none.illustrations.length, 0)
 
+for (const selectedAspect of ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9']) {
+  const forcedAspect = validateRelayPlannedDirectorResult(envelope([shot({ aspectRatio: '16:9' })]), { ...context, defaultAspectRatio: selectedAspect }).illustrations[0]
+  assert.equal(forcedAspect.illustration.aspectRatio, selectedAspect, `Every explicit UI aspect must reach the validated plan: ${selectedAspect}`)
+}
+
+const requiredContext = { ...context, frequencyMode: 'every-eligible' as const }
+assert.equal(relayPlannedFrequencyRequiresIllustration(requiredContext), true)
+assert.equal(relayPlannedFrequencyRequiresIllustration({ ...requiredContext, maximumIllustrations: 0 }), false)
+assert.equal(relayPlannedFrequencyRequiresIllustration({ ...requiredContext, paragraphs: [] }), false)
+assert.match(relayPlannedFrequencyDirective(requiredContext), /not a reason to decline/)
+let frequencyCalls = 0
+const directorMessages = [{ role: 'system' as const, content: 'Original source and schema.' }]
+const keyMomentDecline = await runRelayPlannedDirectorWithFrequency(directorMessages, { ...context, frequencyMode: 'key-moments' }, async () => { frequencyCalls++; return envelope([], false) })
+assert.equal(keyMomentDecline.validated.shouldIllustrate, false)
+assert.equal(frequencyCalls, 1, 'key-moment policy may legitimately decline without retry')
+frequencyCalls = 0
+const falseWithValidShot = await runRelayPlannedDirectorWithFrequency(directorMessages, requiredContext, async () => { frequencyCalls++; return envelope([shot()], false) })
+assert.equal(falseWithValidShot.validated.shouldIllustrate, true, 'required policy must process a valid shot even if the boolean incorrectly says false')
+assert.equal(frequencyCalls, 1, 'do not spend on another call when usable grounded shots already exist')
+for (const mode of ['every-eligible', 'every-n'] as const) {
+  frequencyCalls = 0
+  const recovered = await runRelayPlannedDirectorWithFrequency(directorMessages, { ...requiredContext, frequencyMode: mode }, async messages => {
+    frequencyCalls++
+    if (frequencyCalls === 1) return JSON.stringify({ shouldIllustrate: false, reason: 'The story develops across three distinct visual beats.', illustrations: [] })
+    assert.equal(messages[0].content, directorMessages[0].content, 'retry must preserve the original authoritative context')
+    assert.match(messages.at(-1)!.content, /frequency-contract failure/)
+    return envelope([shot()])
+  })
+  assert.equal(recovered.validated.shouldIllustrate, true)
+  assert.equal(frequencyCalls, 2, `${mode}: exactly one bounded retry`)
+}
+frequencyCalls = 0
+await assert.rejects(runRelayPlannedDirectorWithFrequency(directorMessages, requiredContext, async () => { frequencyCalls++; return envelope([], false) }), /failed after one bounded retry/)
+assert.equal(frequencyCalls, 2, 'persistent decline must fail visibly, not loop or dispatch invented content')
+frequencyCalls = 0
+await assert.rejects(runRelayPlannedDirectorWithFrequency(directorMessages, requiredContext, async () => { frequencyCalls++; throw new Error('Operation cancelled by user.') }), /cancelled/)
+assert.equal(frequencyCalls, 1, 'cancellation/provider failure must never trigger the decline retry')
+const fatalRequired = validateRelayPlannedDirectorResult(envelope([shot({ subjectDirectives: shot().subjectDirectives.map(row => row.name === 'Ria' ? { ...row, appearanceOverrides: ['barefoot'] } : row) })]), requiredContext)
+assert.equal(fatalRequired.illustrations[0].rejected, true, 'frequency must not bypass fatal scene/identity validation')
+
 const fixedAspect = validateRelayPlannedDirectorResult(envelope([shot({ aspectRatio: '16:9' })]), context).illustrations[0]
 assert.equal(fixedAspect.illustration.aspectRatio, '4:3', 'A fixed user aspect policy must override the Director suggestion')
 assert.ok(fixedAspect.issues.some(issue => issue.code === 'aspect-policy-applied' && issue.repair === 'local'))
@@ -137,6 +182,12 @@ const duplicates = validateRelayPlannedDirectorResult(envelope([shot(), shot({ r
 assert.equal(duplicates.illustrations[1].rejected, true)
 assert.ok(duplicates.illustrations[1].issues.some(issue => issue.code === 'near-duplicate'))
 
+const distinctSameCast = validateRelayPlannedDirectorResult(envelope([
+  shot(),
+  shot({ rank: 2, title: 'Boarding the train', anchor: { paragraphIndex: 2, insertionSide: 'after', anchorExcerpt: 'They crossed the empty platform together' }, promptCore: 'Ria and Cody cross the platform and board the arriving train' }),
+]), context)
+assert.equal(distinctSameCast.illustrations[1].rejected, false, 'Same cast, location and shot size do not make distinct anchored actions duplicate')
+
 const compiled = compileRelayPlannedPrompt(shot({ promptCore: 'green_eyes, red umbrella, green eyes' }), context, { qualitySuffix: 'refined detail', globalNegative: 'bad anatomy, extra limbs' })
 assert.ok(compiled.positivePrompt.indexOf('long amethyst hair') < compiled.positivePrompt.indexOf('black coat'), 'Canonical identity precedes current appearance')
 assert.equal((compiled.positivePrompt.match(/green eyes/gi) || []).length, 1, 'Exact underscore/space duplicates collapse')
@@ -145,43 +196,67 @@ assert.ok(compiled.positivePrompt.includes('medium two-shot'))
 assert.ok(compiled.positivePrompt.includes('character reference ref-ria'))
 
 const booruTags = ['1girl', '1boy', 'long_hair', 'purple_hair', 'green_eyes', 'black_coat', 'short_hair', 'red_scarf', 'holding', 'umbrella', 'rain', 'train_station', 'night']
-const booruShot = shot({ booruTags })
+const booruShot = shot({ booruTags: ['rain', 'train_station', 'night'], subjectDirectives: shot().subjectDirectives.map((row, index) => ({ ...row, booruTags: index === 0 ? ['1girl', 'long_hair', 'purple_hair', 'green_eyes', 'black_coat', 'reaching'] : ['1boy', 'short_hair', 'red_scarf', 'holding', 'umbrella'] })) })
 const booruValidation = validateRelayPlannedDirectorResult(envelope([booruShot]), { ...context, promptFormat: 'danbooru-tags' }).illustrations[0]
 assert(!booruValidation.requiresRepair, 'Director-authored tag concepts should pass Booru validation')
 const booruCompiled = compileRelayPlannedPrompt(booruShot, context, { tagMode: true })
-assert.equal(booruCompiled.positivePrompt, booruTags.join(', '), 'Relay Planned must use Director-authored tags, not underscore-converted prose fields')
-assert(!booruCompiled.positivePrompt.includes('Ria:'), 'Booru local compiler leaked natural-language subject labels')
+assert.match(booruCompiled.positivePrompt, /^1girl, long_hair, purple_hair, green_eyes, black_coat/)
+assert.match(booruCompiled.positivePrompt, /Ria: turning toward Cody[\s\S]*1boy, short_hair, red_scarf/, 'spatial descriptions stay inside their owning tag blocks')
+assert.doesNotMatch(booruCompiled.positivePrompt, /turning_toward_cody|offering_the_umbrella/, 'do not manufacture underscore-joined pseudo-tags')
 assert(validateRelayPlannedDirectorResult(envelope([shot()]), { ...context, promptFormat: 'danbooru-tags' }).illustrations[0].requiresRepair, 'Missing Director tags should request repair')
-assert(validateRelayPlannedDirectorResult(envelope([shot({ booruTags: ['1girl', 'solo', 'woman_is_holding_the_umbrella_in_the_rain'] })]), { ...context, promptFormat: 'danbooru-tags' }).illustrations[0].requiresRepair, 'Prose disguised as tags should request repair')
-assert.throws(() => normalizeBooruTagPrompt('woman is holding an umbrella in the rain, black hair'), /prose-shaped|sentence/, 'Formatter must never convert prose into underscore strings')
+assert(validateRelayPlannedDirectorResult(envelope([shot({ booruTags: ['1girl', 'solo', 'woman_is_holding_the_umbrella_in_the_rain'] })]), { ...context, promptFormat: 'danbooru-tags' }).illustrations[0].issues.some(issue => issue.code === 'booru-subject-ownership'), 'an anonymous two-person tag pile still needs owner repair, not vocabulary policing')
+const customBooruShot = { ...booruShot, subjectDirectives: booruShot.subjectDirectives.map(row => ({ ...row, booruTags: [...row.booruTags!, 'hand_on_another\'s_shoulder', 'unusual__custom_tag', 'the hand rests gently on the shoulder'] })) }
+assert(!validateRelayPlannedDirectorResult(envelope([customBooruShot]), { ...context, promptFormat: 'danbooru-tags' }).illustrations[0].requiresRepair, 'custom tags and visual clauses cannot force a Relay repair when subject ownership is intact')
+assert.equal(normalizeBooruTagPrompt('woman is holding an umbrella in the rain, black hair'), 'woman is holding an umbrella in the rain, black hair', 'visual prose can pass without being converted into underscore strings')
 assert.equal(
   normalizeBooruTagPrompt('1girl, short_hair, She reaches for the cracked keycard but stops before touching it, blue_eyes, cracked_keycard, desk_lamp, workshop'),
-  '1girl, short_hair, blue_eyes, cracked_keycard, desk_lamp, workshop',
-  'A stray prose clause must not reject an otherwise valid Danbooru tag list',
+  '1girl, short_hair, She reaches for the cracked keycard but stops before touching it, blue_eyes, cracked_keycard, desk_lamp, workshop',
+  'A bounded prose clause must survive alongside valid Danbooru tags',
 )
 assert.equal(normalizeBooruTagPrompt('1boy, wolfcut, amber_eyes, cybernetic_eye, mechanical_eye'), '1boy, wolf_cut, yellow_eyes, single_mechanical_eye', 'Known deprecated and alias tags should resolve to established concepts')
 assert.equal(normalizeBooruTagPrompt('1boy, amber_left_eye, cybernetic_right_eye'), '1boy, yellow_eyes, amber_left_eye, single_mechanical_eye, cybernetic_right_eye', 'Side qualifiers must retain the established visual concept tags')
 
-const mixedBooruShot = shot({ booruTags: ['1girl', 'solo', 'black_hair', 'She reaches toward the untouched key beside her hand.', 'reaching', 'key', 'workshop'] })
+const mixedBooruShot = shot({ namedSubjects: ['Ria'], expectedPeopleCount: 1, subjectDirectives: [shot().subjectDirectives[0]], booruTags: ['1girl', 'solo', 'black_hair', 'She reaches toward the untouched key beside her hand.', 'reaching', 'key', 'workshop'] })
 const mixedBooruValidation = validateRelayPlannedDirectorResult(envelope([mixedBooruShot]), { ...context, promptFormat: 'danbooru-tags' }).illustrations[0]
 assert(!mixedBooruValidation.requiresRepair, 'Relay Planned should tolerate one stray natural-language fragment when the visual tag list is otherwise valid')
-assert.equal(compileRelayPlannedPrompt(mixedBooruShot, context, { tagMode: true }).positivePrompt, '1girl, solo, black_hair, reaching, key, workshop', 'Relay Planned compilation must discard only the prose fragment')
+assert.equal(compileRelayPlannedPrompt(mixedBooruShot, context, { tagMode: true }).positivePrompt, '1girl, solo, black_hair, She reaches toward the untouched key beside her hand., reaching, key, workshop', 'Relay Planned compilation must preserve the bounded visual fragment')
 
 const snapshotCompiled = compileRelayPlannedPrompt(shot(), { ...context, perspectiveMode: 'scene-snapshot' })
 assert.match(snapshotCompiled.positivePrompt, /Ria: .*black coat.*reaching for the umbrella/, 'Scene Snapshot must keep Ria\'s outfit and action bound to Ria')
 assert.match(snapshotCompiled.positivePrompt, /Cody: .*red scarf.*offering the umbrella.*right hand holds the umbrella handle/, 'Scene Snapshot must keep Cody\'s outfit, action, and prop ownership bound to Cody')
 assert.ok(snapshotCompiled.positivePrompt.indexOf('Ria:') < snapshotCompiled.positivePrompt.indexOf('cinematic illustration'), 'Scene Snapshot must put owner-scoped blocking before style tags')
 const storyboardCompiled = compileRelayPlannedPrompt(shot(), { ...context, perspectiveMode: 'storyboard' })
+const outfitChangeContext = { ...context, subjects: context.subjects.map(subject => subject.name === 'Ria' ? { ...subject, wardrobe: ['black coat'], current: ['black coat', 'faint bruise on wrist'] } : subject) }
+const outfitChangeShot = shot({ subjectDirectives: shot().subjectDirectives.map(row => row.name === 'Ria' ? { ...row, attireOverrides: ['green jacket'] } : row) })
+for (const perspectiveMode of ['scene-snapshot', 'storyboard']) {
+  const changedOutfit = compileRelayPlannedPrompt(outfitChangeShot, { ...outfitChangeContext, perspectiveMode })
+  assert.match(changedOutfit.positivePrompt, /green jacket/)
+  assert.doesNotMatch(changedOutfit.positivePrompt, /black coat/)
+  assert.match(changedOutfit.positivePrompt, /faint bruise on wrist/)
+  assert.match(changedOutfit.positivePrompt, /Cody: .*red scarf/)
+}
+const staleContactContext = { ...context, perspectiveMode: 'storyboard', subjects: context.subjects.map(subject => subject.name === 'Ria'
+  ? { ...subject, current: ["faint red pressure mark on wrist, forehead touching Cody's", 'kneeling beside Cody', 'tweed cardigan'] } : subject) }
+const staleContactPrompt = compileRelayPlannedPrompt(shot(), staleContactContext)
+assert(!/forehead touching|kneeling beside/.test(staleContactPrompt.positivePrompt), 'saved Appearance pose must not override the selected umbrella action')
+assert(staleContactPrompt.positivePrompt.includes('faint red pressure mark on wrist') && staleContactPrompt.positivePrompt.includes('tweed cardigan'), 'pose filtering must preserve adjacent injury and clothing fragments')
+const currentContactShot = shot({ subjectDirectives: shot().subjectDirectives.map(row => row.name === 'Ria' ? { ...row, contact: "forehead touching Cody's" } : row) })
+assert(compileRelayPlannedPrompt(currentContactShot, staleContactContext).positivePrompt.includes("forehead touching Cody's"), 'a current authored contact must remain valid outside Appearance memory')
 const storyboardView = compileRelayPlannedPrompt(shot({ composition: { ...shot().composition, cameraAngle: 'Camera: low-angle view' }, promptCore: 'Ria reaching for the umbrella. Cody holds a camera.' }), { ...context, perspectiveMode: 'storyboard' })
 assert.match(storyboardView.positivePrompt, /View: low-angle view/)
 assert.match(storyboardView.positivePrompt, /Cody holds a camera/)
 assert.doesNotMatch(storyboardView.positivePrompt, /Camera:/)
-const storyboardViewTags = compileRelayPlannedPrompt(shot({ booruTags: ['1girl', '1boy', 'Camera angle: from_above', 'holding', 'camera', 'umbrella'] }), { ...context, perspectiveMode: 'storyboard' }, { tagMode: true })
-assert.equal(storyboardViewTags.positivePrompt, '1girl, 1boy, from_above, holding, camera, umbrella')
+const storyboardViewTags = compileRelayPlannedPrompt({ ...booruShot, booruTags: ['Camera angle: from_above', 'camera', 'umbrella'] }, { ...context, perspectiveMode: 'storyboard' }, { tagMode: true })
+assert.match(storyboardViewTags.positivePrompt, /from_above, camera, waist-up, 2people, distinct individual torso silhouettes, each visible limb connected to its own body, one continuous scene in a single frame, Ria left, Cody right, umbrella centered$/, 'Booru mode must preserve the Director-authored view, dedicated crop and actor blocking alongside the figure integrity guard without adding contact; its owned umbrella tag stays in Cody\'s block')
 assert(storyboardCompiled.positivePrompt.startsWith('medium two-shot, eye level, waist-up. two friends sharing an umbrella in rain'), 'Storyboard must lead with the readable camera and one anchored action')
 assert.match(storyboardCompiled.positivePrompt, /Ria: .*black coat.*reaching for the umbrella/, 'Storyboard lost Ria\'s identity or owned action')
 assert.match(storyboardCompiled.positivePrompt, /Cody: .*red scarf.*offering the umbrella.*right hand holds the umbrella handle/, 'Storyboard lost Cody\'s outfit or prop ownership')
-assert(storyboardCompiled.positivePrompt.length < snapshotCompiled.positivePrompt.length, 'Storyboard prompt should remove duplicate Director field recitals')
+assert.match(storyboardCompiled.positivePrompt, /Spatial blocking: Ria left, Cody right, umbrella centered/, 'Storyboard dropped the Director\'s relative actor/object placement')
+assert.match(storyboardCompiled.positivePrompt, /Foreground depth: rain streaks/, 'Storyboard dropped the foreground depth cue')
+assert.match(storyboardCompiled.positivePrompt, /exactly 2 visible people, including Ria and Cody.*distinct, readable silhouette/, 'Storyboard lost the multi-person anatomy/separation guard')
+assert.equal(storyboardFigureIntegrityClause(1, ['Ria']), '', 'single-person framing must not be forced into a multi-actor guard')
+assert(snapshotCompiled.positivePrompt.includes('tentative warmth') && snapshotCompiled.positivePrompt.includes('night'))
+assert(!storyboardCompiled.positivePrompt.includes('tentative warmth') && !storyboardCompiled.positivePrompt.includes('night'), 'Storyboard should omit mood/time recitals while keeping actionable blocking')
 assert(!storyboardCompiled.positivePrompt.includes('clear, unobstructed gap of air'), 'Storyboard must not add no-contact geometry to an anchored contact scene')
 const noContactStoryboard = compileRelayPlannedPrompt(shot({
   expectedPeopleCount: 1,
@@ -279,6 +354,36 @@ const actorWithDisc = shot({
 })
 const repairedPropAction = validateRelayPlannedDirectorResult(envelope([actorWithDisc]), discActionContext).illustrations[0]
 assert(!repairedPropAction.requiresRepair && !repairedPropAction.issues.some(issue => issue.code === 'storyboard-visible-prop-action'), 'Storyboard must accept a repaired frame that shows the named actor performing the supported prop action')
+
+// Live fixed-two Relay batch, 2026-10-13: both Director calls supplied two
+// shots, but an unrelated nearby interaction with the shared table/teacup
+// made the guard discard the correctly anchored binder shot.
+const binderShot = shot({
+  title: 'The binder lands',
+  anchor: { paragraphIndex: 3, insertionSide: 'after', anchorExcerpt: 'laying the script binder down flat across the wood with a dull, heavy slap' },
+  expectedPeopleCount: 1,
+  namedSubjects: ['Taehyun'],
+  subjectDirectives: [{ name: 'Taehyun', role: 'character', appearanceOverrides: [], attireOverrides: [], temporaryTraits: [], expression: 'tense jaw', pose: 'standing angled toward the oak table', action: 'laying the plain white script binder flat on the table', gaze: 'at the binder', contact: 'fingers linger on the binder spine' }],
+  composition: { ...shot().composition, shotType: 'medium shot', framing: 'Taehyun, binder and teacups', blocking: 'Taehyun stands at the oak table', importantProps: ['plain white script binder', 'two ceramic teacups', 'two saucers', 'oak table'] },
+  promptCore: 'Taehyun lays the plain white script binder flat on the oak table, fingers on its spine, with two ceramic teacups beside it.',
+})
+const binderContext = { ...discActionContext, paragraphs: [
+  { index: 1, text: 'At the center oak table, Arin sits with her phone screen angled toward the morning light, her thumb flicking past the flashing timestamp of the emergency press notice that has already choked the agency\'s comment sections.' },
+  { index: 3, text: 'With a slow, deliberate motion, he turns from the glass and walks the three paces to the table, laying the script binder down flat across the wood with a dull, heavy slap that makes the two ceramic teacups rattle against their saucers. His fingers linger on the spine for a fraction of a second before he pulls his hand back, shoving it deep into his pocket to hide the way the knuckles are scabbed and raw from the morning\'s compulsive picking.' },
+  { index: 5, text: 'Arin locks her phone screen with a sharp click, sliding the device across the grain of the wood toward his empty teacup before standing up from her seat.' },
+], subjects: [
+  { name: 'Taehyun', role: 'character', identity: ['dark hair'], current: ['dark wool coat'], pinned: [], superseded: [] },
+  { name: 'Arin', role: 'persona', identity: ['blonde hair'], current: ['grey wool coat'], pinned: [], superseded: [] },
+] }
+assert(!validateRelayPlannedDirectorResult(envelope([binderShot]), binderContext).illustrations[0].requiresRepair,
+  'A named actor shot must not acquire a different actor from a nearby scene merely because they share furniture or a background prop')
+assert(!validateRelayPlannedDirectorResult(envelope([{
+  ...objectOnlyDisc,
+  anchor: { paragraphIndex: 1, insertionSide: 'after', anchorExcerpt: 'emergency press notice' },
+  composition: { ...objectOnlyDisc.composition, importantProps: ['oak table'] },
+}]), { ...binderContext, paragraphs: [binderContext.paragraphs[0]] }).illustrations[0].issues
+  .some(issue => issue.code === 'storyboard-visible-prop-action'),
+  'A press notice is not evidence that its reader physically presses a prop')
 const autonomousDiscContext = {
   ...discActionContext,
   paragraphs: [
@@ -320,6 +425,52 @@ for (const ambiguousText of [
 }).illustrations[0].issues.some(issue => issue.code === 'storyboard-visible-prop-action'),
   'The prop-actor guard must not guess an ambiguous pronoun or object-of-preposition owner')
 
+// Live c80da76a, 2026-10-09: the Director depicted Taehyun eating correctly,
+// but a capitalized pronoun candidate made the guard demand an actor named His.
+const liveSpoonParagraph = 'He picks up the ceramic spoon again, his hand steadying against the handle as he takes a slow, deliberate bite of the warm rice porridge, his dark eyes never leaving her face. Outside the massive glass walls, the amber pinpricks of the media vans blink uselessly against the dark bulk of the northern hills, while inside, the silence remains unbroken—holding them both in the burning, irreversible center of a life he is finally choosing for himself.'
+const spoonShot = shot({
+  title: 'A First Quiet Bite',
+  anchor: { paragraphIndex: 134, insertionSide: 'after', anchorExcerpt: 'He picks up the ceramic spoon again' },
+  namedSubjects: ['Taehyun', 'Arin'],
+  subjectDirectives: [
+    { name: 'Taehyun', role: 'character', appearanceOverrides: [], attireOverrides: [], temporaryTraits: [], expression: 'tired but calmer', pose: 'seated beside Arin', action: 'Taehyun takes a slow bite of juk from a ceramic spoon', gaze: "at Arin's face", contact: '' },
+    { name: 'Arin', role: 'character', appearanceOverrides: [], attireOverrides: [], temporaryTraits: [], expression: 'composed', pose: 'seated beside Taehyun', action: 'Arin remains beside him as he eats', gaze: 'toward Taehyun', contact: '' },
+  ],
+  composition: { ...shot().composition, blocking: 'Taehyun sits beside Arin, lifting a spoonful of juk toward his mouth', importantProps: ['One ceramic bowl of juk', 'One ceramic spoon held by Taehyun', 'Low oak coffee table', 'Heavy wool jacket draped over the sectional'] },
+  promptCore: 'Taehyun seated on a cream sectional, taking a slow bite of juk from one ceramic spoon, his gaze fixed on Arin\'s face. Arin sits beside him. One ceramic bowl on the low oak table. View: eye-level medium two-shot.',
+})
+const spoonContext = { ...context, perspectiveMode: 'storyboard', paragraphs: [{ index: 134, text: liveSpoonParagraph }], subjects: [
+  ...['Taehyun', 'Arin', 'His', 'Her', 'Their', 'It'].map(name => ({ name, role: 'character', identity: [], current: [], pinned: [], superseded: [] })),
+] }
+const spoonValidation = validateRelayPlannedDirectorResult(envelope([spoonShot]), spoonContext).illustrations[0]
+assert(!spoonValidation.requiresRepair, `The captured correct spoon action must not require a fictional pronoun actor: ${JSON.stringify(spoonValidation.issues)}`)
+assert(validateRelayPlannedDirectorResult(envelope([objectOnlyDisc]), {
+  ...discActionContext, subjects: [...discActionContext.subjects, { name: 'His', role: 'character', identity: [], current: [], pinned: [], superseded: [] }],
+}).illustrations[0].issues.some(issue => issue.code === 'storyboard-visible-prop-action' && /Yejin/.test(issue.message)),
+  'Pronoun filtering must not disable the real missing actor/prop guard')
+
+// Live fixed-two shortfall, 2026-10-18: an unverified capitalized "Each"
+// candidate was recruited as the missing cup holder despite both real owners.
+const eachCupSource = 'Beside the table, they stood one pace apart with the clear distance between them. Each held one ceramic cup in their own right hand, steam rising faintly between their fingers, while their left arms hung relaxed at their sides.'
+const eachCupShot = shot({
+  anchor: { paragraphIndex: 0, insertionSide: 'after', anchorExcerpt: 'Each held one ceramic cup in their own right hand, steam rising faintly between their fingers' },
+  subjectDirectives: shot().subjectDirectives.map(subject => ({ ...subject, action: 'holding one ceramic cup in the right hand', pose: 'standing with the left arm relaxed at the side', contact: '' })),
+  promptCore: 'Ria stands at frame-left and Cody at frame-right, one pace apart beside the table. Each holds one ceramic cup in their own right hand, with left arms relaxed.',
+  composition: { ...shot().composition, blocking: 'Ria and Cody stand one pace apart beside the table, each holding one ceramic cup.', importantProps: ['two ceramic cups with faint rising steam', 'wooden dining table'] },
+})
+const eachCupContext = { ...context, perspectiveMode: 'storyboard', paragraphs: [{ index: 0, text: eachCupSource }], subjects: [
+  ...context.subjects.map(subject => ({ ...subject, verifiedIdentity: true })),
+  { name: 'Each', verifiedIdentity: false, role: 'character', identity: [], current: [], pinned: [], superseded: [] },
+] }
+for (const promptFormat of ['natural-language', 'danbooru-tags']) {
+  const result = validateRelayPlannedDirectorResult(envelope([eachCupShot]), { ...eachCupContext, promptFormat }).illustrations[0]
+  assert(!result.issues.some(issue => issue.code === 'storyboard-visible-prop-action'), `Unverified Each became a third cup holder in ${promptFormat}: ${JSON.stringify(result.issues)}`)
+}
+assert(validateRelayPlannedDirectorResult(envelope([eachCupShot]), {
+  ...eachCupContext, subjects: eachCupContext.subjects.map(subject => ({ ...subject, verifiedIdentity: true })),
+}).illustrations[0].issues.some(issue => issue.code === 'storyboard-visible-prop-action' && /Each/.test(issue.message)),
+  'An explicitly verified person named Each must not be globally blacklisted by this correction')
+
 for (const required of [
   'The current paragraph owns the moment',
   'last confirmed current outfit',
@@ -331,10 +482,14 @@ for (const required of [
 ]) assert(REVERIE_RELAY_PLANNED_PROTOCOL.includes(required), `Relay-Planned Story Model contract is missing ${required}`)
 
 const sequenceCompiled = compileRelayPlannedPrompt(shot(), { ...context, perspectiveMode: 'sequence' })
-assert.ok(sequenceCompiled.positivePrompt.startsWith('two friends sharing an umbrella in rain, Ria left, Cody right, umbrella centered'), 'Sequence leads with the current beat and screen blocking')
+assert.ok(sequenceCompiled.positivePrompt.startsWith('two friends sharing an umbrella in rain. Spatial blocking: Ria left, Cody right, umbrella centered'), 'Sequence leads with the current beat and screen blocking')
 assert.match(sequenceCompiled.positivePrompt, /Ria: [^;]*reaching for the umbrella/, 'Ria keeps ownership of her action')
 assert.match(sequenceCompiled.positivePrompt, /Cody: [^;]*offering the umbrella/, 'Cody keeps ownership of his action')
 assert.ok(sequenceCompiled.positivePrompt.indexOf('Cody:') < sequenceCompiled.positivePrompt.indexOf('cinematic illustration'), 'Sequence cast/action precedes style tags')
+const oneAction = 'Ria reaching for the umbrella'
+const conciseSequence = compileRelayPlannedPrompt(shot({ promptCore: `${oneAction}. Cody offering the umbrella.` }), { ...context, perspectiveMode: 'sequence' }).positivePrompt
+assert.equal(conciseSequence.split(oneAction).length - 1, 1, 'Sequence must not recite an already-owned action again as another body description')
+assert.match(conciseSequence, /Ria: [^.]*black coat/, 'deduplicating action must retain the owning identity/outfit block')
 
 const emotionalCompiled = compileRelayPlannedPrompt(shot(), { ...context, perspectiveMode: 'emotional-beat' })
 assert.match(emotionalCompiled.positivePrompt, /Ria: .*surprised smile, turning toward Cody/)
@@ -348,6 +503,12 @@ const objectOnly = validateRelayPlannedDirectorResult(envelope([shot({ expectedP
 assert.ok(objectOnly.issues.some(issue => issue.code === 'solo-scene-cast'), 'Char only must reject an object-only crop')
 const singleCharacter = validateRelayPlannedDirectorResult(envelope([shot({ expectedPeopleCount: 1, namedSubjects: ['Cody'], subjectDirectives: [shot().subjectDirectives[1]] })]), soloContext).illustrations[0]
 assert.ok(!singleCharacter.issues.some(issue => issue.code === 'solo-scene-cast'), 'Char only accepts one actual visible character')
+const wrongSelectedSolo = validateRelayPlannedDirectorResult(envelope([shot({ expectedPeopleCount: 1, namedSubjects: ['Ria'], subjectDirectives: [shot().subjectDirectives[0]] })]), { ...soloContext, characterOnlySubjects: ['Cody'] }).illustrations[0]
+assert(wrongSelectedSolo.issues.some(issue => issue.code === 'solo-scene-subject'), 'One person is not enough: Character Only must reject the wrong selected identity')
+assert(!validateRelayPlannedDirectorResult(envelope([shot({ expectedPeopleCount: 1, namedSubjects: ['Cody'], subjectDirectives: [shot().subjectDirectives[1]] })]), { ...soloContext, characterOnlySubjects: ['Cody'] }).illustrations[0].requiresRepair,
+  'Character Only must accept the exact selected actor')
+assert(!validateRelayPlannedDirectorResult(envelope([shot({ expectedPeopleCount: 1, namedSubjects: ['Ria'], subjectDirectives: [shot().subjectDirectives[0]] })]), { ...soloContext, characterOnlySubjects: ['Ria'] }).illustrations[0].requiresRepair,
+  'An explicit Character Override must remain supported')
 assert.match(BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, /include single_mechanical_eye/, 'Booru guidance must retain the established concept tag for unusual anatomy')
 assert.match(BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, /separate, recognizable action and object tags/, 'Booru guidance must keep the scene action and critical prop independently visible in tags')
 assert.match(BOORU_TAG_MODE_VISUAL_PROMPT_GUIDANCE, /Do not coin multiword relation tags/, 'Booru guidance must not approve underscore phrases as substitute tags')
@@ -370,20 +531,37 @@ assert.equal(PROMPT_REGISTRY_DEFINITIONS.find(definition => definition.id === 's
 assert.match(backend, /'story\.model-placed': \['4125:05d30e81', '8722:29aa7ccd'\]/, 'Legacy stock Model-Placed prompts migrate to the bracket paragraph-locked default')
 assert.match(backend, /'story\.inline-protocol': \['751:58ec8abc', '9481:878d0951', '12351:8f280e39', '12370:7d37ba18', '13138:8404697d', '15872:e257a1a3', '10293:71eea49d'\]/, 'Legacy stock Inline prompts migrate to the bracket Model Planned default')
 assert.match(backend, /'story\.relay-planned': \['800:b83ca877', '1867:08747a40'\]/, 'Legacy stock Relay-Planned prompts migrate to the continuity-focused default')
-assert.match(backend, /void ensureAppearanceReadyForTurn\([\s\S]*?appearance-nonblocking/, 'Appearance refresh is nonblocking')
+assert.match(backend, /if \(!input\.dryRun && input\.settings\.appearanceMemoryEnabled\) await runPhase\('appearance', 'Updating appearances', \(\) => ensureAppearanceReadyForTurn\([\s\S]*?state: await getState\(input\.chatId, input\.userId\)/, 'Completed-turn Appearance refresh must report its phase and settle before the Director reads its snapshot; previews must not refresh')
 assert.match(RELAY_PLANNED_DIRECTOR_REQUEST_TEMPLATE, /\{\{latestUserVisualContext\}\}/, 'Director request includes the latest user visual facts when continuity state is incomplete')
 assert.match(RELAY_PLANNED_DIRECTOR_SYSTEM_PROMPT, /blank current-state array is not evidence that the outfit disappeared/i, 'Director must retain a confirmed outfit when Appearance state has a gap')
 assert.match(backend, /latestUserMessage[\s\S]*?sanitizeRecentVisualContext\(getSwipeContent\(latestUserMessage/, 'Director uses the immediately preceding user message as bounded visual evidence')
 assert.match(backend, /analyzeRelayPlannedResponse\([\s\S]*?relayPlannedDirectorMessages/, 'Production uses the shared Director pipeline')
-assert.match(backend, /CHAR ONLY CAST CONTRACT: Select a still in which exactly one established character is actually visible/, 'Director must not select object-only crops for Char only')
-assert.match(backend, /CHAR ONLY REPAIR: An object-only shot cannot pass by merely changing expectedPeopleCount/, 'Repair must re-anchor a character-visible source paragraph or decline')
+assert(backend.includes('CHAR ONLY CAST CONTRACT: The only allowed visible character is') && backend.includes('that exact established character is actually visible'), 'Director must require the selected Character Only identity, not any one person')
+assert(backend.includes('CHAR ONLY REPAIR: The only allowed visible character is') && backend.includes('An object-only shot cannot pass by merely changing expectedPeopleCount'), 'Repair must retain the selected actor and re-anchor a character-visible source paragraph or decline')
 assert.match(backend, /payload\.kind === 'relay-planned'[\s\S]*?analyzeRelayPlannedResponse/, 'Dry Run uses the production analyzer')
 assert.match(backend, /plan\.plannerVersion !== RELAY_PLANNED_V2/, 'Relay-Planned 2.0 cannot fall back to the legacy Composer')
 assert.match(backend, /parserRequested: !locallyCompiledRelayPlan,[\s\S]*?parserDecision: locallyCompiledRelayPlan[\s\S]*?Relay-Planned 2\.0 local compiler/, 'Local compiler output is not reported as a Parser call')
 assert.match(backend, /imageGenerationCalls: 0 as const/, 'Dry Run declares zero image calls')
 assert.match(backend, /source: 'model-placed-recovery-once',[\s\S]{0,180}suppressAutoDispatch: true/, 'Relay-Planned once must suppress discovery-time auto-dispatch')
-assert.match(backend, /handleAutoOpportunityDispatch\(chatId, accepted, userId, \{ forceHandsOff: true \}\)/, 'Relay-Planned once must perform one explicit hands-off dispatch')
+assert.match(backend, /handleAutoOpportunityDispatch\(chatId, accepted, userId, \{ forceHandsOff: true, manualDispatch: true \}\)/, 'Relay-Planned once must perform one explicitly manual hands-off dispatch')
+assert.match(backend, /automaticDispatch: !options\.manualDispatch,[\s\S]{0,400}dispatchReason: options\.manualDispatch \? 'relay-planned-manual-request' : 'relay-planned-automatic-request'/, 'Only an explicit manual action may bypass Auto Generate; automatic Relay dispatch remains gated')
 assert.match(backend, /isHandsOffProseMode\(settings\) && !input\.suppressAutoDispatch/, 'ordinary Relay-Planned discovery must retain automatic dispatch without duplicating the once path')
+
+const povContext = { ...context, perspectiveMode: 'persona-pov', cameraHolderNames: ['Ria'] }
+const visibleCameraHolder = validateRelayPlannedDirectorResult(envelope([shot()]), povContext).illustrations[0]
+assert(visibleCameraHolder.requiresRepair && visibleCameraHolder.issues.some(issue => issue.code === 'persona-pov-visible-camera-holder'), 'Director cannot approve its camera-holder as visible cast')
+assert.throws(() => compileRelayPlannedPrompt(shot(), povContext), /Persona POV cannot compile/, 'direct compilation cannot bypass POV cast repair')
+const properPovShot = shot({ namedSubjects: ['Cody'], expectedPeopleCount: 1,
+  subjectDirectives: [shot().subjectDirectives[1]], promptCore: 'Cody holds the red umbrella toward the viewer at the rain-soaked station.', booruTags: ['1boy', 'holding_umbrella', 'rain'] })
+assert(!validateRelayPlannedDirectorResult(envelope([properPovShot]), povContext).illustrations[0].issues.some(issue => issue.code === 'persona-pov-visible-camera-holder'), 'a real off-camera persona must not block another visible actor')
+for (const tagMode of [false, true]) {
+  const compiled = compileRelayPlannedPrompt(properPovShot, povContext, { tagMode })
+  assert.match(compiled.positivePrompt, tagMode ? /first_person_view/ : /First-person view from the invisible camera-holder/)
+  assert.match(compiled.negativePrompt, /visible camera holder/)
+}
+assert.doesNotThrow(() => compileRelayPlannedPrompt(shot(), { ...povContext, perspectiveMode: 'scene-snapshot' }), 'normal framing keeps the same persona visible')
+assert.match(backend, /context\.cameraHolderNames = .*holder\.name, \.\.\.holder\.aliases/, 'Director must receive host-bound, scene-verified persona aliases')
+assert.equal((backend.match(/relayPlannedPersonaPovGuidance\(context\),/g) || []).length, 2, 'both Director and repair receive the camera-holder contract')
 
 const foldingContext = { ...context, perspectiveMode: 'storyboard', promptFormat: 'danbooru-tags', paragraphs: [{ index: 1, text: 'Ria laid the pencil down beside the ruler. She folded the paper in half.' }] }
 const foldingShot = shot({
@@ -397,12 +575,29 @@ assert(cleanedFold.issues.some(issue => issue.code === 'scene-idle-tool-omitted'
 assert(!cleanedFold.requiresRepair, 'explicit idle-tool omission should not spend a model call')
 const foldCompiled = compileRelayPlannedPrompt(cleanedFold.illustration, foldingContext, { tagMode: true })
 assert.equal(foldCompiled.positivePrompt, '1girl, folding, paper, ruler')
+assert(!foldCompiled.positivePrompt.includes('Cody'), 'stale Director blocking must not reintroduce a known subject omitted from this frame')
 assert.equal(foldCompiled.sceneContract?.sourceParagraph, foldingContext.paragraphs[0].text, 'the complete paragraph, not only its excerpt, must survive compilation')
 const savedFoldComposition = { rawOutput: { plannerVersion: RELAY_PLANNED_V2, sceneContract: foldCompiled.sceneContract } }
 assert.equal(relayPlannedAuthoritativeParagraph(savedFoldComposition, foldingShot.anchor.anchorExcerpt), foldingContext.paragraphs[0].text,
   'synthetic slot creation and record-based regeneration need the same unabridged paragraph')
 assert.equal(relayPlannedAuthoritativeParagraph(savedFoldComposition, 'A different scene.'), '', 'an unrelated excerpt cannot hydrate this contract')
 assert.equal(relayPlannedAuthoritativeParagraph({ rawOutput: { ...savedFoldComposition.rawOutput, plannerVersion: 'legacy' } }, foldingShot.anchor.anchorExcerpt), '', 'unversioned output is not an authoritative source')
+const contactExcerpt = 'her left palm on his left shoulder and her right palm on his right shoulder.'
+const contactParagraph = `In the sunny dining room, Cody sits upright on a chair with both feet on the floor. Ria stands behind him with ${contactExcerpt}`
+const contactVisual = `Cody sits on a dining chair. Ria stands behind him, ${contactExcerpt}`
+for (const perspectiveMode of ['blocking-fidelity', 'scene-snapshot', 'sequence', 'scene-led']) {
+  const compiled = compileRelayPlannedPrompt(foldingShot, {
+    ...context, perspectiveMode,
+    paragraphs: [{ index: 1, text: contactExcerpt, sourceText: contactParagraph }],
+  })
+  const composition = { rawOutput: { plannerVersion: RELAY_PLANNED_V2, authoritativeSourceParagraph: compiled.authoritativeSourceParagraph } }
+  const source = relayPlannedAuthoritativeParagraph(composition, contactExcerpt)
+  assert.equal(source, contactParagraph, `${perspectiveMode} persists the full unabridged paragraph, not the anchor excerpt`)
+  assert(!inspectProviderPromptSafety(contactVisual, '', {}, source).some(issue => issue.code === 'story-source-prose-leak'), 'shared physical action wording is not a full-paragraph leak')
+  assert(inspectProviderPromptSafety(contactParagraph, '', {}, source).some(issue => issue.code === 'story-source-prose-leak'), 'the same framing must still block a real complete-paragraph leak')
+  assert.equal(relayPlannedAuthoritativeParagraph(composition, 'An unrelated scene.'), '', 'all-mode source recovery still checks its anchor')
+}
+assert.match(backend, /rawOutput: \{[^\n]*authoritativeSourceParagraph: compiled\.authoritativeSourceParagraph/, 'the opportunity must save the complete source for dispatch and regeneration')
 assert.match(backend, /authoritativeSourceParagraph: relayPlannedAuthoritativeParagraph\(plan\.promptComposition, plan\.selectedExcerpt\)/, 'automatic dispatch must persist the source on its synthetic slot, not only construct a Dry Run job')
 assert.match(backend, /function jobFromRecord[\s\S]{0,750}relayPlannedAuthoritativeParagraph\(record\.prosePromptComposition/, 'record-based regeneration must recover an older missing source field from the validated contract')
 const unabridgedFoldContext = { ...foldingContext, paragraphs: [{ index: 1, text: 'She folded the paper in half.', sourceText: foldingContext.paragraphs[0].text }] }

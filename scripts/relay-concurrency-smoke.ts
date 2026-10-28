@@ -73,4 +73,31 @@ assert.equal(seventhGranted, true, 'a queued preparation worker must start when 
 for (const release of releases.slice(1)) release()
 releaseSeventh()
 
+// Lowering a live limit must drain existing workers before admitting waiters.
+const shrinkingUser = `${laneUserId}-shrink`
+const held = await Promise.all(Array.from({ length: 3 }, () => backend.acquirePromptPreparationWorker(shrinkingUser, 3)))
+let admittedAfterShrink = false
+const afterShrink = backend.acquirePromptPreparationWorker(shrinkingUser, 1).then(release => { admittedAfterShrink = true; return release })
+held[0]()
+await new Promise(resolve => setTimeout(resolve, 0))
+assert.equal(admittedAfterShrink, false, 'reducing 3 to 1 must not admit another worker while two remain active')
+held[1]()
+await new Promise(resolve => setTimeout(resolve, 0))
+assert.equal(admittedAfterShrink, false, 'the remaining worker still owns the new single-worker capacity')
+held[2]()
+const shrinkRelease = await afterShrink
+shrinkRelease()
+
+// Cancellation removes queued preparation before it can start a model.
+const cancelledUser = `${laneUserId}-cancel`
+const heldCancel = await backend.acquirePromptPreparationWorker(cancelledUser, 1)
+const controller = new AbortController()
+const cancelled = backend.acquirePromptPreparationWorker(cancelledUser, 1, controller.signal)
+const rejected = assert.rejects(cancelled, /cancel/i)
+controller.abort()
+await rejected
+heldCancel()
+const recovered = await backend.acquirePromptPreparationWorker(cancelledUser, 1)
+recovered(); recovered()
+
 console.log('Relay concurrency smoke passed: config accepts 6, both worker pools honor the bound, and excess preparation work waits.')

@@ -27,10 +27,9 @@ function assert(value: unknown, reason: string): asserts value {
 }
 
 const utilityNames = narrativeUtilityItems().map(item => item.loomName)
-assert(utilityNames.length === 15, `Narrative Utility inventory changed: ${utilityNames.length}`)
+assert(utilityNames.length === 16, `Narrative Utility inventory changed: ${utilityNames.length}`)
 assert(new Set(utilityNames).size === utilityNames.length, 'Narrative Utility inventory contains duplicates')
-assert(!utilityNames.some(name => /stella/i.test(name)), 'Stella entered the Narrative Utility inventory')
-assert(utilityNames.join('|') === 'Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe', 'Narrative Utility inventory contains a retired name or incorrect order')
+assert(utilityNames.join('|') === 'Dramatic Cutaway|Plot Sparks|Scene Shift|Parallel Scene|Cast Introduction|Backstage Secrets|Setting the Scene|Off-Stage|Character Dossier|Location File|In Another Life|Archive Entry|Relationship Map|Cast Sheet|Persona Wardrobe|Building Layout', 'Narrative Utility inventory contains a retired name or incorrect order')
 
 const protectedTags = new Set([
   'image_request', 'scene_brief', 'reverie-illustration', 'visual_prompt',
@@ -172,8 +171,8 @@ const phone = `[character_phone][cp_presentation]sparkling[/cp_presentation][cp_
 fixtures['Character Phone'] = { source: phone, rendered: 'rrcp-wrap' }
 
 // Relationship Map and Cast Sheet retain their established Core renderers;
-// Persona Wardrobe has its own five-look renderer and focused fixture matrix.
-assert(Object.keys(fixtures).length === utilityNames.length - 3 + 1, `legacy regex fixture inventory drifted: ${Object.keys(fixtures).length}/${utilityNames.length}`) // Plus retired Phone read-compatibility coverage.
+// Persona Wardrobe and Building Layout have native renderers and focused fixture matrices.
+assert(Object.keys(fixtures).length === utilityNames.length - 4 + 1, `legacy regex fixture inventory drifted: ${Object.keys(fixtures).length}/${utilityNames.length}`) // Plus retired Phone read-compatibility coverage.
 const narrativeContractTags = narrativeSurfaceBracketTags()
 let narrativeClosingDelimiterMutationCases = 0
 for (const tag of narrativeContractTags) {
@@ -586,6 +585,6 @@ assert(worldIsolated.includes('rr-scene-compass'), 'malformed World poisoned val
 assert(worldIsolated.includes('class="ch-og') && !worldIsolated.includes('[Plot_Sparks]'), 'malformed World poisoned valid Plot Sparks')
 
 assert(normalizeNarrativeMarkupForRendering('[dramatic_parallel][dramatic_body][paragraph]One.[/paragraph][/dramatic_body][/dramatic_parallel]').includes('<p>One.</p>'), 'Dramatic paragraph brackets did not normalize inside their owner')
-assert(packageJson.version === '0.5.1', `version changed: ${packageJson.version}`)
+assert(packageJson.version === '0.5.1.35', `version changed: ${packageJson.version}`)
 
 console.log(`Narrative Batch D bracket gate passed: ${Object.keys(fixtures).length} legacy regex Surfaces × ${NARRATIVE_REGEX_VARIANTS.length} shells × 2 body modes = ${renderCases} image-on renders; ${textOnlyRenderCases} image-free Narrative renders; ${movedCoreTextOnlyRenderCases} image-free Relationship Map/Cast Sheet Core renders; ${narrativeClosingDelimiterMutationCases} closer mutations; Plot Sparks seven-owner regression passed; Character Phone variants passed.`)

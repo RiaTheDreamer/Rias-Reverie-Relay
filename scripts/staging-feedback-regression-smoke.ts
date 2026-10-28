@@ -92,7 +92,7 @@ const ctx = {
     showModal: () => { const root = document.createElement('div'); document.body.append(root); return { root, dismiss: () => root.remove() } },
   },
   events: { on: () => () => {}, emit() {} }, display: { invalidate() {} },
-  messages: { registerTagInterceptor: () => () => {}, getRecent: () => [] },
+  messages: { registerTagInterceptor: () => () => {}, getRecent: () => [...messageRoots.keys()].map(id => ({ id, swipe_id: 0, is_user: false })) },
   getActiveChat: () => ({ chatId: 'feedback-chat', characterId: 'fixture' }),
   sendToBackend: payload => sent.push(payload), onBackendMessage: handler => { backendHandler = handler; return () => {} },
 }
@@ -108,7 +108,7 @@ let now = originalNow()
 Date.now = () => now
 try {
   deliver(state)
-  assert.equal(drawerRoot.querySelector('.dg-title')?.textContent, "Ria's Reverie Relay", 'mounted dashboard heading must use the requested display name')
+assert.equal(drawerRoot.querySelector('.dg-title')?.textContent, "Ria's Reverie Relay", 'mounted dashboard heading must use public branding')
   const watchdog = [...intervals.values()].find(item => item.delay === 20_000)!
   assert(watchdog, 'production lifecycle watchdog missing')
   const queries = () => sent.filter(item => item.type === 'list_state')
@@ -116,6 +116,36 @@ try {
   now += 30_000
   watchdog.callback()
   assert.equal(queries().length, beforeIdle, 'idle chats must not poll')
+  deliver({ ...state, revision: 2, backgroundQueue: { items: { analysis: { id: 'analysis', chatId: state.chatId, source: 'analysis', stage: 'analyzing', startedAt: now, updatedAt: now, statusText: 'Planning illustrations' } } } })
+  now += 20_001
+  watchdog.callback()
+  assert.equal(queries().length, beforeIdle + 1, 'Relay analysis with no slots yet must recover missed state broadcasts too')
+  let visibility = 'hidden'
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility })
+  const beforeHidden = queries().length
+  now += 30_000
+  watchdog.callback()
+  win.dispatchEvent(new win.Event('focus'))
+  assert.equal(queries().length, beforeHidden, 'a suspended/hidden page must not poll or refresh on focus')
+  visibility = 'visible'
+  document.dispatchEvent(new win.Event('visibilitychange'))
+  assert.equal(queries().length, beforeHidden + 1, 'returning to the PWA must fetch saved state without reloading')
+  win.dispatchEvent(new win.Event('focus'))
+  win.dispatchEvent(new win.Event('pageshow'))
+  win.dispatchEvent(new win.Event('online'))
+  assert.equal(queries().length, beforeHidden + 1, 'coincident resume/focus/online events must be coalesced')
+  assert(sent.some(item => item.type === 'frontend_session' && item.connected), 'resume must renew frontend placement ownership')
+  deliver({ ...state, revision: 3 })
+  now += 30_000
+  watchdog.callback()
+  assert.equal(queries().length, beforeHidden + 1, 'terminal analysis must stop polling')
+  // The page may miss the analysis-start broadcast as well as completion.
+  // Foreground recovery must not require an already-known pending slot/job.
+  visibility = 'hidden'
+  document.dispatchEvent(new win.Event('visibilitychange'))
+  visibility = 'visible'
+  document.dispatchEvent(new win.Event('visibilitychange'))
+  assert.equal(queries().length, beforeHidden + 2, 'resume must catch work that began and finished while the client knew no active jobs')
   for (const [index, app] of ['core', 'narrative', 'custom'].entries()) {
     const root = document.createElement('div')
     const island = document.createElement('div')
@@ -145,6 +175,14 @@ try {
     now += 20_001
     watchdog.callback()
     assert.equal(queries().length, before + 2, 'global preferences erased active chat records')
+    visibility = 'hidden'
+    document.dispatchEvent(new win.Event('visibilitychange'))
+    now += 30_000
+    const beforeResume = queries().length
+    visibility = 'visible'
+    document.dispatchEvent(new win.Event('visibilitychange'))
+    assert.equal(queries().length, beforeResume + 1, 'foreground catch-up must request the completion missed during suspension')
+    // The mocked persisted-state reply is the only completion notification.
     deliver({ ...state, revision: revision + 1, records: [{ ...base, status: 'completed', imageId: `image-${app}`, imageUrl: `/completed-${app}.png`, updatedAt: now }] })
     const image = card.querySelector('img')!
     assert.equal(image?.getAttribute('src'), `/completed-${app}.png`, 'completion must hydrate the same ShadowDOM slot without reload')
@@ -171,16 +209,62 @@ try {
     watchdog.callback()
     assert.equal(queries().length, afterComplete, 'completed chats must stop polling')
   }
-  assert(!sent.some(item => ['scan_message', 'queue_action', 'regenerate', 'reparse', 'retry_placement'].includes(item.type)), 'watchdog must not spend/restart/repair provider jobs')
+  // An unlocked PWA can miss both the first analysis broadcast and completion.
+  // No known pending work, focus event, navigation or reload may be required.
+  const relayState = { ...state, revision: 100, config: { ...state.config, proseIllustratorSettings: { enabled: true, mode: 'relay-planned' } } }
+  deliver(relayState)
+  const beforeUnknown = queries().length
+  now += 20_001
+  watchdog.callback()
+  assert.equal(queries().length, beforeUnknown + 1, 'visible Relay must discover work even when its start broadcast was missed')
+  assert.equal(queries().at(-1).knownRevision, 100, 'idle Relay probes must be conditional, not rebuild unchanged drawer state')
+  watchdog.callback()
+  assert.equal(queries().length, beforeUnknown + 1, 'visible catch-up probes must remain rate limited')
+  const root = document.createElement('div')
+  root.innerHTML = '<p>Mira stood beside the window.</p>'
+  document.body.append(root)
+  messageRoots.set('missed-relay', root)
+  const recovered = { key: 'feedback-chat:missed-relay:0:relay-slot:illustration', chatId: state.chatId, messageId: 'missed-relay', swipeId: 0,
+    requestId: 'relay-slot', slot: 'illustration', target: 'prose.illustration', targetApp: 'prose', proseSynthetic: true,
+    proseAnchor: { paragraphIndex: 0, insertionSide: 'after', selectedExcerpt: 'Mira stood beside the window.' },
+    originalRequestXml: '', originalSceneBrief: 'Mira stood beside the window.', originalNegativePrompt: '', history: [], count: 1, alt: 'Window fixture', createdAt: now, updatedAt: now }
+  deliver({ ...relayState, revision: 101, records: [{ ...recovered, status: 'generating' }] })
+  assert(root.querySelector('.dgir-prose-lifecycle-projection .rrl-card'), 'read-only catch-up must mount the missing synthetic status card into existing story DOM')
+  deliver({ ...relayState, revision: 102, records: [{ ...recovered, status: 'completed', imageId: 'recovered-image', imageUrl: '/recovered-relay.png' }] })
+  assert(root.querySelector('img[src="/recovered-relay.png"]'), 'the same visible reply must mount its completed image without reload')
+  // A host render can also remove a projection after its final state arrived.
+  // With no later state change, the conditional probe must still rebind locally.
+  root.innerHTML = '<p>Mira stood beside the window.</p>'
+  deliver({ type: 'state_unchanged', chatId: 'different-chat', revision: 102 })
+  deliver({ type: 'state_unchanged', chatId: state.chatId, revision: 101 })
+  assert(!root.querySelector('img'), 'wrong-chat or stale probe acknowledgements cannot mutate the active projection')
+  now += 20_001
+  watchdog.callback()
+  for (const [id, callback] of [...timeouts]) { timeouts.delete(id); callback() }
+  assert(root.querySelector('img[src="/recovered-relay.png"]'), 'visible watchdog must restore a lost completed mount even when no new backend state arrives')
+  deliver({ ...relayState, revision: 103, config: { ...relayState.config, enabled: false } })
+  const beforeDisabled = queries().length
+  now += 20_001
+  watchdog.callback()
+  assert.equal(queries().length, beforeDisabled, 'disabled Relay must not keep probing idle chats')
+  assert(!sent.some(item => ['scan_message', 'rescan_chat', 'prose_illustrator_action', 'queue_action', 'regenerate', 'reparse', 'retry_placement'].includes(item.type)), 'watchdog/resume must not spend/restart/repair provider jobs')
   const css = styles.join('\n')
   assert.match(css, /\.dg-router-panel\.dg-menu \{[^}]*background: #211820 !important/)
+  assert.match(css, /:root\[data-dgir-theme="clean-panel"\] \.dg-router-panel\.dg-menu,[\s\S]*?background: #211820 !important; opacity: 1 !important/, 'the final themed rule must protect solid menu opacity from the later compositor/panel override')
   assert.match(css, /\.dg-router-panel\.dg-menu button:focus-visible/)
   assert.match(css, /@media \(pointer: coarse\).*min-height: 44px/)
   cleanup()
   assert(![...intervals.values()].some(item => item.delay === 20_000), 'watchdog must retire with frontend')
+  const afterCleanup = sent.length
+  now += 30_000
+  document.dispatchEvent(new win.Event('visibilitychange'))
+  win.dispatchEvent(new win.Event('focus'))
+  win.dispatchEvent(new win.Event('pageshow'))
+  win.dispatchEvent(new win.Event('online'))
+  assert.equal(sent.length, afterCleanup, 'retired frontend must remove all foreground/reconnect listeners')
   assert.deepEqual(domErrors, [], 'DOM event handler exceptions must fail the regression')
 } finally {
   Date.now = originalNow
   dom.window.close()
 }
-console.log('Staging feedback regressions passed: production portrait parser/profile, actual screen preservation, slow-provider status, bounded read-only refresh, global-state isolation, stale queued rejection, mounted ShadowDOM completion and compact context menu.')
+console.log('Staging feedback regressions passed: portrait parser/profile, screen preservation, slow-provider status, analysis-only recovery, bounded resume/reconnect, unlocked missed-start recovery, synthetic status/image mounting without navigation, lost completed-mount recovery, disabled/hidden/stale-chat guards, ShadowDOM completion, listener cleanup and compact context menu. No provider calls for state recovery.')

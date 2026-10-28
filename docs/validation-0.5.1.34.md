@@ -1,0 +1,9 @@
+# 0.5.1.34 public promotion baseline validation (unpublished)
+
+This release promotes the current illustration, Surface and phone fixes with public branding and the public `reverie_relay` installation identity. The experimental Story workspace is excluded: its navigation, views, event analyzer, backfill workers, actions and knowledge-context injection are removed. Legacy state readers and phone record controls remain to preserve saved phone data. Stale private settings cannot reactivate the removed workers.
+
+The public exclusion regression first failed on the copied private source. The corrected public source and compiled bundles pass that boundary check. Mounted frontend checks verify seven primary tabs, no Story routes even with a saved private tab preference, and independent access to Phone and Storyboard framing. Backend checks verify legacy state migration and rejection of attempts to enable removed workers.
+
+Phone coverage includes 48 production app setup routes, 68 mocked image outputs, 96 mounted app views and 310 saved records. Existing interactive tests cover the 24 app renderers with composers. No providers are called by synchronization or migration tests. Prior isolated live checks covered every app opening and representative phone interactions; this public package has not been installed into a live public host during release preparation.
+
+Public build, typecheck and focused exclusion checks passed. The complete `bun run test` command exited 0, including the source/bundle Story exclusion gate, mounted public drawer, release hashes, source hygiene, legacy phone migration and all 2,761 public Regex label assertions. The log is retained locally as `release-05134-public-validated-suite.log`. This baseline was not pushed to public; the 0.5.1.35 follow-up adds the family-specific enabled badge and matching version metadata.
